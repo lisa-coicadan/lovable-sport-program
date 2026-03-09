@@ -1,21 +1,25 @@
 import { useState, useMemo } from 'react';
 import { AppData, SessionLog } from '@/lib/types';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import SessionDetailView from './SessionDetailView';
 
 interface CalendarTabProps {
   data: AppData;
   onDaySelect: (date: string) => void;
+  onUpdateSession: (updated: SessionLog) => void;
 }
 
-const CalendarTab = ({ data, onDaySelect }: CalendarTabProps) => {
+const CalendarTab = ({ data, onDaySelect, onUpdateSession }: CalendarTabProps) => {
   const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [viewingSession, setViewingSession] = useState<SessionLog | null>(null);
 
   const year = currentMonth.getFullYear();
   const month = currentMonth.getMonth();
 
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const firstDayOfWeek = new Date(year, month, 1).getDay();
-  const adjustedFirst = firstDayOfWeek === 0 ? 6 : firstDayOfWeek - 1; // Monday start
+  const adjustedFirst = firstDayOfWeek === 0 ? 6 : firstDayOfWeek - 1;
 
   const sessionsByDate = useMemo(() => {
     const map: Record<string, SessionLog[]> = {};
@@ -54,6 +58,70 @@ const CalendarTab = ({ data, onDaySelect }: CalendarTabProps) => {
   const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
   const today = new Date().toISOString().split('T')[0];
+
+  const handleDayClick = (dateStr: string) => {
+    const sessions = sessionsByDate[dateStr] || [];
+    if (sessions.length > 0) {
+      setSelectedDate(dateStr);
+    } else {
+      onDaySelect(dateStr);
+    }
+  };
+
+  if (viewingSession) {
+    return (
+      <SessionDetailView
+        session={viewingSession}
+        onClose={() => setViewingSession(null)}
+        onUpdate={(updated) => {
+          onUpdateSession(updated);
+          setViewingSession(null);
+        }}
+      />
+    );
+  }
+
+  // Day detail panel
+  if (selectedDate) {
+    const daySessions = sessionsByDate[selectedDate] || [];
+    return (
+      <div className="px-4 pt-12 pb-24 animate-slide-up">
+        <div className="flex items-center gap-3 mb-6">
+          <button onClick={() => setSelectedDate(null)} className="text-muted-foreground touch-target p-1">
+            <ChevronLeft size={20} />
+          </button>
+          <h1 className="text-xl font-bold text-foreground">
+            {new Date(selectedDate + 'T00:00:00').toLocaleDateString('default', { weekday: 'long', month: 'long', day: 'numeric' })}
+          </h1>
+        </div>
+        <div className="space-y-3">
+          {daySessions.map(session => (
+            <button
+              key={session.id}
+              onClick={() => setViewingSession(session)}
+              className="w-full glass-card p-4 text-left transition-transform active:scale-[0.98]"
+            >
+              <div className="flex items-center gap-3 mb-2">
+                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: `hsl(${getColorForType(session.workoutTypeId)})` }} />
+                <span className="text-foreground font-semibold">{session.workoutTypeName}</span>
+                <ChevronRight size={16} className="text-muted-foreground ml-auto" />
+              </div>
+              <div className="flex gap-4 text-xs text-muted-foreground">
+                {session.duration && <span>{session.duration} min</span>}
+                <span>{session.sets.filter(s => s.completed).length}/{session.sets.length} sets</span>
+                {session.difficulty && (
+                  <span>{'★'.repeat(session.difficulty)}{'☆'.repeat(5 - session.difficulty)}</span>
+                )}
+              </div>
+              {session.notes && (
+                <p className="text-xs text-muted-foreground mt-2 line-clamp-1">{session.notes}</p>
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="px-4 pt-12 pb-24 animate-slide-up">
@@ -107,7 +175,7 @@ const CalendarTab = ({ data, onDaySelect }: CalendarTabProps) => {
           return (
             <button
               key={dayNum}
-              onClick={() => onDaySelect(dateStr)}
+              onClick={() => handleDayClick(dateStr)}
               className={`relative aspect-square flex flex-col items-center justify-center rounded-xl transition-colors touch-target ${
                 isToday ? 'bg-primary/20 ring-1 ring-primary' : 'active:bg-secondary'
               }`}

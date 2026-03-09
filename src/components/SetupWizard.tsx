@@ -174,6 +174,7 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
               currentWeek: 1,
               startDate: new Date().toISOString().split('T')[0],
             },
+            squatSessionId,
             setupComplete: true,
           })
         }
