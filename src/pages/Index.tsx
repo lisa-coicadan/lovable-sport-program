@@ -34,8 +34,14 @@ const Index = () => {
   }, []);
 
   const handleDaySelect = useCallback((date: string) => {
-    // Switch to workout tab when selecting a day
     setActiveTab(1);
+  }, []);
+
+  const handleUpdateSession = useCallback((updated: SessionLog) => {
+    setData(prev => ({
+      ...prev,
+      sessions: prev.sessions.map(s => s.id === updated.id ? updated : s),
+    }));
   }, []);
 
   if (!data.setupComplete) {
@@ -44,7 +50,9 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-background max-w-lg mx-auto relative">
-      {activeTab === 0 && <CalendarTab data={data} onDaySelect={handleDaySelect} />}
+      {activeTab === 0 && (
+        <CalendarTab data={data} onDaySelect={handleDaySelect} onUpdateSession={handleUpdateSession} />
+      )}
       {activeTab === 1 && (
         <WorkoutTab data={data} onSaveSession={handleSaveSession} onUpdate531={handleUpdate531} />
       )}
