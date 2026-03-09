@@ -67,6 +67,7 @@ export const DEFAULT_APP_DATA: AppData = {
     currentWeek: 1,
     startDate: new Date().toISOString().split('T')[0],
   },
+  squatSessionId: '3',
   weeklyGoal: 4,
   setupComplete: false,
 };
