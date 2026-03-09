@@ -46,6 +46,7 @@ export interface AppData {
   workoutTypes: WorkoutType[];
   sessions: SessionLog[];
   fiveThreeOne: FiveThreeOneConfig;
+  squatSessionId: string;
   weeklyGoal: number;
   setupComplete: boolean;
 }
