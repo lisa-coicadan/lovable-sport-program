@@ -31,6 +31,8 @@ export interface SessionLog {
   startTime: number;
   endTime?: number;
   duration?: number; // minutes
+  difficulty?: number; // 1-5
+  notes?: string;
 }
 
 export interface FiveThreeOneConfig {
