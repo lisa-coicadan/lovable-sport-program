@@ -9,31 +9,30 @@ interface ExerciseHistoryProps {
   onClose: () => void;
 }
 
+interface HistoryEntry {
+  date: string;
+  weight: number;
+  reps: number;
+  e1rm: number;
+}
+
 const ExerciseHistory = ({ exerciseName, data, onClose }: ExerciseHistoryProps) => {
   const history = useMemo(() => {
-    const entries: { date: string; weight: number; reps: number; e1rm: number }[] = [];
+    const entries: HistoryEntry[] = [];
     data.sessions
       .sort((a, b) => a.date.localeCompare(b.date))
       .forEach(session => {
         const matchingSets = session.sets.filter(
           s => s.exerciseName === exerciseName && s.completed && s.weight > 0
         );
-        if (matchingSets.length > 0) {
-          // Take the best set per session (highest e1RM)
-          const best = matchingSets.reduce((best, s) => {
-            const e1rm = calculate1RM(s.weight, s.reps);
-            return e1rm > best.e1rm ? { ...s, e1rm } : best;
-          }, { ...matchingSets[0], e1rm: calculate1RM(matchingSets[0].weight, matchingSets[0].reps) });
-
-          matchingSets.forEach(s => {
-            entries.push({
-              date: session.date,
-              weight: s.weight,
-              reps: s.reps,
-              e1rm: calculate1RM(s.weight, s.reps),
-            });
+        matchingSets.forEach(s => {
+          entries.push({
+            date: session.date,
+            weight: s.weight,
+            reps: s.reps,
+            e1rm: calculate1RM(s.weight, s.reps),
           });
-        }
+        });
       });
     return entries;
   }, [data.sessions, exerciseName]);
@@ -52,12 +51,10 @@ const ExerciseHistory = ({ exerciseName, data, onClose }: ExerciseHistoryProps) 
   }, [history]);
 
   const currentPR = history.length > 0 ? Math.max(...history.map(h => h.e1rm)) : 0;
-
   const chartStyle = { fontSize: 10, fill: 'hsl(240 5% 55%)' };
 
-  // Group by date for display
   const groupedByDate = useMemo(() => {
-    const map: Record<string, typeof history> = {};
+    const map: Record<string, HistoryEntry[]> = {};
     history.forEach(h => {
       if (!map[h.date]) map[h.date] = [];
       map[h.date].push(h);

@@ -10,17 +10,19 @@ interface SessionDetailViewProps {
 
 const SessionDetailView = ({ session, onClose, onUpdate }: SessionDetailViewProps) => {
   const [date, setDate] = useState(session.date);
+  const [duration, setDuration] = useState(session.duration || 0);
   const [difficulty, setDifficulty] = useState(session.difficulty || 0);
   const [notes, setNotes] = useState(session.notes || '');
 
   const handleSave = () => {
-    onUpdate({ ...session, date, difficulty, notes });
+    onUpdate({ ...session, date, duration, difficulty, notes });
     onClose();
   };
 
-  // Group sets by exercise
-  const groupedSets: Record<string, typeof session.sets> = {};
-  session.sets.forEach(s => {
+  // Only show completed exercises
+  const completedSets = session.sets.filter(s => s.completed);
+  const groupedSets: Record<string, typeof completedSets> = {};
+  completedSets.forEach(s => {
     if (!groupedSets[s.exerciseName]) groupedSets[s.exerciseName] = [];
     groupedSets[s.exerciseName].push(s);
   });
@@ -45,50 +47,61 @@ const SessionDetailView = ({ session, onClose, onUpdate }: SessionDetailViewProp
         />
       </div>
 
-      {/* Duration */}
-      {session.duration !== undefined && (
-        <div className="glass-card p-4 mb-4 flex items-center gap-3">
+      {/* Duration — editable */}
+      <div className="glass-card p-4 mb-4">
+        <label className="text-xs text-muted-foreground mb-1.5 block">Duration (minutes)</label>
+        <div className="flex items-center gap-3">
           <Clock size={16} className="text-muted-foreground" />
-          <span className="text-sm text-foreground">{session.duration} minutes</span>
+          <input
+            type="number"
+            value={duration || ''}
+            onChange={e => setDuration(e.target.value === '' ? 0 : parseInt(e.target.value))}
+            className="flex-1 bg-secondary text-foreground rounded-xl px-3 py-2.5 text-sm outline-none font-mono text-center"
+          />
+        </div>
+      </div>
+
+      {/* Exercises — only completed */}
+      {Object.keys(groupedSets).length > 0 ? (
+        <div className="space-y-3 mb-4">
+          {Object.entries(groupedSets).map(([name, sets]) => (
+            <div key={name} className="glass-card p-4">
+              <h3 className="text-sm font-semibold text-foreground mb-2">{name}</h3>
+              <div className="space-y-1.5">
+                {sets.map((s, i) => (
+                  <div key={i} className="flex items-center justify-between bg-secondary rounded-lg px-3 py-2">
+                    <span className="text-xs text-muted-foreground">Set {i + 1}</span>
+                    <span className="text-sm text-foreground font-mono">{s.weight} kg × {s.reps}</span>
+                    <span className="text-xs text-primary">✓</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="glass-card p-4 mb-4 text-center">
+          <p className="text-sm text-muted-foreground">No exercises completed in this session.</p>
         </div>
       )}
 
-      {/* Exercises */}
-      <div className="space-y-3 mb-4">
-        {Object.entries(groupedSets).map(([name, sets]) => (
-          <div key={name} className="glass-card p-4">
-            <h3 className="text-sm font-semibold text-foreground mb-2">{name}</h3>
-            <div className="space-y-1.5">
-              {sets.map((s, i) => (
-                <div key={i} className="flex items-center justify-between bg-secondary rounded-lg px-3 py-2">
-                  <span className="text-xs text-muted-foreground">Set {i + 1}</span>
-                  <span className="text-sm text-foreground font-mono">{s.weight} kg × {s.reps}</span>
-                  <span className={`text-xs ${s.completed ? 'text-primary' : 'text-muted-foreground'}`}>
-                    {s.completed ? '✓' : '—'}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Difficulty */}
+      {/* Difficulty 1-10 */}
       <div className="glass-card p-4 mb-4">
-        <label className="text-xs text-muted-foreground mb-2 block">Difficulty</label>
-        <div className="flex gap-2">
-          {[1, 2, 3, 4, 5].map(star => (
-            <button
-              key={star}
-              onClick={() => setDifficulty(star)}
-              className="touch-target p-1"
-            >
-              <Star
-                size={24}
-                className={star <= difficulty ? 'text-warning fill-warning' : 'text-muted-foreground'}
-              />
-            </button>
-          ))}
+        <div className="flex items-center justify-between mb-3">
+          <label className="text-xs text-muted-foreground">Difficulty</label>
+          <span className="text-sm font-bold text-foreground">{difficulty}/10</span>
+        </div>
+        <input
+          type="range"
+          min={1}
+          max={10}
+          value={difficulty}
+          onChange={e => setDifficulty(parseInt(e.target.value))}
+          className="w-full accent-primary h-2"
+        />
+        <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
+          <span>Easy</span>
+          <span>Hard</span>
         </div>
       </div>
 
