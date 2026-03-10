@@ -16,7 +16,6 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession }: CalendarTabProps) =
 
   const year = currentMonth.getFullYear();
   const month = currentMonth.getMonth();
-
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const firstDayOfWeek = new Date(year, month, 1).getDay();
   const adjustedFirst = firstDayOfWeek === 0 ? 6 : firstDayOfWeek - 1;
@@ -51,12 +50,16 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession }: CalendarTabProps) =
 
   const weekProgress = Math.min(thisWeekSessions.length / data.weeklyGoal, 1);
 
+  // Monthly count
+  const thisMonthSessions = data.sessions.filter(s => {
+    const d = new Date(s.date);
+    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+  });
+
   const prevMonth = () => setCurrentMonth(new Date(year, month - 1, 1));
   const nextMonth = () => setCurrentMonth(new Date(year, month + 1, 1));
-
   const monthName = currentMonth.toLocaleString('default', { month: 'long', year: 'numeric' });
   const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-
   const today = new Date().toISOString().split('T')[0];
 
   const handleDayClick = (dateStr: string) => {
@@ -81,7 +84,6 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession }: CalendarTabProps) =
     );
   }
 
-  // Day detail panel
   if (selectedDate) {
     const daySessions = sessionsByDate[selectedDate] || [];
     return (
@@ -109,9 +111,7 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession }: CalendarTabProps) =
               <div className="flex gap-4 text-xs text-muted-foreground">
                 {session.duration && <span>{session.duration} min</span>}
                 <span>{session.sets.filter(s => s.completed).length}/{session.sets.length} sets</span>
-                {session.difficulty && (
-                  <span>{'★'.repeat(session.difficulty)}{'☆'.repeat(5 - session.difficulty)}</span>
-                )}
+                {session.difficulty && <span>RPE {session.difficulty}/10</span>}
               </div>
               {session.notes && (
                 <p className="text-xs text-muted-foreground mt-2 line-clamp-1">{session.notes}</p>
@@ -125,21 +125,35 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession }: CalendarTabProps) =
 
   return (
     <div className="px-4 pt-12 pb-24 animate-slide-up">
-      <h1 className="text-2xl font-bold text-foreground mb-6">Calendar</h1>
+      <h1 className="text-2xl font-bold text-foreground mb-4">Calendar</h1>
 
-      {/* Weekly Goal */}
-      <div className="glass-card p-4 mb-6">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-sm font-medium text-muted-foreground">This Week</span>
-          <span className="text-sm font-bold text-foreground">
-            {thisWeekSessions.length}/{data.weeklyGoal} sessions
-          </span>
+      {/* Weekly + Monthly progress side by side */}
+      <div className="grid grid-cols-2 gap-3 mb-6">
+        {/* Weekly */}
+        <div className="glass-card p-3">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[10px] font-medium text-muted-foreground">This Week</span>
+            <span className="text-xs font-bold text-foreground">
+              {thisWeekSessions.length}/{data.weeklyGoal}
+            </span>
+          </div>
+          <div className="h-2 bg-progress-track rounded-full overflow-hidden">
+            <div
+              className="h-full bg-progress-fill rounded-full transition-all duration-500"
+              style={{ width: `${weekProgress * 100}%` }}
+            />
+          </div>
         </div>
-        <div className="h-2 bg-progress-track rounded-full overflow-hidden">
-          <div
-            className="h-full bg-progress-fill rounded-full transition-all duration-500"
-            style={{ width: `${weekProgress * 100}%` }}
-          />
+
+        {/* Monthly */}
+        <div className="glass-card p-3">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[10px] font-medium text-muted-foreground">This Month</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-2xl font-bold text-primary">{thisMonthSessions.length}</span>
+            <span className="text-[10px] text-muted-foreground">sessions</span>
+          </div>
         </div>
       </div>
 
@@ -201,7 +215,7 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession }: CalendarTabProps) =
 
       {/* Legend */}
       <div className="flex flex-wrap gap-3 mt-6">
-        {data.workoutTypes.map(wt => (
+        {data.workoutTypes.filter(t => !t.hidden).map(wt => (
           <div key={wt.id} className="flex items-center gap-1.5">
             <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: `hsl(${wt.color})` }} />
             <span className="text-xs text-muted-foreground">{wt.name}</span>

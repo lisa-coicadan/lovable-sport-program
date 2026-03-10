@@ -1,0 +1,247 @@
+import { useState } from 'react';
+import { AppData, WorkoutType, Exercise, WORKOUT_COLORS } from '@/lib/types';
+import { ArrowLeft, Plus, Trash2, Eye, EyeOff, RotateCcw } from 'lucide-react';
+
+interface SettingsPanelProps {
+  data: AppData;
+  onUpdateData: (partial: Partial<AppData>) => void;
+  onUpdate531: (cycle: number, week: number, tm: number) => void;
+  onClose: () => void;
+}
+
+const SettingsPanel = ({ data, onUpdateData, onUpdate531, onClose }: SettingsPanelProps) => {
+  const [workoutTypes, setWorkoutTypes] = useState<WorkoutType[]>([...data.workoutTypes]);
+  const [tm, setTm] = useState(data.fiveThreeOne.trainingMax);
+  const [cycle, setCycle] = useState(data.fiveThreeOne.currentCycle);
+  const [week, setWeek] = useState(data.fiveThreeOne.currentWeek);
+  const [squatSessionId, setSquatSessionId] = useState(data.squatSessionId);
+
+  const save = () => {
+    onUpdateData({ workoutTypes, squatSessionId });
+    onUpdate531(cycle, week, tm);
+    onClose();
+  };
+
+  const addWorkoutType = () => {
+    const colorIdx = workoutTypes.length % WORKOUT_COLORS.length;
+    setWorkoutTypes([...workoutTypes, {
+      id: `wt${Date.now()}`,
+      name: '',
+      color: WORKOUT_COLORS[colorIdx],
+      exercises: [],
+    }]);
+  };
+
+  const toggleHide = (index: number) => {
+    const updated = [...workoutTypes];
+    updated[index].hidden = !updated[index].hidden;
+    setWorkoutTypes(updated);
+  };
+
+  const deleteType = (index: number) => {
+    setWorkoutTypes(workoutTypes.filter((_, i) => i !== index));
+  };
+
+  const addExercise = (typeIndex: number) => {
+    const updated = [...workoutTypes];
+    updated[typeIndex].exercises.push({ id: `e${Date.now()}`, name: '', sets: 3, reps: 10 });
+    setWorkoutTypes(updated);
+  };
+
+  const removeExercise = (typeIndex: number, exIndex: number) => {
+    const updated = [...workoutTypes];
+    updated[typeIndex].exercises.splice(exIndex, 1);
+    setWorkoutTypes(updated);
+  };
+
+  const updateExercise = (typeIndex: number, exIndex: number, field: keyof Exercise, value: string | number) => {
+    const updated = [...workoutTypes];
+    (updated[typeIndex].exercises[exIndex] as any)[field] = value;
+    setWorkoutTypes(updated);
+  };
+
+  const updateTypeName = (index: number, name: string) => {
+    const updated = [...workoutTypes];
+    updated[index].name = name;
+    setWorkoutTypes(updated);
+  };
+
+  const activeTypes = workoutTypes.filter(t => !t.hidden);
+  const hiddenTypes = workoutTypes.filter(t => t.hidden);
+
+  return (
+    <div className="px-4 pt-12 pb-24 animate-slide-up">
+      <div className="flex items-center gap-3 mb-6">
+        <button onClick={onClose} className="text-muted-foreground touch-target p-1">
+          <ArrowLeft size={20} />
+        </button>
+        <h1 className="text-xl font-bold text-foreground">Settings</h1>
+      </div>
+
+      {/* 5/3/1 Settings */}
+      <div className="glass-card p-4 mb-6">
+        <h3 className="text-sm font-bold text-primary mb-4">5/3/1 Squat Program</h3>
+        
+        <div className="mb-4">
+          <label className="text-xs text-muted-foreground mb-1.5 block">Training Max (kg)</label>
+          <input
+            type="number"
+            value={tm || ''}
+            onChange={e => setTm(e.target.value === '' ? 0 : parseFloat(e.target.value))}
+            className="w-full bg-secondary text-foreground text-2xl font-bold rounded-xl px-4 py-3 text-center outline-none"
+          />
+          <p className="text-[10px] text-muted-foreground mt-1 text-center">
+            Next cycle TM: {tm + 2.5} kg
+          </p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 mb-4">
+          <div>
+            <label className="text-xs text-muted-foreground mb-1.5 block">Cycle</label>
+            <div className="flex items-center gap-2">
+              <button onClick={() => setCycle(Math.max(1, cycle - 1))} className="bg-secondary text-foreground rounded-lg w-10 h-10 text-lg font-bold touch-target">-</button>
+              <span className="text-foreground text-lg font-bold flex-1 text-center">{cycle}</span>
+              <button onClick={() => setCycle(cycle + 1)} className="bg-secondary text-foreground rounded-lg w-10 h-10 text-lg font-bold touch-target">+</button>
+            </div>
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground mb-1.5 block">Week</label>
+            <div className="flex gap-1">
+              {[1, 2, 3, 4].map(w => (
+                <button
+                  key={w}
+                  onClick={() => setWeek(w)}
+                  className={`flex-1 py-2 rounded-lg text-xs font-medium transition-all ${
+                    week === w ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
+                  }`}
+                >
+                  {w === 4 ? 'D' : `W${w}`}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <label className="text-xs text-muted-foreground mb-2 block">Squat session</label>
+          <div className="grid grid-cols-2 gap-1.5">
+            {workoutTypes.filter(t => !t.hidden).map(type => (
+              <button
+                key={type.id}
+                onClick={() => setSquatSessionId(type.id)}
+                className={`py-2 rounded-lg text-xs font-medium transition-all ${
+                  squatSessionId === type.id ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground'
+                }`}
+              >
+                {type.name || 'Unnamed'}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Active Sessions */}
+      <div className="mb-4">
+        <h3 className="text-sm font-semibold text-foreground mb-3">Active Sessions</h3>
+        <div className="space-y-3">
+          {workoutTypes.map((type, ti) => {
+            if (type.hidden) return null;
+            return (
+              <div key={type.id} className="glass-card p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: `hsl(${type.color})` }} />
+                  <input
+                    value={type.name}
+                    onChange={e => updateTypeName(ti, e.target.value)}
+                    className="bg-transparent text-foreground font-semibold outline-none flex-1"
+                    placeholder="Session name"
+                  />
+                  <button onClick={() => toggleHide(ti)} className="text-muted-foreground p-1 touch-target" title="Hide">
+                    <EyeOff size={16} />
+                  </button>
+                  <button onClick={() => deleteType(ti)} className="text-destructive p-1 touch-target" title="Delete">
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+                <div className="space-y-1.5">
+                  {type.exercises.map((ex, ei) => (
+                    <div key={ex.id} className="flex items-center gap-1.5">
+                      <input
+                        value={ex.name}
+                        onChange={e => updateExercise(ti, ei, 'name', e.target.value)}
+                        className="flex-1 bg-secondary text-foreground rounded-lg px-2.5 py-1.5 text-sm outline-none"
+                        placeholder="Exercise"
+                      />
+                      <input
+                        type="number"
+                        value={ex.sets || ''}
+                        onChange={e => updateExercise(ti, ei, 'sets', e.target.value === '' ? '' as any : parseInt(e.target.value) || 0)}
+                        className="w-12 bg-secondary text-foreground rounded-lg px-2 py-1.5 text-sm text-center outline-none"
+                        placeholder="S"
+                      />
+                      <span className="text-muted-foreground text-xs">×</span>
+                      <input
+                        type="number"
+                        value={ex.reps || ''}
+                        onChange={e => updateExercise(ti, ei, 'reps', e.target.value === '' ? '' as any : parseInt(e.target.value) || 0)}
+                        className="w-12 bg-secondary text-foreground rounded-lg px-2 py-1.5 text-sm text-center outline-none"
+                        placeholder="R"
+                      />
+                      <button onClick={() => removeExercise(ti, ei)} className="text-muted-foreground p-1">
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  ))}
+                  <button onClick={() => addExercise(ti)} className="flex items-center gap-1 text-primary text-xs font-medium py-1">
+                    <Plus size={12} /> Add exercise
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Hidden Sessions */}
+      {hiddenTypes.length > 0 && (
+        <div className="mb-4">
+          <h3 className="text-sm font-semibold text-muted-foreground mb-3">Hidden Sessions</h3>
+          <div className="space-y-2">
+            {hiddenTypes.map(type => {
+              const ti = workoutTypes.findIndex(t => t.id === type.id);
+              return (
+                <div key={type.id} className="glass-card p-3 opacity-60 flex items-center gap-3">
+                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: `hsl(${type.color})` }} />
+                  <span className="text-foreground text-sm flex-1">{type.name || 'Unnamed'}</span>
+                  <button onClick={() => toggleHide(ti)} className="text-primary p-1 touch-target" title="Restore">
+                    <RotateCcw size={16} />
+                  </button>
+                  <button onClick={() => deleteType(ti)} className="text-destructive p-1 touch-target" title="Delete permanently">
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Add new session type */}
+      <button
+        onClick={addWorkoutType}
+        className="w-full glass-card p-3 flex items-center justify-center gap-2 text-primary text-sm font-medium mb-6 transition-transform active:scale-95"
+      >
+        <Plus size={16} /> Add new session type
+      </button>
+
+      <button
+        onClick={save}
+        className="w-full bg-primary text-primary-foreground font-semibold py-4 rounded-2xl touch-target text-lg transition-transform active:scale-95"
+      >
+        Save Settings
+      </button>
+    </div>
+  );
+};
+
+export default SettingsPanel;

@@ -10,6 +10,7 @@ import StatsTab from '@/components/StatsTab';
 const Index = () => {
   const [data, setData] = useState<AppData>(loadData);
   const [activeTab, setActiveTab] = useState(1);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
   useEffect(() => {
     saveData(data);
@@ -34,6 +35,7 @@ const Index = () => {
   }, []);
 
   const handleDaySelect = useCallback((date: string) => {
+    setSelectedDate(date);
     setActiveTab(1);
   }, []);
 
@@ -42,6 +44,10 @@ const Index = () => {
       ...prev,
       sessions: prev.sessions.map(s => s.id === updated.id ? updated : s),
     }));
+  }, []);
+
+  const handleUpdateData = useCallback((partial: Partial<AppData>) => {
+    setData(prev => ({ ...prev, ...partial }));
   }, []);
 
   if (!data.setupComplete) {
@@ -54,10 +60,16 @@ const Index = () => {
         <CalendarTab data={data} onDaySelect={handleDaySelect} onUpdateSession={handleUpdateSession} />
       )}
       {activeTab === 1 && (
-        <WorkoutTab data={data} onSaveSession={handleSaveSession} onUpdate531={handleUpdate531} />
+        <WorkoutTab
+          data={data}
+          onSaveSession={handleSaveSession}
+          onUpdate531={handleUpdate531}
+          onUpdateData={handleUpdateData}
+          selectedDate={selectedDate}
+        />
       )}
       {activeTab === 2 && <StatsTab data={data} />}
-      <BottomTabBar activeTab={activeTab} onTabChange={setActiveTab} />
+      <BottomTabBar activeTab={activeTab} onTabChange={(tab) => { setActiveTab(tab); if (tab !== 1) setSelectedDate(null); }} />
     </div>
   );
 };
