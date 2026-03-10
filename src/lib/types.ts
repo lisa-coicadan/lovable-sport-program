@@ -11,6 +11,7 @@ export interface WorkoutType {
   name: string;
   color: string;
   exercises: Exercise[];
+  hidden?: boolean;
 }
 
 export interface SetLog {
@@ -31,7 +32,7 @@ export interface SessionLog {
   startTime: number;
   endTime?: number;
   duration?: number; // minutes
-  difficulty?: number; // 1-5
+  difficulty?: number; // 1-10
   notes?: string;
 }
 
@@ -49,6 +50,7 @@ export interface AppData {
   squatSessionId: string;
   weeklyGoal: number;
   setupComplete: boolean;
+  restDuration: number; // seconds
 }
 
 export const WORKOUT_COLORS = [
@@ -56,6 +58,10 @@ export const WORKOUT_COLORS = [
   '199 89% 48%',  // blue
   '330 81% 60%',  // pink
   '38 92% 50%',   // orange
+  '262 83% 58%',  // purple
+  '174 72% 46%',  // teal
+  '0 72% 51%',    // red
+  '45 93% 47%',   // yellow
 ];
 
 export const DEFAULT_APP_DATA: AppData = {
@@ -70,4 +76,10 @@ export const DEFAULT_APP_DATA: AppData = {
   squatSessionId: '3',
   weeklyGoal: 4,
   setupComplete: false,
+  restDuration: 90,
 };
+
+export function calculate1RM(weight: number, reps: number): number {
+  if (reps <= 0 || weight <= 0) return 0;
+  return Math.round(weight * (1 + reps / 30) * 10) / 10;
+}
