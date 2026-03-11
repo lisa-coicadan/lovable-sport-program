@@ -50,7 +50,6 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession }: CalendarTabProps) =
 
   const weekProgress = Math.min(thisWeekSessions.length / data.weeklyGoal, 1);
 
-  // Monthly count
   const thisMonthSessions = data.sessions.filter(s => {
     const d = new Date(s.date);
     return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
@@ -75,6 +74,7 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession }: CalendarTabProps) =
     return (
       <SessionDetailView
         session={viewingSession}
+        data={data}
         onClose={() => setViewingSession(null)}
         onUpdate={(updated) => {
           onUpdateSession(updated);
@@ -127,9 +127,7 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession }: CalendarTabProps) =
     <div className="px-4 pt-12 pb-24 animate-slide-up">
       <h1 className="text-2xl font-bold text-foreground mb-4">Calendar</h1>
 
-      {/* Weekly + Monthly progress side by side */}
       <div className="grid grid-cols-2 gap-3 mb-6">
-        {/* Weekly */}
         <div className="glass-card p-3">
           <div className="flex items-center justify-between mb-1.5">
             <span className="text-[10px] font-medium text-muted-foreground">This Week</span>
@@ -144,8 +142,6 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession }: CalendarTabProps) =
             />
           </div>
         </div>
-
-        {/* Monthly */}
         <div className="glass-card p-3">
           <div className="flex items-center justify-between mb-1.5">
             <span className="text-[10px] font-medium text-muted-foreground">This Month</span>
@@ -157,7 +153,6 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession }: CalendarTabProps) =
         </div>
       </div>
 
-      {/* Month Nav */}
       <div className="flex items-center justify-between mb-4">
         <button onClick={prevMonth} className="touch-target p-2 text-muted-foreground">
           <ChevronLeft size={20} />
@@ -168,14 +163,12 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession }: CalendarTabProps) =
         </button>
       </div>
 
-      {/* Weekday Headers */}
       <div className="grid grid-cols-7 mb-2">
         {weekdays.map(d => (
           <div key={d} className="text-center text-xs text-muted-foreground font-medium py-1">{d}</div>
         ))}
       </div>
 
-      {/* Days */}
       <div className="grid grid-cols-7 gap-1">
         {Array.from({ length: adjustedFirst }).map((_, i) => (
           <div key={`empty-${i}`} />
@@ -213,7 +206,6 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession }: CalendarTabProps) =
         })}
       </div>
 
-      {/* Legend */}
       <div className="flex flex-wrap gap-3 mt-6">
         {data.workoutTypes.filter(t => !t.hidden).map(wt => (
           <div key={wt.id} className="flex items-center gap-1.5">
