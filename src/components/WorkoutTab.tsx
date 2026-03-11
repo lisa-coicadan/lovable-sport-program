@@ -134,7 +134,10 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
   const addSetToExercise = (exerciseId: string, exerciseName: string) => {
     const existingSets = sets.filter(s => s.exerciseId === exerciseId);
     const lastSet = existingSets[existingSets.length - 1];
-    const insertIndex = sets.findLastIndex(s => s.exerciseId === exerciseId) + 1;
+    let insertIndex = sets.length;
+    for (let i = sets.length - 1; i >= 0; i--) {
+      if (sets[i].exerciseId === exerciseId) { insertIndex = i + 1; break; }
+    }
     
     const newSet: SetLog = {
       exerciseId,
