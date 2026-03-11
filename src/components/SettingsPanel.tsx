@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { AppData, WorkoutType, Exercise, WORKOUT_COLORS } from '@/lib/types';
-import { ArrowLeft, Plus, Trash2, Eye, EyeOff, RotateCcw } from 'lucide-react';
+import { AppData, WorkoutType, Exercise, WORKOUT_COLORS, BodyWeightLog } from '@/lib/types';
+import { ArrowLeft, Plus, Trash2, EyeOff, RotateCcw, Scale } from 'lucide-react';
 
 interface SettingsPanelProps {
   data: AppData;
@@ -15,9 +15,22 @@ const SettingsPanel = ({ data, onUpdateData, onUpdate531, onClose }: SettingsPan
   const [cycle, setCycle] = useState(data.fiveThreeOne.currentCycle);
   const [week, setWeek] = useState(data.fiveThreeOne.currentWeek);
   const [squatSessionId, setSquatSessionId] = useState(data.squatSessionId);
+  const [bodyWeight, setBodyWeight] = useState('');
+  const [weeklyGoal, setWeeklyGoal] = useState(data.weeklyGoal);
 
   const save = () => {
-    onUpdateData({ workoutTypes, squatSessionId });
+    const partial: Partial<AppData> = { workoutTypes, squatSessionId, weeklyGoal };
+    
+    // Add body weight log if entered
+    if (bodyWeight) {
+      const newLog: BodyWeightLog = {
+        date: new Date().toISOString().split('T')[0],
+        weight: parseFloat(bodyWeight),
+      };
+      partial.bodyWeightLogs = [...(data.bodyWeightLogs || []), newLog];
+    }
+    
+    onUpdateData(partial);
     onUpdate531(cycle, week, tm);
     onClose();
   };
@@ -66,7 +79,6 @@ const SettingsPanel = ({ data, onUpdateData, onUpdate531, onClose }: SettingsPan
     setWorkoutTypes(updated);
   };
 
-  const activeTypes = workoutTypes.filter(t => !t.hidden);
   const hiddenTypes = workoutTypes.filter(t => t.hidden);
 
   return (
@@ -76,6 +88,45 @@ const SettingsPanel = ({ data, onUpdateData, onUpdate531, onClose }: SettingsPan
           <ArrowLeft size={20} />
         </button>
         <h1 className="text-xl font-bold text-foreground">Settings</h1>
+      </div>
+
+      {/* Body Weight */}
+      <div className="glass-card p-4 mb-6">
+        <div className="flex items-center gap-2 mb-3">
+          <Scale size={16} className="text-primary" />
+          <h3 className="text-sm font-bold text-foreground">Log Body Weight</h3>
+        </div>
+        <div className="flex items-center gap-3">
+          <input
+            type="number"
+            value={bodyWeight}
+            onChange={e => setBodyWeight(e.target.value)}
+            className="flex-1 bg-secondary text-foreground rounded-xl px-3 py-2.5 text-sm outline-none font-mono text-center"
+            placeholder="e.g. 75"
+          />
+          <span className="text-sm text-muted-foreground">kg</span>
+        </div>
+        {(data.bodyWeightLogs || []).length > 0 && (
+          <p className="text-[10px] text-muted-foreground mt-2">
+            Last: {data.bodyWeightLogs.sort((a, b) => b.date.localeCompare(a.date))[0].weight} kg
+          </p>
+        )}
+      </div>
+
+      {/* Weekly Goal */}
+      <div className="glass-card p-4 mb-6">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-sm font-medium text-foreground">Weekly Goal</span>
+          <span className="text-sm font-bold text-primary">{weeklyGoal} sessions</span>
+        </div>
+        <input
+          type="range"
+          min={1}
+          max={7}
+          value={weeklyGoal}
+          onChange={e => setWeeklyGoal(parseInt(e.target.value))}
+          className="w-full accent-primary h-2"
+        />
       </div>
 
       {/* 5/3/1 Settings */}
@@ -226,7 +277,6 @@ const SettingsPanel = ({ data, onUpdateData, onUpdate531, onClose }: SettingsPan
         </div>
       )}
 
-      {/* Add new session type */}
       <button
         onClick={addWorkoutType}
         className="w-full glass-card p-3 flex items-center justify-center gap-2 text-primary text-sm font-medium mb-6 transition-transform active:scale-95"

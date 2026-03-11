@@ -43,6 +43,11 @@ export interface FiveThreeOneConfig {
   startDate: string;
 }
 
+export interface BodyWeightLog {
+  date: string;
+  weight: number;
+}
+
 export interface AppData {
   workoutTypes: WorkoutType[];
   sessions: SessionLog[];
@@ -51,6 +56,7 @@ export interface AppData {
   weeklyGoal: number;
   setupComplete: boolean;
   restDuration: number; // seconds
+  bodyWeightLogs: BodyWeightLog[];
 }
 
 export const WORKOUT_COLORS = [
@@ -77,6 +83,7 @@ export const DEFAULT_APP_DATA: AppData = {
   weeklyGoal: 4,
   setupComplete: false,
   restDuration: 90,
+  bodyWeightLogs: [],
 };
 
 export function calculate1RM(weight: number, reps: number): number {

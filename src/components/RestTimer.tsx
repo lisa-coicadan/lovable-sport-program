@@ -1,15 +1,20 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Pause, Play, RotateCcw } from 'lucide-react';
+import { Pause, Play, RotateCcw, X, Timer } from 'lucide-react';
 
 interface RestTimerProps {
   defaultSeconds?: number;
-  onComplete?: () => void;
 }
 
-const RestTimer = ({ defaultSeconds = 60, onComplete }: RestTimerProps) => {
+const RestTimer = ({ defaultSeconds = 90 }: RestTimerProps) => {
   const [seconds, setSeconds] = useState(defaultSeconds);
   const [isRunning, setIsRunning] = useState(false);
   const [total, setTotal] = useState(defaultSeconds);
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    setTotal(defaultSeconds);
+    setSeconds(defaultSeconds);
+  }, [defaultSeconds]);
 
   useEffect(() => {
     if (!isRunning || seconds <= 0) return;
@@ -17,14 +22,26 @@ const RestTimer = ({ defaultSeconds = 60, onComplete }: RestTimerProps) => {
       setSeconds(s => {
         if (s <= 1) {
           setIsRunning(false);
-          onComplete?.();
+          // Sound + vibration
+          try {
+            if ('vibrate' in navigator) navigator.vibrate([200, 100, 200, 100, 200]);
+            const ctx = new AudioContext();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.frequency.value = 880;
+            gain.gain.value = 0.3;
+            osc.start();
+            setTimeout(() => { osc.stop(); ctx.close(); }, 500);
+          } catch {}
           return 0;
         }
         return s - 1;
       });
     }, 1000);
     return () => clearInterval(interval);
-  }, [isRunning, seconds, onComplete]);
+  }, [isRunning, seconds]);
 
   const reset = useCallback(() => {
     setSeconds(total);
@@ -40,27 +57,51 @@ const RestTimer = ({ defaultSeconds = 60, onComplete }: RestTimerProps) => {
   const mins = Math.floor(seconds / 60);
   const secs = seconds % 60;
 
+  // Floating button when collapsed
+  if (!expanded) {
+    return (
+      <button
+        onClick={() => setExpanded(true)}
+        className={`fixed bottom-24 right-4 z-40 w-14 h-14 rounded-full flex items-center justify-center shadow-lg transition-all active:scale-90 ${
+          isRunning ? 'bg-primary text-primary-foreground' : 'bg-card border border-border text-foreground'
+        }`}
+      >
+        {isRunning ? (
+          <span className="font-mono text-xs font-bold">{mins}:{secs.toString().padStart(2, '0')}</span>
+        ) : (
+          <Timer size={20} />
+        )}
+      </button>
+    );
+  }
+
   return (
-    <div className="glass-card p-4">
+    <div className="fixed bottom-24 right-4 z-40 glass-card p-4 shadow-2xl w-72">
       <div className="flex items-center justify-between mb-3">
         <span className="text-sm font-medium text-muted-foreground">Rest Timer</span>
-        <div className="flex gap-1">
-          {[30, 60, 90, 120].map(t => (
-            <button
-              key={t}
-              onClick={() => { setTotal(t); setSeconds(t); setIsRunning(false); }}
-              className={`px-2 py-1 rounded-lg text-xs font-medium transition-colors ${
-                total === t ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground'
-              }`}
-            >
-              {t}s
-            </button>
-          ))}
-        </div>
+        <button onClick={() => setExpanded(false)} className="text-muted-foreground p-1">
+          <X size={16} />
+        </button>
       </div>
-      <div className="flex items-center gap-4">
-        <div className="relative w-16 h-16">
-          <svg className="w-16 h-16 -rotate-90" viewBox="0 0 64 64">
+      
+      {/* Duration selector */}
+      <div className="flex gap-1 mb-3">
+        {[30, 60, 90, 120, 180, 300].map(t => (
+          <button
+            key={t}
+            onClick={() => { setTotal(t); setSeconds(t); setIsRunning(false); }}
+            className={`flex-1 py-1.5 rounded-lg text-[10px] font-medium transition-colors ${
+              total === t ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground'
+            }`}
+          >
+            {t < 60 ? `${t}s` : `${t / 60}m`}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex items-center gap-3">
+        <div className="relative w-14 h-14">
+          <svg className="w-14 h-14 -rotate-90" viewBox="0 0 64 64">
             <circle cx="32" cy="32" r="28" fill="none" stroke="hsl(var(--progress-track))" strokeWidth="4" />
             <circle
               cx="32" cy="32" r="28" fill="none"
@@ -72,23 +113,23 @@ const RestTimer = ({ defaultSeconds = 60, onComplete }: RestTimerProps) => {
               className="transition-all duration-1000 ease-linear"
             />
           </svg>
-          <span className="absolute inset-0 flex items-center justify-center text-foreground font-mono font-bold text-sm">
+          <span className="absolute inset-0 flex items-center justify-center text-foreground font-mono font-bold text-xs">
             {mins}:{secs.toString().padStart(2, '0')}
           </span>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-1">
           <button
             onClick={isRunning ? () => setIsRunning(false) : start}
-            className="touch-target bg-primary text-primary-foreground rounded-xl px-5 py-2.5 font-medium text-sm flex items-center gap-1.5 transition-transform active:scale-95"
+            className="flex-1 touch-target bg-primary text-primary-foreground rounded-xl py-2.5 font-medium text-sm flex items-center justify-center gap-1.5 transition-transform active:scale-95"
           >
-            {isRunning ? <Pause size={16} /> : <Play size={16} />}
+            {isRunning ? <Pause size={14} /> : <Play size={14} />}
             {isRunning ? 'Pause' : 'Start'}
           </button>
           <button
             onClick={reset}
             className="touch-target bg-secondary text-secondary-foreground rounded-xl px-3 py-2.5 transition-transform active:scale-95"
           >
-            <RotateCcw size={16} />
+            <RotateCcw size={14} />
           </button>
         </div>
       </div>

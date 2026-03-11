@@ -1,11 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
-import { AppData, WorkoutType, SetLog, SessionLog } from '@/lib/types';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { AppData, WorkoutType, SetLog, SessionLog, calculate1RM } from '@/lib/types';
 import { getWeekSets, getWeekLabel } from '@/lib/531';
 import RestTimer from './RestTimer';
 import ExerciseHistory from './ExerciseHistory';
 import SessionSummary from './SessionSummary';
 import SettingsPanel from './SettingsPanel';
-import { Check, Clock, ChevronRight, ArrowLeft, Settings, History } from 'lucide-react';
+import { Check, Clock, ChevronRight, ArrowLeft, Settings, History, Plus, Trash2 } from 'lucide-react';
 
 interface WorkoutTabProps {
   data: AppData;
@@ -21,9 +21,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
   const [mode, setMode] = useState<Mode>('select');
   const [selectedType, setSelectedType] = useState<WorkoutType | null>(null);
   const [sets, setSets] = useState<SetLog[]>([]);
-  const [currentSetIndex, setCurrentSetIndex] = useState(0);
   const [startTime, setStartTime] = useState(Date.now());
-  const [showTimer, setShowTimer] = useState(false);
   const [selectedWeek, setSelectedWeek] = useState(data.fiveThreeOne.currentWeek);
   const [amrapReps, setAmrapReps] = useState<Record<number, number>>({});
   const [pendingSession, setPendingSession] = useState<SessionLog | null>(null);
@@ -33,14 +31,43 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
   const isSquatSession = (type: WorkoutType) => type.id === data.squatSessionId;
   const activeTypes = data.workoutTypes.filter(t => !t.hidden);
 
+  // Get last performance for an exercise
+  const getLastPerformance = useCallback((exerciseName: string) => {
+    for (let i = data.sessions.length - 1; i >= 0; i--) {
+      const s = data.sessions[i];
+      const matchingSets = s.sets.filter(set => set.exerciseName === exerciseName && set.completed && set.weight > 0);
+      if (matchingSets.length > 0) {
+        const best = matchingSets.reduce((b, set) => set.weight > b.weight ? set : b, matchingSets[0]);
+        return { weight: best.weight, reps: best.reps, date: s.date };
+      }
+    }
+    return null;
+  }, [data.sessions]);
+
+  // Get last session weights for pre-fill
+  const getLastSessionWeights = useCallback((typeId: string) => {
+    const lastSession = data.sessions
+      .filter(s => s.workoutTypeId === typeId)
+      .sort((a, b) => b.date.localeCompare(a.date))[0];
+    if (!lastSession) return {};
+    
+    const weights: Record<string, number> = {};
+    lastSession.sets.forEach(s => {
+      if (s.completed && s.weight > 0 && !weights[s.exerciseId]) {
+        weights[s.exerciseId] = s.weight;
+      }
+    });
+    return weights;
+  }, [data.sessions]);
+
   const startWorkout = (type: WorkoutType, workoutMode: 'live' | 'recap') => {
     setSelectedType(type);
     setMode(workoutMode);
     setStartTime(Date.now());
     setSelectedWeek(data.fiveThreeOne.currentWeek);
     setAmrapReps({});
-    setShowTimer(false);
 
+    const lastWeights = getLastSessionWeights(type.id);
     const initialSets: SetLog[] = [];
 
     if (isSquatSession(type)) {
@@ -58,29 +85,25 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
     }
 
     type.exercises.forEach(ex => {
+      const lastWeight = lastWeights[ex.id] || 0;
       for (let i = 0; i < ex.sets; i++) {
         initialSets.push({
           exerciseId: ex.id,
           exerciseName: ex.name,
           setNumber: i + 1,
           reps: ex.reps,
-          weight: ex.weight || 0,
+          weight: lastWeight,
           completed: false,
         });
       }
     });
     setSets(initialSets);
-    setCurrentSetIndex(0);
   };
 
   const toggleSet = (index: number) => {
     const updated = [...sets];
     updated[index].completed = !updated[index].completed;
     setSets(updated);
-    if (mode === 'live' && updated[index].completed) {
-      setShowTimer(true);
-      setCurrentSetIndex(index + 1);
-    }
   };
 
   const updateSet = (index: number, field: 'reps' | 'weight', value: string) => {
@@ -105,6 +128,52 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
     }
     
     setSets(updated);
+  };
+
+  // Add extra set to an exercise
+  const addSetToExercise = (exerciseId: string, exerciseName: string) => {
+    const existingSets = sets.filter(s => s.exerciseId === exerciseId);
+    const lastSet = existingSets[existingSets.length - 1];
+    let insertIndex = sets.length;
+    for (let i = sets.length - 1; i >= 0; i--) {
+      if (sets[i].exerciseId === exerciseId) { insertIndex = i + 1; break; }
+    }
+    
+    const newSet: SetLog = {
+      exerciseId,
+      exerciseName,
+      setNumber: existingSets.length + 1,
+      reps: lastSet?.reps || 10,
+      weight: lastSet?.weight || 0,
+      completed: false,
+    };
+    
+    const updated = [...sets];
+    updated.splice(insertIndex, 0, newSet);
+    setSets(updated);
+  };
+
+  // Add new exercise to session
+  const addExerciseToSession = () => {
+    const newId = `temp-${Date.now()}`;
+    setSets(prev => [...prev, {
+      exerciseId: newId,
+      exerciseName: 'New Exercise',
+      setNumber: 1,
+      reps: 10,
+      weight: 0,
+      completed: false,
+    }]);
+  };
+
+  // Remove a set
+  const removeSet = (index: number) => {
+    setSets(prev => prev.filter((_, i) => i !== index));
+  };
+
+  // Update exercise name for temp exercises
+  const updateExerciseName = (exerciseId: string, name: string) => {
+    setSets(prev => prev.map(s => s.exerciseId === exerciseId ? { ...s, exerciseName: name } : s));
   };
 
   const updateWeekSelection = (week: number) => {
@@ -175,6 +244,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
     return (
       <SessionSummary
         session={pendingSession}
+        previousSessions={data.sessions}
         onSave={handleSummaryComplete}
         onBack={() => setMode(selectedType ? 'live' : 'select')}
       />
@@ -197,7 +267,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
       <ExerciseHistory
         exerciseName={historyExercise}
         data={data}
-        onClose={() => { setHistoryExercise(null); setMode('select'); }}
+        onClose={() => { setHistoryExercise(null); setMode(selectedType ? 'live' : 'select'); }}
       />
     );
   }
@@ -235,31 +305,6 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
             ))}
           </div>
           <p className="text-xs text-muted-foreground mt-2">TM: {data.fiveThreeOne.trainingMax} kg</p>
-        </div>
-
-        {/* Rest duration config */}
-        <div className="glass-card p-4 mb-6">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-medium text-muted-foreground">Rest Timer</span>
-            <span className="text-sm font-bold text-foreground">{Math.floor(restDuration / 60)}:{(restDuration % 60).toString().padStart(2, '0')}</span>
-          </div>
-          <input
-            type="range"
-            min={60}
-            max={300}
-            step={15}
-            value={restDuration}
-            onChange={e => {
-              const v = parseInt(e.target.value);
-              setRestDuration(v);
-              onUpdateData({ restDuration: v });
-            }}
-            className="w-full accent-primary h-2"
-          />
-          <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
-            <span>1 min</span>
-            <span>5 min</span>
-          </div>
         </div>
 
         {/* Session Selection */}
@@ -327,25 +372,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
         </span>
       </div>
 
-      {/* Rest Timer Overlay */}
-      {mode === 'live' && showTimer && (
-        <div className="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm flex items-center justify-center">
-          <div className="text-center">
-            <RestTimer
-              defaultSeconds={restDuration}
-              onComplete={() => setShowTimer(false)}
-            />
-            <button
-              onClick={() => setShowTimer(false)}
-              className="mt-6 text-muted-foreground text-sm underline"
-            >
-              Skip rest
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* 5/3/1 Block in session */}
+      {/* 5/3/1 Block in session — editable weights */}
       {selectedType && isSquatSession(selectedType) && fiveThreeOneLiveSets.length > 0 && (
         <div className="glass-card p-4 mb-4 border-primary/30">
           <div className="flex items-center justify-between mb-3">
@@ -368,23 +395,32 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
           <div className="space-y-2">
             {fiveThreeOneLiveSets.map((s, localIdx) => {
               const globalIdx = s.globalIdx;
-              const isActive = mode === 'live' && globalIdx === currentSetIndex;
               const amrap = isAmrap(localIdx);
+              const actualWeight = sets[globalIdx].weight;
+              const actualReps = amrapReps[globalIdx] !== undefined ? amrapReps[globalIdx] : sets[globalIdx].reps;
+              const realE1rm = actualWeight > 0 && actualReps > 0 ? calculate1RM(actualWeight, actualReps) : 0;
+              
               return (
                 <div
                   key={globalIdx}
                   className={`flex items-center gap-2 rounded-xl px-3 py-2.5 transition-all ${
-                    sets[globalIdx].completed ? 'bg-primary/10' : isActive ? 'bg-secondary ring-1 ring-primary' : 'bg-secondary/50'
+                    sets[globalIdx].completed ? 'bg-primary/10' : 'bg-secondary/50'
                   }`}
                 >
-                  <span className="text-xs text-muted-foreground w-8">Set {localIdx + 1}</span>
-                  <span className="text-sm text-foreground font-mono w-16 text-center">{sets[globalIdx].weight} kg</span>
+                  <span className="text-xs text-muted-foreground w-6">S{localIdx + 1}</span>
+                  <input
+                    type="number"
+                    value={sets[globalIdx].weight || ''}
+                    onChange={e => updateSet(globalIdx, 'weight', e.target.value)}
+                    className="w-14 bg-transparent text-foreground text-sm text-center outline-none font-mono"
+                    placeholder="kg"
+                  />
                   <span className="text-muted-foreground text-xs">×</span>
                   {amrap ? (
                     <div className="flex items-center gap-1">
                       <input
                         type="number"
-                        value={amrapReps[globalIdx] !== undefined ? amrapReps[globalIdx] || '' : sets[globalIdx].reps || ''}
+                        value={amrapReps[globalIdx] !== undefined ? (amrapReps[globalIdx] || '') : (sets[globalIdx].reps || '')}
                         onChange={e => setAmrapReps(prev => ({ ...prev, [globalIdx]: e.target.value === '' ? 0 : parseInt(e.target.value) || 0 }))}
                         className="w-12 bg-primary/10 text-primary text-sm text-center outline-none font-mono rounded-lg py-1 border border-primary/30"
                         placeholder="reps"
@@ -396,12 +432,15 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
                       {currentFiveThreeOneSets[localIdx]?.reps}
                     </span>
                   )}
-                  <span className="text-[10px] text-muted-foreground ml-1">
+                  {realE1rm > 0 && sets[globalIdx].completed && (
+                    <span className="text-[10px] text-warning ml-1">{realE1rm}kg</span>
+                  )}
+                  <span className="text-[10px] text-muted-foreground ml-auto">
                     {Math.round((currentFiveThreeOneSets[localIdx]?.percentage || 0) * 100)}%
                   </span>
                   <button
                     onClick={() => toggleSet(globalIdx)}
-                    className={`ml-auto touch-target rounded-lg p-2 transition-colors ${
+                    className={`touch-target rounded-lg p-2 transition-colors ${
                       sets[globalIdx].completed ? 'text-primary' : 'text-muted-foreground active:text-primary'
                     }`}
                   >
@@ -415,58 +454,102 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
       )}
 
       {/* Regular exercises */}
-      <div className="space-y-4 mb-6">
-        {Object.entries(groupedSets).map(([name, exerciseSets]) => (
-          <div key={name} className="glass-card p-4">
-            <button
-              onClick={() => { setHistoryExercise(name); setMode('history'); }}
-              className="flex items-center gap-1.5 mb-3 group"
-            >
-              <h3 className="text-sm font-semibold text-foreground group-active:text-primary transition-colors">{name}</h3>
-              <History size={12} className="text-muted-foreground group-active:text-primary" />
-            </button>
-            <div className="space-y-2">
-              {exerciseSets.map((s, localIdx) => {
-                const globalIdx = s.globalIdx;
-                const isActive = mode === 'live' && globalIdx === currentSetIndex;
-                return (
-                  <div
-                    key={globalIdx}
-                    className={`flex items-center gap-2 rounded-xl px-3 py-2.5 transition-all ${
-                      sets[globalIdx].completed ? 'bg-primary/10' : isActive ? 'bg-secondary ring-1 ring-primary' : 'bg-secondary/50'
-                    }`}
+      <div className="space-y-4 mb-4">
+        {Object.entries(groupedSets).map(([name, exerciseSets]) => {
+          const exerciseId = exerciseSets[0].set.exerciseId;
+          const lastPerf = getLastPerformance(name);
+          const isTemp = exerciseId.startsWith('temp-');
+
+          return (
+            <div key={name} className="glass-card p-4">
+              <div className="flex items-center gap-1.5 mb-1">
+                {isTemp ? (
+                  <input
+                    value={name}
+                    onChange={e => updateExerciseName(exerciseId, e.target.value)}
+                    className="bg-transparent text-foreground font-semibold outline-none flex-1 text-sm"
+                    placeholder="Exercise name"
+                  />
+                ) : (
+                  <button
+                    onClick={() => { setHistoryExercise(name); setMode('history'); }}
+                    className="flex items-center gap-1.5 group"
                   >
-                    <span className="text-xs text-muted-foreground w-8">Set {localIdx + 1}</span>
-                    <input
-                      type="number"
-                      value={sets[globalIdx].weight || ''}
-                      onChange={e => updateSet(globalIdx, 'weight', e.target.value)}
-                      className="w-16 bg-transparent text-foreground text-sm text-center outline-none font-mono"
-                      placeholder="kg"
-                    />
-                    <span className="text-muted-foreground text-xs">kg ×</span>
-                    <input
-                      type="number"
-                      value={sets[globalIdx].reps || ''}
-                      onChange={e => updateSet(globalIdx, 'reps', e.target.value)}
-                      className="w-12 bg-transparent text-foreground text-sm text-center outline-none font-mono"
-                      placeholder="reps"
-                    />
-                    <button
-                      onClick={() => toggleSet(globalIdx)}
-                      className={`ml-auto touch-target rounded-lg p-2 transition-colors ${
-                        sets[globalIdx].completed ? 'text-primary' : 'text-muted-foreground active:text-primary'
+                    <h3 className="text-sm font-semibold text-foreground group-active:text-primary transition-colors">{name}</h3>
+                    <History size={12} className="text-muted-foreground group-active:text-primary" />
+                  </button>
+                )}
+              </div>
+              
+              {/* Last performance reference */}
+              {lastPerf && (
+                <p className="text-[10px] text-muted-foreground mb-2">
+                  Last time: {lastPerf.weight}kg × {lastPerf.reps} — {new Date(lastPerf.date + 'T00:00:00').toLocaleDateString('default', { month: 'short', day: 'numeric' })}
+                </p>
+              )}
+
+              <div className="space-y-2">
+                {exerciseSets.map((s, localIdx) => {
+                  const globalIdx = s.globalIdx;
+                  return (
+                    <div
+                      key={globalIdx}
+                      className={`flex items-center gap-2 rounded-xl px-3 py-2.5 transition-all ${
+                        sets[globalIdx].completed ? 'bg-primary/10' : 'bg-secondary/50'
                       }`}
                     >
-                      <Check size={18} />
-                    </button>
-                  </div>
-                );
-              })}
+                      <span className="text-xs text-muted-foreground w-8">Set {localIdx + 1}</span>
+                      <input
+                        type="number"
+                        value={sets[globalIdx].weight || ''}
+                        onChange={e => updateSet(globalIdx, 'weight', e.target.value)}
+                        className="w-16 bg-transparent text-foreground text-sm text-center outline-none font-mono"
+                        placeholder="kg"
+                      />
+                      <span className="text-muted-foreground text-xs">kg ×</span>
+                      <input
+                        type="number"
+                        value={sets[globalIdx].reps || ''}
+                        onChange={e => updateSet(globalIdx, 'reps', e.target.value)}
+                        className="w-12 bg-transparent text-foreground text-sm text-center outline-none font-mono"
+                        placeholder="reps"
+                      />
+                      <button
+                        onClick={() => removeSet(globalIdx)}
+                        className="text-muted-foreground p-1 active:text-destructive"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                      <button
+                        onClick={() => toggleSet(globalIdx)}
+                        className={`touch-target rounded-lg p-2 transition-colors ${
+                          sets[globalIdx].completed ? 'text-primary' : 'text-muted-foreground active:text-primary'
+                        }`}
+                      >
+                        <Check size={18} />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+              <button
+                onClick={() => addSetToExercise(exerciseId, name)}
+                className="flex items-center gap-1 text-primary text-xs font-medium py-1.5 mt-2"
+              >
+                <Plus size={12} /> Add set
+              </button>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
+
+      {/* Add exercise button */}
+      <button
+        onClick={addExerciseToSession}
+        className="w-full glass-card p-3 flex items-center justify-center gap-2 text-primary text-sm font-medium mb-6 transition-transform active:scale-95"
+      >
+        <Plus size={16} /> Add exercise
+      </button>
 
       <button
         onClick={finishWorkout}
@@ -474,6 +557,11 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
       >
         Finish Workout <ChevronRight size={20} />
       </button>
+
+      {/* Floating rest timer */}
+      {(mode === 'live' || mode === 'recap') && (
+        <RestTimer defaultSeconds={restDuration} />
+      )}
     </div>
   );
 };
