@@ -5,7 +5,7 @@ import RestTimer from './RestTimer';
 import ExerciseHistory from './ExerciseHistory';
 import SessionSummary from './SessionSummary';
 import SettingsPanel from './SettingsPanel';
-import { Check, Clock, ChevronRight, ArrowLeft, Settings, History, Plus, Trash2 } from 'lucide-react';
+import { Check, ChevronRight, ArrowLeft, Settings, History, Plus, Trash2 } from 'lucide-react';
 
 interface WorkoutTabProps {
   data: AppData;
@@ -15,7 +15,7 @@ interface WorkoutTabProps {
   selectedDate?: string | null;
 }
 
-type Mode = 'select' | 'live' | 'recap' | 'summary' | 'settings' | 'history';
+type Mode = 'select' | 'recap' | 'summary' | 'settings' | 'history';
 
 const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDate }: WorkoutTabProps) => {
   const [mode, setMode] = useState<Mode>('select');
@@ -60,9 +60,9 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
     return weights;
   }, [data.sessions]);
 
-  const startWorkout = (type: WorkoutType, workoutMode: 'live' | 'recap') => {
+  const startWorkout = (type: WorkoutType) => {
     setSelectedType(type);
-    setMode(workoutMode);
+    setMode('recap');
     setStartTime(Date.now());
     setSelectedWeek(data.fiveThreeOne.currentWeek);
     setAmrapReps({});
@@ -246,7 +246,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
         session={pendingSession}
         previousSessions={data.sessions}
         onSave={handleSummaryComplete}
-        onBack={() => setMode(selectedType ? 'live' : 'select')}
+        onBack={() => setMode(selectedType ? 'recap' : 'select')}
       />
     );
   }
@@ -267,7 +267,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
       <ExerciseHistory
         exerciseName={historyExercise}
         data={data}
-        onClose={() => { setHistoryExercise(null); setMode(selectedType ? 'live' : 'select'); }}
+        onClose={() => { setHistoryExercise(null); setMode(selectedType ? 'recap' : 'select'); }}
       />
     );
   }
@@ -322,20 +322,12 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
               <p className="text-xs text-muted-foreground mb-3">
                 {type.exercises.map(e => e.name).join(' · ')}
               </p>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => startWorkout(type, 'live')}
-                  className="flex-1 bg-primary text-primary-foreground font-medium py-2.5 rounded-xl text-sm flex items-center justify-center gap-1.5 touch-target transition-transform active:scale-95"
-                >
-                  <Clock size={14} /> Live
-                </button>
-                <button
-                  onClick={() => startWorkout(type, 'recap')}
-                  className="flex-1 bg-secondary text-secondary-foreground font-medium py-2.5 rounded-xl text-sm flex items-center justify-center gap-1.5 touch-target transition-transform active:scale-95"
-                >
-                  <Check size={14} /> Recap
-                </button>
-              </div>
+              <button
+                onClick={() => startWorkout(type)}
+                className="w-full bg-primary text-primary-foreground font-medium py-2.5 rounded-xl text-sm flex items-center justify-center gap-1.5 touch-target transition-transform active:scale-95"
+              >
+                <Check size={14} /> Start Session
+              </button>
             </div>
           ))}
         </div>
@@ -367,9 +359,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
           <ArrowLeft size={20} />
         </button>
         <h1 className="text-xl font-bold text-foreground">{selectedType?.name}</h1>
-        <span className="text-xs text-muted-foreground ml-auto">
-          {mode === 'live' ? 'Live Mode' : 'Recap Mode'}
-        </span>
+        <span className="text-xs text-muted-foreground ml-auto">Recap</span>
       </div>
 
       {/* 5/3/1 Block in session — editable weights */}
@@ -559,7 +549,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
       </button>
 
       {/* Floating rest timer */}
-      {(mode === 'live' || mode === 'recap') && (
+      {mode === 'recap' && (
         <RestTimer defaultSeconds={restDuration} />
       )}
     </div>
