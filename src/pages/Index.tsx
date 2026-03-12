@@ -46,6 +46,13 @@ const Index = () => {
     }));
   }, []);
 
+  const handleDeleteSession = useCallback((sessionId: string) => {
+    setData(prev => ({
+      ...prev,
+      sessions: prev.sessions.filter(s => s.id !== sessionId),
+    }));
+  }, []);
+
   const handleUpdateData = useCallback((partial: Partial<AppData>) => {
     setData(prev => ({ ...prev, ...partial }));
   }, []);
