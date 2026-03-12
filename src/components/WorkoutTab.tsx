@@ -5,7 +5,7 @@ import RestTimer from './RestTimer';
 import ExerciseHistory from './ExerciseHistory';
 import SessionSummary from './SessionSummary';
 import SettingsPanel from './SettingsPanel';
-import { Check, Clock, ChevronRight, ArrowLeft, Settings, History, Plus, Trash2 } from 'lucide-react';
+import { Check, ChevronRight, ArrowLeft, Settings, History, Plus, Trash2 } from 'lucide-react';
 
 interface WorkoutTabProps {
   data: AppData;
