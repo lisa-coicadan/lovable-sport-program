@@ -322,20 +322,12 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
               <p className="text-xs text-muted-foreground mb-3">
                 {type.exercises.map(e => e.name).join(' · ')}
               </p>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => startWorkout(type, 'live')}
-                  className="flex-1 bg-primary text-primary-foreground font-medium py-2.5 rounded-xl text-sm flex items-center justify-center gap-1.5 touch-target transition-transform active:scale-95"
-                >
-                  <Clock size={14} /> Live
-                </button>
-                <button
-                  onClick={() => startWorkout(type, 'recap')}
-                  className="flex-1 bg-secondary text-secondary-foreground font-medium py-2.5 rounded-xl text-sm flex items-center justify-center gap-1.5 touch-target transition-transform active:scale-95"
-                >
-                  <Check size={14} /> Recap
-                </button>
-              </div>
+              <button
+                onClick={() => startWorkout(type)}
+                className="w-full bg-primary text-primary-foreground font-medium py-2.5 rounded-xl text-sm flex items-center justify-center gap-1.5 touch-target transition-transform active:scale-95"
+              >
+                <Check size={14} /> Start Session
+              </button>
             </div>
           ))}
         </div>
