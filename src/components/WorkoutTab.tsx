@@ -15,7 +15,7 @@ interface WorkoutTabProps {
   selectedDate?: string | null;
 }
 
-type Mode = 'select' | 'live' | 'recap' | 'summary' | 'settings' | 'history';
+type Mode = 'select' | 'recap' | 'summary' | 'settings' | 'history';
 
 const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDate }: WorkoutTabProps) => {
   const [mode, setMode] = useState<Mode>('select');
