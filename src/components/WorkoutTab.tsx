@@ -267,7 +267,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
       <ExerciseHistory
         exerciseName={historyExercise}
         data={data}
-        onClose={() => { setHistoryExercise(null); setMode(selectedType ? 'live' : 'select'); }}
+        onClose={() => { setHistoryExercise(null); setMode(selectedType ? 'recap' : 'select'); }}
       />
     );
   }
