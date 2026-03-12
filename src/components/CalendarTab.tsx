@@ -73,13 +73,18 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession }: Ca
 
   if (viewingSession) {
     return (
-      <SessionDetailView
+        <SessionDetailView
         session={viewingSession}
         data={data}
         onClose={() => setViewingSession(null)}
         onUpdate={(updated) => {
           onUpdateSession(updated);
           setViewingSession(null);
+        }}
+        onDelete={(sessionId) => {
+          onDeleteSession?.(sessionId);
+          setViewingSession(null);
+          setSelectedDate(null);
         }}
       />
     );

@@ -64,7 +64,7 @@ const Index = () => {
   return (
     <div className="min-h-screen bg-background max-w-lg mx-auto relative">
       {activeTab === 0 && (
-        <CalendarTab data={data} onDaySelect={handleDaySelect} onUpdateSession={handleUpdateSession} />
+        <CalendarTab data={data} onDaySelect={handleDaySelect} onUpdateSession={handleUpdateSession} onDeleteSession={handleDeleteSession} />
       )}
       {activeTab === 1 && (
         <WorkoutTab

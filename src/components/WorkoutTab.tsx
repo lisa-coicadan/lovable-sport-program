@@ -549,7 +549,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
       </button>
 
       {/* Floating rest timer */}
-      {(mode === 'live' || mode === 'recap') && (
+      {mode === 'recap' && (
         <RestTimer defaultSeconds={restDuration} />
       )}
     </div>
