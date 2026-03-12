@@ -60,9 +60,9 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
     return weights;
   }, [data.sessions]);
 
-  const startWorkout = (type: WorkoutType, workoutMode: 'live' | 'recap') => {
+  const startWorkout = (type: WorkoutType) => {
     setSelectedType(type);
-    setMode(workoutMode);
+    setMode('recap');
     setStartTime(Date.now());
     setSelectedWeek(data.fiveThreeOne.currentWeek);
     setAmrapReps({});
