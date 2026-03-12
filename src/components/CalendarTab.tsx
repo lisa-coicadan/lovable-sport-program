@@ -10,7 +10,7 @@ interface CalendarTabProps {
   onDeleteSession?: (sessionId: string) => void;
 }
 
-const CalendarTab = ({ data, onDaySelect, onUpdateSession }: CalendarTabProps) => {
+const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession }: CalendarTabProps) => {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [viewingSession, setViewingSession] = useState<SessionLog | null>(null);
