@@ -7,6 +7,7 @@ interface CalendarTabProps {
   data: AppData;
   onDaySelect: (date: string) => void;
   onUpdateSession: (updated: SessionLog) => void;
+  onDeleteSession?: (sessionId: string) => void;
 }
 
 const CalendarTab = ({ data, onDaySelect, onUpdateSession }: CalendarTabProps) => {
