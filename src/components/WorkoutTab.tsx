@@ -359,9 +359,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
           <ArrowLeft size={20} />
         </button>
         <h1 className="text-xl font-bold text-foreground">{selectedType?.name}</h1>
-        <span className="text-xs text-muted-foreground ml-auto">
-          {mode === 'live' ? 'Live Mode' : 'Recap Mode'}
-        </span>
+        <span className="text-xs text-muted-foreground ml-auto">Recap</span>
       </div>
 
       {/* 5/3/1 Block in session — editable weights */}
