@@ -246,7 +246,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
         session={pendingSession}
         previousSessions={data.sessions}
         onSave={handleSummaryComplete}
-        onBack={() => setMode(selectedType ? 'live' : 'select')}
+        onBack={() => setMode(selectedType ? 'recap' : 'select')}
       />
     );
   }
