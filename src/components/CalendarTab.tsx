@@ -190,15 +190,18 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession }: Ca
               key={dayNum}
               onClick={() => handleDayClick(dateStr)}
               className={`relative aspect-square flex flex-col items-center justify-center rounded-xl transition-colors touch-target ${
-                isToday ? 'bg-primary/20 ring-1 ring-primary' : 'active:bg-secondary'
+                isToday && sessions.length === 0 ? 'bg-primary/20 ring-1 ring-primary' : isToday ? 'ring-1 ring-primary' : 'active:bg-secondary'
               }`}
+              style={sessions.length > 0 ? {
+                backgroundColor: `hsl(${getColorForType(sessions[0].workoutTypeId)} / 0.25)`,
+              } : undefined}
             >
-              <span className={`text-sm ${isToday ? 'font-bold text-primary' : 'text-foreground'}`}>
+              <span className={`text-sm ${isToday ? 'font-bold text-primary' : sessions.length > 0 ? 'font-semibold text-foreground' : 'text-foreground'}`}>
                 {dayNum}
               </span>
-              {sessions.length > 0 && (
+              {sessions.length > 1 && (
                 <div className="flex gap-0.5 mt-0.5">
-                  {sessions.slice(0, 3).map((s, si) => (
+                  {sessions.slice(1, 4).map((s, si) => (
                     <div
                       key={si}
                       className="w-1.5 h-1.5 rounded-full"
