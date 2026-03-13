@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { AppData, SessionLog } from '@/lib/types';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Trash2, X } from 'lucide-react';
 import SessionDetailView from './SessionDetailView';
 
 interface CalendarTabProps {
@@ -14,6 +14,7 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession }: Ca
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [viewingSession, setViewingSession] = useState<SessionLog | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const year = currentMonth.getFullYear();
   const month = currentMonth.getMonth();
@@ -62,18 +63,19 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession }: Ca
   const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   const today = new Date().toISOString().split('T')[0];
 
+  // Every day click opens the day sheet
   const handleDayClick = (dateStr: string) => {
-    const sessions = sessionsByDate[dateStr] || [];
-    if (sessions.length > 0) {
-      setSelectedDate(dateStr);
-    } else {
-      onDaySelect(dateStr);
-    }
+    setSelectedDate(dateStr);
+  };
+
+  const handleDeleteFromList = (sessionId: string) => {
+    onDeleteSession?.(sessionId);
+    setConfirmDeleteId(null);
   };
 
   if (viewingSession) {
     return (
-        <SessionDetailView
+      <SessionDetailView
         session={viewingSession}
         data={data}
         onClose={() => setViewingSession(null)}
@@ -90,41 +92,98 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession }: Ca
     );
   }
 
+  // Day bottom sheet
   if (selectedDate) {
     const daySessions = sessionsByDate[selectedDate] || [];
+    const dateLabel = new Date(selectedDate + 'T00:00:00').toLocaleDateString('default', { weekday: 'long', month: 'long', day: 'numeric' });
+
     return (
       <div className="px-4 pt-12 pb-24 animate-slide-up">
-        <div className="flex items-center gap-3 mb-6">
-          <button onClick={() => setSelectedDate(null)} className="text-muted-foreground touch-target p-1">
-            <ChevronLeft size={20} />
-          </button>
-          <h1 className="text-xl font-bold text-foreground">
-            {new Date(selectedDate + 'T00:00:00').toLocaleDateString('default', { weekday: 'long', month: 'long', day: 'numeric' })}
-          </h1>
-        </div>
-        <div className="space-y-3">
-          {daySessions.map(session => (
-            <button
-              key={session.id}
-              onClick={() => setViewingSession(session)}
-              className="w-full glass-card p-4 text-left transition-transform active:scale-[0.98]"
-            >
-              <div className="flex items-center gap-3 mb-2">
-                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: `hsl(${getColorForType(session.workoutTypeId)})` }} />
-                <span className="text-foreground font-semibold">{session.workoutTypeName}</span>
-                <ChevronRight size={16} className="text-muted-foreground ml-auto" />
+        {/* Delete confirmation modal */}
+        {confirmDeleteId && (
+          <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-6 animate-fade-in">
+            <div className="glass-card p-6 max-w-sm w-full">
+              <h3 className="text-lg font-bold text-foreground mb-2">Delete session?</h3>
+              <p className="text-sm text-muted-foreground mb-6">
+                Are you sure you want to delete this session? This action cannot be undone.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setConfirmDeleteId(null)}
+                  className="flex-1 bg-secondary text-secondary-foreground font-medium py-2.5 rounded-xl text-sm"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => handleDeleteFromList(confirmDeleteId)}
+                  className="flex-1 bg-destructive text-destructive-foreground font-medium py-2.5 rounded-xl text-sm"
+                >
+                  Delete
+                </button>
               </div>
-              <div className="flex gap-4 text-xs text-muted-foreground">
-                {session.duration && <span>{session.duration} min</span>}
-                <span>{session.sets.filter(s => s.completed).length}/{session.sets.length} sets</span>
-                {session.difficulty && <span>RPE {session.difficulty}/10</span>}
-              </div>
-              {session.notes && (
-                <p className="text-xs text-muted-foreground mt-2 line-clamp-1">{session.notes}</p>
-              )}
+            </div>
+          </div>
+        )}
+
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <button onClick={() => setSelectedDate(null)} className="text-muted-foreground touch-target p-1">
+              <ChevronLeft size={20} />
             </button>
+            <h1 className="text-xl font-bold text-foreground">{dateLabel}</h1>
+          </div>
+        </div>
+
+        {daySessions.length === 0 && (
+          <div className="text-center py-12">
+            <p className="text-muted-foreground text-sm mb-4">No sessions on this day</p>
+          </div>
+        )}
+
+        <div className="space-y-3 mb-6">
+          {daySessions.map(session => (
+            <div
+              key={session.id}
+              className="glass-card p-4 flex items-center gap-3 transition-transform active:scale-[0.98]"
+            >
+              <button
+                onClick={() => setViewingSession(session)}
+                className="flex-1 text-left"
+              >
+                <div className="flex items-center gap-3 mb-1">
+                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: `hsl(${getColorForType(session.workoutTypeId)})` }} />
+                  <span className="text-foreground font-semibold text-sm">{session.workoutTypeName}</span>
+                </div>
+                <div className="flex gap-4 text-xs text-muted-foreground ml-6">
+                  {session.duration && <span>{session.duration} min</span>}
+                  <span>{session.sets.filter(s => s.completed).length}/{session.sets.length} sets</span>
+                  {session.difficulty && <span>RPE {session.difficulty}/10</span>}
+                </div>
+              </button>
+              <button
+                onClick={() => setConfirmDeleteId(session.id)}
+                className="p-2 text-muted-foreground hover:text-destructive transition-colors rounded-xl"
+              >
+                <Trash2 size={16} />
+              </button>
+              <button
+                onClick={() => setViewingSession(session)}
+                className="p-1 text-muted-foreground"
+              >
+                <ChevronRight size={16} />
+              </button>
+            </div>
           ))}
         </div>
+
+        <button
+          onClick={() => {
+            onDaySelect(selectedDate);
+          }}
+          className="w-full bg-primary text-primary-foreground font-semibold py-4 rounded-2xl text-sm flex items-center justify-center gap-2 transition-transform active:scale-95"
+        >
+          <Plus size={18} /> Add session
+        </button>
       </div>
     );
   }

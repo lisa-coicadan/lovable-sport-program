@@ -1,6 +1,6 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useRef } from 'react';
 import { SessionLog, SetLog, AppData, calculate1RM } from '@/lib/types';
-import { ArrowLeft, Trash2, Pencil, Share2, Plus, X, TrendingUp, TrendingDown, Minus, Check, ChevronRight } from 'lucide-react';
+import { Trash2, Pencil, Share2, Plus, X, TrendingUp, TrendingDown, Minus, Check } from 'lucide-react';
 
 interface SessionDetailViewProps {
   session: SessionLog;
@@ -13,6 +13,7 @@ interface SessionDetailViewProps {
 const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: SessionDetailViewProps) => {
   const [showConfirm, setShowConfirm] = useState(false);
   const [editing, setEditing] = useState(false);
+  const recapRef = useRef<HTMLDivElement>(null);
 
   // Edit state
   const [editSets, setEditSets] = useState<SetLog[]>([]);
@@ -21,7 +22,6 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
   const [editNotes, setEditNotes] = useState('');
   const [editDate, setEditDate] = useState('');
 
-  // Only completed sets for display
   const completedSets = useMemo(() => session.sets.filter(s => s.completed), [session.sets]);
   const totalVolume = completedSets.reduce((acc, s) => acc + s.weight * s.reps, 0);
 
@@ -38,7 +38,6 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
     return null;
   }, [data.sessions]);
 
-  // Group sets by exercise
   const groupSets = (sets: SetLog[]) => {
     const map: Record<string, SetLog[]> = {};
     sets.forEach(s => {
@@ -57,20 +56,46 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
       .sort((a, b) => b.date.localeCompare(a.date))[0];
     if (!lastSession) return {};
 
-    const result: Record<string, { weightDiff: number; repDiff: number; e1rmDiff: number }> = {};
+    const result: Record<string, { weightDiff: number; repDiff: number; e1rmDiff: number; e1rmPct: number }> = {};
     groupedExercises.forEach(([name, sets]) => {
       const bestSet = sets.reduce((best, s) => calculate1RM(s.weight, s.reps) > calculate1RM(best.weight, best.reps) ? s : best, sets[0]);
       const lastSets = lastSession.sets.filter(s => s.exerciseName === name && s.completed && s.weight > 0);
       if (lastSets.length === 0) return;
       const lastBest = lastSets.reduce((best, s) => calculate1RM(s.weight, s.reps) > calculate1RM(best.weight, best.reps) ? s : best, lastSets[0]);
+      const current1RM = calculate1RM(bestSet.weight, bestSet.reps);
+      const last1RM = calculate1RM(lastBest.weight, lastBest.reps);
       result[name] = {
         weightDiff: bestSet.weight - lastBest.weight,
         repDiff: bestSet.reps - lastBest.reps,
-        e1rmDiff: Math.round((calculate1RM(bestSet.weight, bestSet.reps) - calculate1RM(lastBest.weight, lastBest.reps)) * 10) / 10,
+        e1rmDiff: Math.round((current1RM - last1RM) * 10) / 10,
+        e1rmPct: last1RM > 0 ? Math.round(((current1RM - last1RM) / last1RM) * 1000) / 10 : 0,
       };
     });
     return result;
   }, [data.sessions, session, groupedExercises]);
+
+  // Overall session comparison
+  const overallComparison = useMemo(() => {
+    const lastSession = data.sessions
+      .filter(s => s.workoutTypeId === session.workoutTypeId && s.id !== session.id)
+      .sort((a, b) => b.date.localeCompare(a.date))[0];
+    if (!lastSession) return null;
+
+    const lastCompleted = lastSession.sets.filter(s => s.completed);
+    const lastVolume = lastCompleted.reduce((acc, s) => acc + s.weight * s.reps, 0);
+    const volDiff = lastVolume > 0 ? ((totalVolume - lastVolume) / lastVolume) * 100 : 0;
+
+    const progValues = Object.values(progressions);
+    const avg1RMDiff = progValues.length > 0
+      ? progValues.reduce((sum, p) => sum + p.e1rmPct, 0) / progValues.length
+      : 0;
+
+    let verdict: 'better' | 'similar' | 'below' = 'similar';
+    if (volDiff > 2 || avg1RMDiff > 1) verdict = 'better';
+    else if (volDiff < -2 || avg1RMDiff < -1) verdict = 'below';
+
+    return { volDiff: Math.round(volDiff * 10) / 10, avg1RMDiff: Math.round(avg1RMDiff * 10) / 10, verdict };
+  }, [data.sessions, session, totalVolume, progressions]);
 
   const sessionDate = new Date(session.date + 'T00:00:00').toLocaleDateString('default', {
     weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
@@ -91,9 +116,7 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
     setEditing(true);
   };
 
-  const cancelEdit = () => {
-    setEditing(false);
-  };
+  const cancelEdit = () => setEditing(false);
 
   const saveEdit = () => {
     onUpdate({
@@ -113,9 +136,7 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
     setEditSets(updated);
   };
 
-  const removeEditSet = (index: number) => {
-    setEditSets(prev => prev.filter((_, i) => i !== index));
-  };
+  const removeEditSet = (index: number) => setEditSets(prev => prev.filter((_, i) => i !== index));
 
   const addEditSet = (exerciseId: string, exerciseName: string) => {
     const existing = editSets.filter(s => s.exerciseId === exerciseId);
@@ -125,12 +146,8 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
       if (editSets[i].exerciseId === exerciseId) { insertIndex = i + 1; break; }
     }
     const newSet: SetLog = {
-      exerciseId,
-      exerciseName,
-      setNumber: existing.length + 1,
-      reps: lastSet?.reps || 10,
-      weight: lastSet?.weight || 0,
-      completed: true,
+      exerciseId, exerciseName, setNumber: existing.length + 1,
+      reps: lastSet?.reps || 10, weight: lastSet?.weight || 0, completed: true,
     };
     const updated = [...editSets];
     updated.splice(insertIndex, 0, newSet);
@@ -140,12 +157,8 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
   const addNewExercise = () => {
     const newId = `edit-${Date.now()}`;
     setEditSets(prev => [...prev, {
-      exerciseId: newId,
-      exerciseName: 'New Exercise',
-      setNumber: 1,
-      reps: 10,
-      weight: 0,
-      completed: true,
+      exerciseId: newId, exerciseName: 'New Exercise', setNumber: 1,
+      reps: 10, weight: 0, completed: true,
     }]);
   };
 
@@ -157,21 +170,226 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
     setEditSets(prev => prev.filter(s => s.exerciseId !== exerciseId));
   };
 
-  // --- Share ---
+  // --- Share as image via canvas ---
   const handleShare = async () => {
-    const text = `${session.workoutTypeName} — ${sessionDate}\n\n` +
-      groupedExercises.map(([name, sets]) => {
-        const best = sets.reduce((b, s) => calculate1RM(s.weight, s.reps) > calculate1RM(b.weight, b.reps) ? s : b, sets[0]);
-        return `${name}: ${best.weight}kg × ${best.reps} (1RM: ${calculate1RM(best.weight, best.reps)}kg)`;
-      }).join('\n') +
-      `\n\nDuration: ${session.duration || '?'} min | RPE: ${session.difficulty || '?'}/10` +
-      (session.notes ? `\n${session.notes}` : '');
+    const canvas = document.createElement('canvas');
+    const w = 1080;
+    const ctx = canvas.getContext('2d')!;
+    const padding = 60;
+    const lineH = 36;
+    const color = getColorForType();
 
-    if (navigator.share) {
-      try { await navigator.share({ text }); } catch {}
-    } else {
-      try { await navigator.clipboard.writeText(text); } catch {}
+    // Pre-calculate height
+    let totalLines = 0;
+    totalLines += 5; // header area (app name, session name, date, type, spacing)
+    totalLines += 1; // divider
+    groupedExercises.forEach(([, sets]) => {
+      totalLines += 2; // exercise name + 1rm
+      totalLines += sets.length; // each set
+      const prog = progressions[sets[0]?.exerciseName || ''];
+      if (prog) totalLines += 1;
+      totalLines += 1; // spacing
+    });
+    totalLines += 3; // tonnage, duration, RPE
+    if (session.notes) totalLines += 2;
+    if (overallComparison) totalLines += 3;
+    totalLines += 2; // footer
+
+    const h = Math.max(1200, padding * 2 + totalLines * lineH + 100);
+    canvas.width = w;
+    canvas.height = h;
+
+    // Background
+    ctx.fillStyle = '#111114';
+    ctx.fillRect(0, 0, w, h);
+
+    // Subtle gradient overlay at top
+    const grad = ctx.createLinearGradient(0, 0, 0, 300);
+    grad.addColorStop(0, `hsla(${color}, 0.12)`);
+    grad.addColorStop(1, 'transparent');
+    ctx.fillRect(0, 0, w, 300);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, 300);
+
+    let y = padding + 20;
+    const left = padding;
+    const right = w - padding;
+
+    // App name
+    ctx.font = '600 28px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.fillStyle = `hsl(${color})`;
+    ctx.fillText('MUSCULISA', left, y);
+    y += lineH + 10;
+
+    // Session name
+    ctx.font = 'bold 48px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.fillStyle = '#f2f2f2';
+    ctx.fillText(session.workoutTypeName, left, y);
+    y += 54;
+
+    // Date
+    ctx.font = '400 28px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.fillStyle = '#8a8a8e';
+    ctx.fillText(sessionDate, left, y);
+    y += lineH + 20;
+
+    // Divider
+    ctx.fillStyle = '#2a2a2e';
+    ctx.fillRect(left, y, right - left, 1);
+    y += 30;
+
+    // Exercises
+    groupedExercises.forEach(([name, sets]) => {
+      const bestSet = sets.reduce((b, s) => calculate1RM(s.weight, s.reps) > calculate1RM(b.weight, b.reps) ? s : b, sets[0]);
+      const e1rm = calculate1RM(bestSet.weight, bestSet.reps);
+      const prog = progressions[name];
+
+      // Exercise name + 1RM
+      ctx.font = '600 30px -apple-system, BlinkMacSystemFont, sans-serif';
+      ctx.fillStyle = '#f2f2f2';
+      ctx.fillText(name, left, y);
+      if (e1rm > 0) {
+        ctx.font = '600 26px -apple-system, BlinkMacSystemFont, sans-serif';
+        ctx.fillStyle = `hsl(${color})`;
+        const rmText = `1RM: ${e1rm} kg`;
+        ctx.fillText(rmText, right - ctx.measureText(rmText).width, y);
+      }
+      y += lineH + 4;
+
+      // Sets
+      sets.forEach((s, i) => {
+        ctx.font = '400 26px -apple-system, BlinkMacSystemFont, sans-serif';
+        ctx.fillStyle = '#8a8a8e';
+        ctx.fillText(`  Set ${i + 1}`, left, y);
+        ctx.fillStyle = '#d1d1d6';
+        ctx.font = '500 26px -apple-system, BlinkMacSystemFont, monospace';
+        const setText = `${s.weight} kg × ${s.reps}`;
+        ctx.fillText(setText, right - ctx.measureText(setText).width, y);
+        y += lineH;
+      });
+
+      // Progression
+      if (prog) {
+        ctx.font = '500 24px -apple-system, BlinkMacSystemFont, sans-serif';
+        if (prog.e1rmPct > 0) {
+          ctx.fillStyle = '#34c759';
+          ctx.fillText(`↑ +${prog.e1rmPct}% vs last session`, left + 16, y);
+        } else if (prog.e1rmPct < 0) {
+          ctx.fillStyle = '#ff453a';
+          ctx.fillText(`↓ ${prog.e1rmPct}% vs last session`, left + 16, y);
+        } else {
+          ctx.fillStyle = '#8a8a8e';
+          ctx.fillText('= Same as last session', left + 16, y);
+        }
+        y += lineH;
+      }
+      y += 14;
+    });
+
+    // Divider
+    ctx.fillStyle = '#2a2a2e';
+    ctx.fillRect(left, y, right - left, 1);
+    y += 30;
+
+    // Tonnage
+    ctx.font = '500 28px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.fillStyle = '#f2f2f2';
+    ctx.fillText('Total tonnage', left, y);
+    ctx.font = 'bold 28px -apple-system, BlinkMacSystemFont, monospace';
+    ctx.fillStyle = `hsl(${color})`;
+    const tonText = `${Math.round(totalVolume)} kg`;
+    ctx.fillText(tonText, right - ctx.measureText(tonText).width, y);
+    y += lineH + 4;
+
+    // Duration
+    if (session.duration) {
+      ctx.font = '500 28px -apple-system, BlinkMacSystemFont, sans-serif';
+      ctx.fillStyle = '#f2f2f2';
+      ctx.fillText('Duration', left, y);
+      ctx.font = '500 28px -apple-system, BlinkMacSystemFont, monospace';
+      ctx.fillStyle = '#d1d1d6';
+      const durText = `${session.duration} min`;
+      ctx.fillText(durText, right - ctx.measureText(durText).width, y);
+      y += lineH + 4;
     }
+
+    // RPE
+    if (session.difficulty) {
+      ctx.font = '500 28px -apple-system, BlinkMacSystemFont, sans-serif';
+      ctx.fillStyle = '#f2f2f2';
+      ctx.fillText('RPE', left, y);
+      ctx.font = '500 28px -apple-system, BlinkMacSystemFont, monospace';
+      ctx.fillStyle = '#d1d1d6';
+      const rpeText = `${session.difficulty}/10`;
+      ctx.fillText(rpeText, right - ctx.measureText(rpeText).width, y);
+      y += lineH + 4;
+    }
+
+    // Notes
+    if (session.notes) {
+      y += 10;
+      ctx.font = 'italic 24px -apple-system, BlinkMacSystemFont, sans-serif';
+      ctx.fillStyle = '#8a8a8e';
+      const maxW = right - left;
+      const words = session.notes.split(' ');
+      let line = '';
+      for (const word of words) {
+        const test = line + word + ' ';
+        if (ctx.measureText(test).width > maxW && line) {
+          ctx.fillText(`"${line.trim()}"`, left, y);
+          y += lineH;
+          line = word + ' ';
+        } else {
+          line = test;
+        }
+      }
+      if (line) { ctx.fillText(`"${line.trim()}"`, left, y); y += lineH; }
+    }
+
+    // Overall comparison
+    if (overallComparison) {
+      y += 16;
+      ctx.fillStyle = '#2a2a2e';
+      ctx.fillRect(left, y, right - left, 1);
+      y += 24;
+
+      ctx.font = '600 26px -apple-system, BlinkMacSystemFont, sans-serif';
+      if (overallComparison.verdict === 'better') {
+        ctx.fillStyle = '#34c759';
+        ctx.fillText('📈 Overall better than last session', left, y);
+      } else if (overallComparison.verdict === 'below') {
+        ctx.fillStyle = '#ff453a';
+        ctx.fillText('📉 Below last session', left, y);
+      } else {
+        ctx.fillStyle = '#8a8a8e';
+        ctx.fillText('📊 Similar to last session', left, y);
+      }
+      y += lineH;
+
+      ctx.font = '400 22px -apple-system, BlinkMacSystemFont, sans-serif';
+      ctx.fillStyle = '#6e6e73';
+      ctx.fillText(`Volume: ${overallComparison.volDiff > 0 ? '+' : ''}${overallComparison.volDiff}%  •  Avg 1RM: ${overallComparison.avg1RMDiff > 0 ? '+' : ''}${overallComparison.avg1RMDiff}%`, left, y);
+    }
+
+    // Convert to blob and share
+    canvas.toBlob(async (blob) => {
+      if (!blob) return;
+      const file = new File([blob], `${session.workoutTypeName}-${session.date}.png`, { type: 'image/png' });
+
+      if (navigator.share && navigator.canShare?.({ files: [file] })) {
+        try {
+          await navigator.share({ files: [file] });
+        } catch {}
+      } else {
+        // Fallback: download
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = file.name;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+    }, 'image/png');
   };
 
   // =========== EDIT MODE ===========
@@ -181,7 +399,7 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
       <div className="px-4 pt-12 pb-24 animate-slide-up">
         <div className="flex items-center gap-3 mb-6">
           <button onClick={cancelEdit} className="text-muted-foreground touch-target p-1">
-            <ArrowLeft size={20} />
+            <X size={20} />
           </button>
           <h1 className="text-xl font-bold text-foreground flex-1">Edit Session</h1>
         </div>
@@ -286,15 +504,13 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
           </div>
           <input
             type="range"
-            min={1}
-            max={10}
+            min={1} max={10}
             value={editDifficulty}
             onChange={e => setEditDifficulty(parseInt(e.target.value))}
             className="w-full accent-primary h-2"
           />
           <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
-            <span>Easy</span>
-            <span>Hard</span>
+            <span>Easy</span><span>Hard</span>
           </div>
         </div>
 
@@ -310,16 +526,10 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
         </div>
 
         <div className="flex gap-3">
-          <button
-            onClick={cancelEdit}
-            className="flex-1 bg-secondary text-secondary-foreground font-semibold py-4 rounded-2xl text-sm transition-transform active:scale-95"
-          >
+          <button onClick={cancelEdit} className="flex-1 bg-secondary text-secondary-foreground font-semibold py-4 rounded-2xl text-sm transition-transform active:scale-95">
             Cancel
           </button>
-          <button
-            onClick={saveEdit}
-            className="flex-1 bg-primary text-primary-foreground font-semibold py-4 rounded-2xl text-sm flex items-center justify-center gap-2 transition-transform active:scale-95"
-          >
+          <button onClick={saveEdit} className="flex-1 bg-primary text-primary-foreground font-semibold py-4 rounded-2xl text-sm flex items-center justify-center gap-2 transition-transform active:scale-95">
             Save Changes <Check size={18} />
           </button>
         </div>
@@ -339,16 +549,10 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
               Are you sure you want to delete this session? This action cannot be undone.
             </p>
             <div className="flex gap-3">
-              <button
-                onClick={() => setShowConfirm(false)}
-                className="flex-1 bg-secondary text-secondary-foreground font-medium py-2.5 rounded-xl text-sm"
-              >
+              <button onClick={() => setShowConfirm(false)} className="flex-1 bg-secondary text-secondary-foreground font-medium py-2.5 rounded-xl text-sm">
                 Cancel
               </button>
-              <button
-                onClick={() => { onDelete?.(session.id); onClose(); }}
-                className="flex-1 bg-destructive text-destructive-foreground font-medium py-2.5 rounded-xl text-sm"
-              >
+              <button onClick={() => { onDelete?.(session.id); onClose(); }} className="flex-1 bg-destructive text-destructive-foreground font-medium py-2.5 rounded-xl text-sm">
                 Delete
               </button>
             </div>
@@ -356,33 +560,45 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
         </div>
       )}
 
-      {/* Header */}
+      {/* Top bar: Share (left) — Delete (center-left) — Close (right) */}
       <div className="flex items-center gap-3 mb-1">
-        <button onClick={onClose} className="text-muted-foreground touch-target p-1">
-          <ArrowLeft size={20} />
+        <button
+          onClick={handleShare}
+          className="p-2 text-muted-foreground hover:text-primary rounded-xl transition-colors touch-target"
+          title="Share recap"
+        >
+          <Share2 size={20} />
         </button>
-        <h1 className="text-xl font-bold text-foreground flex-1">{session.workoutTypeName}</h1>
         {onDelete && (
           <button
             onClick={() => setShowConfirm(true)}
-            className="p-2 text-destructive hover:bg-destructive/10 rounded-xl transition-colors"
+            className="p-2 text-muted-foreground hover:text-destructive rounded-xl transition-colors touch-target"
+            title="Delete session"
           >
             <Trash2 size={20} />
           </button>
         )}
+        <div className="flex-1" />
+        <button onClick={onClose} className="p-2 text-muted-foreground hover:text-foreground rounded-xl transition-colors touch-target">
+          <X size={20} />
+        </button>
       </div>
 
-      <div className="flex items-center gap-2 mb-6 ml-9">
-        <p className="text-xs text-muted-foreground">{sessionDate}</p>
-        <span
-          className="text-[10px] font-medium px-2 py-0.5 rounded-full"
-          style={{
-            backgroundColor: `hsl(${getColorForType()} / 0.15)`,
-            color: `hsl(${getColorForType()})`,
-          }}
-        >
-          {session.workoutTypeName}
-        </span>
+      {/* Session header */}
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-foreground mb-1">{session.workoutTypeName}</h1>
+        <div className="flex items-center gap-2">
+          <p className="text-xs text-muted-foreground">{sessionDate}</p>
+          <span
+            className="text-[10px] font-medium px-2 py-0.5 rounded-full"
+            style={{
+              backgroundColor: `hsl(${getColorForType()} / 0.15)`,
+              color: `hsl(${getColorForType()})`,
+            }}
+          >
+            {session.workoutTypeName}
+          </span>
+        </div>
       </div>
 
       {/* Stats summary */}
@@ -441,11 +657,9 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
                       <Minus size={12} className="text-muted-foreground" />
                     )}
                     <span className={`text-xs font-medium ${
-                      prog.e1rmDiff > 0 ? 'text-success' : prog.e1rmDiff < 0 ? 'text-destructive' : 'text-muted-foreground'
+                      prog.e1rmPct > 0 ? 'text-success' : prog.e1rmPct < 0 ? 'text-destructive' : 'text-muted-foreground'
                     }`}>
-                      {prog.weightDiff !== 0 && `${prog.weightDiff > 0 ? '+' : ''}${prog.weightDiff}kg`}
-                      {prog.repDiff !== 0 && ` ${prog.repDiff > 0 ? '+' : ''}${prog.repDiff} rep${Math.abs(prog.repDiff) > 1 ? 's' : ''}`}
-                      {prog.weightDiff === 0 && prog.repDiff === 0 && 'Same as last time'}
+                      {prog.e1rmPct !== 0 ? `${prog.e1rmPct > 0 ? '+' : ''}${prog.e1rmPct}% vs last session` : 'Same as last session'}
                     </span>
                   </div>
                 )}
@@ -455,7 +669,7 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
         </div>
       )}
 
-      {/* RPE & Notes (read-only) */}
+      {/* RPE & Notes */}
       {session.difficulty && (
         <div className="glass-card p-4 mb-3">
           <div className="flex items-center justify-between">
@@ -471,21 +685,36 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
         </div>
       )}
 
-      {/* Bottom action buttons — Edit + Share */}
-      <div className="flex gap-3">
-        <button
-          onClick={enterEditMode}
-          className="flex-1 bg-secondary text-foreground font-semibold py-4 rounded-2xl text-sm flex items-center justify-center gap-2 transition-transform active:scale-95"
-        >
-          <Pencil size={16} /> Edit Session
-        </button>
-        <button
-          onClick={handleShare}
-          className="flex-1 bg-primary text-primary-foreground font-semibold py-4 rounded-2xl text-sm flex items-center justify-center gap-2 transition-transform active:scale-95"
-        >
-          <Share2 size={16} /> Share Recap
-        </button>
-      </div>
+      {/* Overall comparison */}
+      {overallComparison && (
+        <div className="glass-card p-4 mb-6">
+          <div className="flex items-center gap-2">
+            {overallComparison.verdict === 'better' ? (
+              <TrendingUp size={16} className="text-success" />
+            ) : overallComparison.verdict === 'below' ? (
+              <TrendingDown size={16} className="text-destructive" />
+            ) : (
+              <Minus size={16} className="text-muted-foreground" />
+            )}
+            <span className={`text-sm font-semibold ${
+              overallComparison.verdict === 'better' ? 'text-success' : overallComparison.verdict === 'below' ? 'text-destructive' : 'text-muted-foreground'
+            }`}>
+              {overallComparison.verdict === 'better' ? 'Better than last session' : overallComparison.verdict === 'below' ? 'Below last session' : 'Similar to last session'}
+            </span>
+          </div>
+          <p className="text-[10px] text-muted-foreground mt-1">
+            Volume: {overallComparison.volDiff > 0 ? '+' : ''}{overallComparison.volDiff}% • Avg 1RM: {overallComparison.avg1RMDiff > 0 ? '+' : ''}{overallComparison.avg1RMDiff}%
+          </p>
+        </div>
+      )}
+
+      {/* Bottom: Edit button */}
+      <button
+        onClick={enterEditMode}
+        className="w-full bg-primary text-primary-foreground font-semibold py-4 rounded-2xl text-sm flex items-center justify-center gap-2 transition-transform active:scale-95"
+      >
+        <Pencil size={16} /> Edit Session
+      </button>
     </div>
   );
 };
