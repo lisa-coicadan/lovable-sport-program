@@ -138,20 +138,7 @@ const StatsTab = ({ data }: StatsTabProps) => {
       }));
   }, [data.bodyWeightLogs]);
 
-  // Body weight vs TM correlation
-  const correlationData = useMemo(() => {
-    const logs = (data.bodyWeightLogs || []).sort((a, b) => a.date.localeCompare(b.date));
-    if (logs.length === 0) return [];
-    
-    return logs.map(l => {
-      // Find closest TM at that date (approximate from cycle)
-      return {
-        date: new Date(l.date).toLocaleDateString('default', { month: 'short', day: 'numeric' }),
-        bodyWeight: l.weight,
-        tm: data.fiveThreeOne.trainingMax,
-      };
-    });
-  }, [data.bodyWeightLogs, data.fiveThreeOne.trainingMax]);
+  // (Body weight vs Squat TM correlation removed per user request)
 
   const currentWeekTime = weeklyTimeData.length > 0 ? weeklyTimeData[weeklyTimeData.length - 1]?.minutes || 0 : 0;
   const prevWeekTime = weeklyTimeData.length > 1 ? weeklyTimeData[weeklyTimeData.length - 2]?.minutes || 0 : 0;
