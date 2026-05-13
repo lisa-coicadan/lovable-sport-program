@@ -342,10 +342,10 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
     .map((s, i) => ({ ...s, globalIdx: i }))
     .filter(s => s.exerciseId !== '531-squat');
 
-  const groupedSets: Record<string, { globalIdx: number; set: SetLog }[]> = {};
+  const groupedSets: Record<string, { name: string; entries: { globalIdx: number; set: SetLog }[] }> = {};
   regularSets.forEach(s => {
-    if (!groupedSets[s.exerciseName]) groupedSets[s.exerciseName] = [];
-    groupedSets[s.exerciseName].push({ globalIdx: s.globalIdx, set: s });
+    if (!groupedSets[s.exerciseId]) groupedSets[s.exerciseId] = { name: s.exerciseName, entries: [] };
+    groupedSets[s.exerciseId].entries.push({ globalIdx: s.globalIdx, set: s });
   });
 
   const currentFiveThreeOneSets = getWeekSets(data.fiveThreeOne.trainingMax, selectedWeek);
