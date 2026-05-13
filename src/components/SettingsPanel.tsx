@@ -79,6 +79,12 @@ const SettingsPanel = ({ data, onUpdateData, onUpdate531, onClose }: SettingsPan
     setWorkoutTypes(updated);
   };
 
+  const updateTypeColor = (index: number, color: string) => {
+    const updated = [...workoutTypes];
+    updated[index].color = color;
+    setWorkoutTypes(updated);
+  };
+
   const hiddenTypes = workoutTypes.filter(t => t.hidden);
 
   return (
