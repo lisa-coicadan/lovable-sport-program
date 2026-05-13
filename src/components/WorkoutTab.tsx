@@ -444,13 +444,14 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
 
       {/* Regular exercises */}
       <div className="space-y-4 mb-4">
-        {Object.entries(groupedSets).map(([name, exerciseSets]) => {
-          const exerciseId = exerciseSets[0].set.exerciseId;
+        {Object.entries(groupedSets).map(([exerciseId, group]) => {
+          const name = group.name;
+          const exerciseSets = group.entries;
           const lastPerf = getLastPerformance(name);
           const isTemp = exerciseId.startsWith('temp-');
 
           return (
-            <div key={name} className="glass-card p-4">
+            <div key={exerciseId} className="glass-card p-4">
               <div className="flex items-center gap-1.5 mb-1">
                 {isTemp ? (
                   <input
