@@ -271,7 +271,7 @@ const StatsTab = ({ data }: StatsTabProps) => {
             <LineChart data={difficultyData}>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 4% 20%)" />
               <XAxis dataKey="date" tick={chartStyle} axisLine={false} tickLine={false} />
-              <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={30} domain={[0, 10]} />
+              <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={30} domain={[0, 5]} />
               <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: 'hsl(0 0% 95%)' }} />
               <Line type="monotone" dataKey="difficulty" stroke="hsl(262 83% 58%)" strokeWidth={2.5} dot={{ r: 3, fill: 'hsl(262 83% 58%)' }} />
             </LineChart>
@@ -337,23 +337,6 @@ const StatsTab = ({ data }: StatsTabProps) => {
         </div>
       )}
 
-      {/* Body Weight vs TM Correlation */}
-      {correlationData.length > 1 && (
-        <div className="glass-card p-4">
-          <h3 className="text-sm font-semibold text-foreground mb-3">Body Weight vs Squat TM</h3>
-          <ResponsiveContainer width="100%" height={160}>
-            <LineChart data={correlationData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 4% 20%)" />
-              <XAxis dataKey="date" tick={chartStyle} axisLine={false} tickLine={false} />
-              <YAxis yAxisId="bw" tick={chartStyle} axisLine={false} tickLine={false} width={35} />
-              <YAxis yAxisId="tm" orientation="right" tick={chartStyle} axisLine={false} tickLine={false} width={35} />
-              <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: 'hsl(0 0% 95%)' }} />
-              <Line yAxisId="bw" type="monotone" dataKey="bodyWeight" stroke="hsl(199 89% 48%)" strokeWidth={2} dot={false} name="Body Weight" />
-              <Line yAxisId="tm" type="monotone" dataKey="tm" stroke="hsl(84 81% 44%)" strokeWidth={2} dot={false} name="Squat TM" />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      )}
     </div>
   );
 };
