@@ -79,6 +79,12 @@ const SettingsPanel = ({ data, onUpdateData, onUpdate531, onClose }: SettingsPan
     setWorkoutTypes(updated);
   };
 
+  const updateTypeColor = (index: number, color: string) => {
+    const updated = [...workoutTypes];
+    updated[index].color = color;
+    setWorkoutTypes(updated);
+  };
+
   const hiddenTypes = workoutTypes.filter(t => t.hidden);
 
   return (
@@ -213,6 +219,18 @@ const SettingsPanel = ({ data, onUpdateData, onUpdate531, onClose }: SettingsPan
                   <button onClick={() => deleteType(ti)} className="text-destructive p-1 touch-target" title="Delete">
                     <Trash2 size={16} />
                   </button>
+                </div>
+                <div className="flex items-center gap-1.5 mb-3 flex-wrap">
+                  <span className="text-[10px] text-muted-foreground mr-1">Color</span>
+                  {WORKOUT_COLORS.map(c => (
+                    <button
+                      key={c}
+                      onClick={() => updateTypeColor(ti, c)}
+                      className={`w-6 h-6 rounded-full border-2 transition-transform ${type.color === c ? 'border-foreground scale-110' : 'border-transparent'}`}
+                      style={{ backgroundColor: `hsl(${c})` }}
+                      aria-label="Select color"
+                    />
+                  ))}
                 </div>
                 <div className="space-y-1.5">
                   {type.exercises.map((ex, ei) => (
