@@ -493,6 +493,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
                         type="number"
                         value={sets[globalIdx].weight || ''}
                         onChange={e => updateSet(globalIdx, 'weight', e.target.value)}
+                        onBlur={() => propagateWeightOnBlur(globalIdx)}
                         className="w-16 bg-transparent text-foreground text-sm text-center outline-none font-mono"
                         placeholder="kg"
                       />
