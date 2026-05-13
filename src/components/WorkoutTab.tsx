@@ -113,20 +113,19 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
     } else {
       updated[index][field] = field === 'weight' ? parseFloat(value) || 0 : parseInt(value) || 0;
     }
-    
-    // Auto-fill weight for remaining sets of same exercise
-    if (field === 'weight' && value !== '') {
-      const currentSet = updated[index];
-      if (currentSet.setNumber === 1) {
-        const numericValue = parseFloat(value) || 0;
-        for (let i = index + 1; i < updated.length; i++) {
-          if (updated[i].exerciseId === currentSet.exerciseId && updated[i].weight === 0) {
-            updated[i].weight = numericValue;
-          }
-        }
+    setSets(updated);
+  };
+
+  // Propagate first-set weight to remaining empty sets when user leaves the field
+  const propagateWeightOnBlur = (index: number) => {
+    const currentSet = sets[index];
+    if (!currentSet || currentSet.setNumber !== 1 || currentSet.weight <= 0) return;
+    const updated = [...sets];
+    for (let i = index + 1; i < updated.length; i++) {
+      if (updated[i].exerciseId === currentSet.exerciseId && updated[i].weight === 0) {
+        updated[i].weight = currentSet.weight;
       }
     }
-    
     setSets(updated);
   };
 
@@ -215,7 +214,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
       sets: finalSets,
       startTime,
       endTime,
-      duration: Math.round((endTime - startTime) / 60000),
+      duration: Math.round((endTime - startTime) / 60000) || 60,
     };
     
     setPendingSession(session);
