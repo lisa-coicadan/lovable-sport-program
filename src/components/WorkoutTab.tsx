@@ -113,20 +113,19 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
     } else {
       updated[index][field] = field === 'weight' ? parseFloat(value) || 0 : parseInt(value) || 0;
     }
-    
-    // Auto-fill weight for remaining sets of same exercise
-    if (field === 'weight' && value !== '') {
-      const currentSet = updated[index];
-      if (currentSet.setNumber === 1) {
-        const numericValue = parseFloat(value) || 0;
-        for (let i = index + 1; i < updated.length; i++) {
-          if (updated[i].exerciseId === currentSet.exerciseId && updated[i].weight === 0) {
-            updated[i].weight = numericValue;
-          }
-        }
+    setSets(updated);
+  };
+
+  // Propagate first-set weight to remaining empty sets when user leaves the field
+  const propagateWeightOnBlur = (index: number) => {
+    const currentSet = sets[index];
+    if (!currentSet || currentSet.setNumber !== 1 || currentSet.weight <= 0) return;
+    const updated = [...sets];
+    for (let i = index + 1; i < updated.length; i++) {
+      if (updated[i].exerciseId === currentSet.exerciseId && updated[i].weight === 0) {
+        updated[i].weight = currentSet.weight;
       }
     }
-    
     setSets(updated);
   };
 
@@ -215,7 +214,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
       sets: finalSets,
       startTime,
       endTime,
-      duration: Math.round((endTime - startTime) / 60000),
+      duration: Math.round((endTime - startTime) / 60000) || 60,
     };
     
     setPendingSession(session);
@@ -343,10 +342,10 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
     .map((s, i) => ({ ...s, globalIdx: i }))
     .filter(s => s.exerciseId !== '531-squat');
 
-  const groupedSets: Record<string, { globalIdx: number; set: SetLog }[]> = {};
+  const groupedSets: Record<string, { name: string; entries: { globalIdx: number; set: SetLog }[] }> = {};
   regularSets.forEach(s => {
-    if (!groupedSets[s.exerciseName]) groupedSets[s.exerciseName] = [];
-    groupedSets[s.exerciseName].push({ globalIdx: s.globalIdx, set: s });
+    if (!groupedSets[s.exerciseId]) groupedSets[s.exerciseId] = { name: s.exerciseName, entries: [] };
+    groupedSets[s.exerciseId].entries.push({ globalIdx: s.globalIdx, set: s });
   });
 
   const currentFiveThreeOneSets = getWeekSets(data.fiveThreeOne.trainingMax, selectedWeek);
@@ -445,13 +444,14 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
 
       {/* Regular exercises */}
       <div className="space-y-4 mb-4">
-        {Object.entries(groupedSets).map(([name, exerciseSets]) => {
-          const exerciseId = exerciseSets[0].set.exerciseId;
+        {Object.entries(groupedSets).map(([exerciseId, group]) => {
+          const name = group.name;
+          const exerciseSets = group.entries;
           const lastPerf = getLastPerformance(name);
           const isTemp = exerciseId.startsWith('temp-');
 
           return (
-            <div key={name} className="glass-card p-4">
+            <div key={exerciseId} className="glass-card p-4">
               <div className="flex items-center gap-1.5 mb-1">
                 {isTemp ? (
                   <input
@@ -493,6 +493,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
                         type="number"
                         value={sets[globalIdx].weight || ''}
                         onChange={e => updateSet(globalIdx, 'weight', e.target.value)}
+                        onBlur={() => propagateWeightOnBlur(globalIdx)}
                         className="w-16 bg-transparent text-foreground text-sm text-center outline-none font-mono"
                         placeholder="kg"
                       />

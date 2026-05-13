@@ -110,7 +110,7 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
   const enterEditMode = () => {
     setEditSets([...completedSets]);
     setEditDuration(session.duration || 0);
-    setEditDifficulty(session.difficulty || 5);
+    setEditDifficulty(session.difficulty || 3);
     setEditNotes(session.notes || '');
     setEditDate(session.date);
     setEditing(true);
@@ -123,7 +123,7 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
       ...session,
       date: editDate,
       sets: editSets,
-      duration: editDuration,
+      duration: editDuration || 60,
       difficulty: editDifficulty,
       notes: editNotes,
     });
@@ -320,7 +320,7 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
       ctx.fillText('RPE', left, y);
       ctx.font = '500 28px -apple-system, BlinkMacSystemFont, monospace';
       ctx.fillStyle = '#d1d1d6';
-      const rpeText = `${session.difficulty}/10`;
+      const rpeText = `${session.difficulty}/5`;
       ctx.fillText(rpeText, right - ctx.measureText(rpeText).width, y);
       y += lineH + 4;
     }
@@ -500,11 +500,11 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
         <div className="glass-card p-4 mb-4">
           <div className="flex items-center justify-between mb-3">
             <label className="text-xs text-muted-foreground">RPE</label>
-            <span className="text-sm font-bold text-foreground">{editDifficulty}/10</span>
+            <span className="text-sm font-bold text-foreground">{editDifficulty}/5</span>
           </div>
           <input
             type="range"
-            min={1} max={10}
+            min={1} max={5}
             value={editDifficulty}
             onChange={e => setEditDifficulty(parseInt(e.target.value))}
             className="w-full accent-primary h-2"
@@ -674,7 +674,7 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
         <div className="glass-card p-4 mb-3">
           <div className="flex items-center justify-between">
             <span className="text-xs text-muted-foreground">RPE</span>
-            <span className="text-sm font-bold text-foreground">{session.difficulty}/10</span>
+            <span className="text-sm font-bold text-foreground">{session.difficulty}/5</span>
           </div>
         </div>
       )}

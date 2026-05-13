@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { AppData, calculate1RM } from '@/lib/types';
+import { normalizeExerciseName, isPrTracked } from '@/lib/exerciseNormalize';
 import { Trophy, Scale } from 'lucide-react';
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -13,14 +14,16 @@ interface StatsTabProps {
 const StatsTab = ({ data }: StatsTabProps) => {
   const [difficultyFilter, setDifficultyFilter] = useState<string | null>(null);
 
-  // Personal Records
+  // Personal Records — only tracked canonical exercises (Tractions lestées, Dips lestés, Squat, Développé couché)
   const personalRecords = useMemo(() => {
     const prMap: Record<string, { e1rm: number; weight: number; reps: number; date: string }> = {};
     data.sessions.forEach(session => {
       session.sets.filter(s => s.completed && s.weight > 0).forEach(s => {
+        if (!isPrTracked(s.exerciseName)) return;
+        const canonical = normalizeExerciseName(s.exerciseName);
         const e1rm = calculate1RM(s.weight, s.reps);
-        if (!prMap[s.exerciseName] || e1rm > prMap[s.exerciseName].e1rm) {
-          prMap[s.exerciseName] = { e1rm, weight: s.weight, reps: s.reps, date: session.date };
+        if (!prMap[canonical] || e1rm > prMap[canonical].e1rm) {
+          prMap[canonical] = { e1rm, weight: s.weight, reps: s.reps, date: session.date };
         }
       });
     });
@@ -135,20 +138,7 @@ const StatsTab = ({ data }: StatsTabProps) => {
       }));
   }, [data.bodyWeightLogs]);
 
-  // Body weight vs TM correlation
-  const correlationData = useMemo(() => {
-    const logs = (data.bodyWeightLogs || []).sort((a, b) => a.date.localeCompare(b.date));
-    if (logs.length === 0) return [];
-    
-    return logs.map(l => {
-      // Find closest TM at that date (approximate from cycle)
-      return {
-        date: new Date(l.date).toLocaleDateString('default', { month: 'short', day: 'numeric' }),
-        bodyWeight: l.weight,
-        tm: data.fiveThreeOne.trainingMax,
-      };
-    });
-  }, [data.bodyWeightLogs, data.fiveThreeOne.trainingMax]);
+  // (Body weight vs Squat TM correlation removed per user request)
 
   const currentWeekTime = weeklyTimeData.length > 0 ? weeklyTimeData[weeklyTimeData.length - 1]?.minutes || 0 : 0;
   const prevWeekTime = weeklyTimeData.length > 1 ? weeklyTimeData[weeklyTimeData.length - 2]?.minutes || 0 : 0;
@@ -281,7 +271,7 @@ const StatsTab = ({ data }: StatsTabProps) => {
             <LineChart data={difficultyData}>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 4% 20%)" />
               <XAxis dataKey="date" tick={chartStyle} axisLine={false} tickLine={false} />
-              <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={30} domain={[0, 10]} />
+              <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={30} domain={[0, 5]} />
               <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: 'hsl(0 0% 95%)' }} />
               <Line type="monotone" dataKey="difficulty" stroke="hsl(262 83% 58%)" strokeWidth={2.5} dot={{ r: 3, fill: 'hsl(262 83% 58%)' }} />
             </LineChart>
@@ -347,23 +337,6 @@ const StatsTab = ({ data }: StatsTabProps) => {
         </div>
       )}
 
-      {/* Body Weight vs TM Correlation */}
-      {correlationData.length > 1 && (
-        <div className="glass-card p-4">
-          <h3 className="text-sm font-semibold text-foreground mb-3">Body Weight vs Squat TM</h3>
-          <ResponsiveContainer width="100%" height={160}>
-            <LineChart data={correlationData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 4% 20%)" />
-              <XAxis dataKey="date" tick={chartStyle} axisLine={false} tickLine={false} />
-              <YAxis yAxisId="bw" tick={chartStyle} axisLine={false} tickLine={false} width={35} />
-              <YAxis yAxisId="tm" orientation="right" tick={chartStyle} axisLine={false} tickLine={false} width={35} />
-              <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: 'hsl(0 0% 95%)' }} />
-              <Line yAxisId="bw" type="monotone" dataKey="bodyWeight" stroke="hsl(199 89% 48%)" strokeWidth={2} dot={false} name="Body Weight" />
-              <Line yAxisId="tm" type="monotone" dataKey="tm" stroke="hsl(84 81% 44%)" strokeWidth={2} dot={false} name="Squat TM" />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      )}
     </div>
   );
 };
