@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { AppData, calculate1RM } from '@/lib/types';
+import { normalizeExerciseName, isPrTracked } from '@/lib/exerciseNormalize';
 import { Trophy, Scale } from 'lucide-react';
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -13,14 +14,16 @@ interface StatsTabProps {
 const StatsTab = ({ data }: StatsTabProps) => {
   const [difficultyFilter, setDifficultyFilter] = useState<string | null>(null);
 
-  // Personal Records
+  // Personal Records — only tracked canonical exercises (Tractions lestées, Dips lestés, Squat, Développé couché)
   const personalRecords = useMemo(() => {
     const prMap: Record<string, { e1rm: number; weight: number; reps: number; date: string }> = {};
     data.sessions.forEach(session => {
       session.sets.filter(s => s.completed && s.weight > 0).forEach(s => {
+        if (!isPrTracked(s.exerciseName)) return;
+        const canonical = normalizeExerciseName(s.exerciseName);
         const e1rm = calculate1RM(s.weight, s.reps);
-        if (!prMap[s.exerciseName] || e1rm > prMap[s.exerciseName].e1rm) {
-          prMap[s.exerciseName] = { e1rm, weight: s.weight, reps: s.reps, date: session.date };
+        if (!prMap[canonical] || e1rm > prMap[canonical].e1rm) {
+          prMap[canonical] = { e1rm, weight: s.weight, reps: s.reps, date: session.date };
         }
       });
     });
