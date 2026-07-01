@@ -4,6 +4,8 @@ export interface Exercise {
   sets: number;
   reps: number;
   weight?: number;
+  supersetGroupId?: string; // shared id between the 2 partners
+  supersetRole?: 'A' | 'B';
 }
 
 export interface WorkoutType {
@@ -21,6 +23,8 @@ export interface SetLog {
   reps: number;
   weight: number;
   completed: boolean;
+  supersetGroupId?: string;
+  supersetRole?: 'A' | 'B';
 }
 
 export interface SessionLog {
