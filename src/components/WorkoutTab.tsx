@@ -84,17 +84,51 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
       });
     }
 
+    const handledSupersets = new Set<string>();
     type.exercises.forEach(ex => {
-      const lastWeight = lastWeights[ex.id] || 0;
-      for (let i = 0; i < ex.sets; i++) {
-        initialSets.push({
-          exerciseId: ex.id,
-          exerciseName: ex.name,
-          setNumber: i + 1,
-          reps: ex.reps,
-          weight: lastWeight,
-          completed: false,
-        });
+      if (ex.supersetGroupId && handledSupersets.has(ex.supersetGroupId)) return;
+      if (ex.supersetGroupId) {
+        handledSupersets.add(ex.supersetGroupId);
+        const partner = type.exercises.find(e => e.id !== ex.id && e.supersetGroupId === ex.supersetGroupId);
+        const a = ex.supersetRole === 'B' && partner ? partner : ex;
+        const b = a === ex ? partner : ex;
+        const nSets = a.sets;
+        for (let i = 0; i < nSets; i++) {
+          initialSets.push({
+            exerciseId: a.id,
+            exerciseName: a.name,
+            setNumber: i + 1,
+            reps: a.reps,
+            weight: lastWeights[a.id] || a.weight || 0,
+            completed: false,
+            supersetGroupId: a.supersetGroupId,
+            supersetRole: 'A',
+          });
+          if (b) {
+            initialSets.push({
+              exerciseId: b.id,
+              exerciseName: b.name,
+              setNumber: i + 1,
+              reps: b.reps,
+              weight: lastWeights[b.id] || b.weight || 0,
+              completed: false,
+              supersetGroupId: b.supersetGroupId,
+              supersetRole: 'B',
+            });
+          }
+        }
+      } else {
+        const lastWeight = lastWeights[ex.id] || 0;
+        for (let i = 0; i < ex.sets; i++) {
+          initialSets.push({
+            exerciseId: ex.id,
+            exerciseName: ex.name,
+            setNumber: i + 1,
+            reps: ex.reps,
+            weight: lastWeight,
+            completed: false,
+          });
+        }
       }
     });
     setSets(initialSets);
