@@ -510,11 +510,86 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
         </div>
       )}
 
-      {/* Regular exercises */}
+      {/* Regular exercises + Supersets */}
       <div className="space-y-4 mb-4">
-        {Object.entries(groupedSets).map(([exerciseId, group]) => {
-          const name = group.name;
-          const exerciseSets = group.entries;
+        {blocks.map(block => {
+          if (block.kind === 'superset') {
+            const toggleSeries = (aIdx: number, bIdx: number) => {
+              const bothDone = sets[aIdx].completed && sets[bIdx].completed;
+              const updated = [...sets];
+              updated[aIdx] = { ...updated[aIdx], completed: !bothDone };
+              updated[bIdx] = { ...updated[bIdx], completed: !bothDone };
+              setSets(updated);
+            };
+            return (
+              <div key={block.groupId} className="glass-card p-4 border border-primary/40 bg-primary/5">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] font-bold text-primary tracking-wider">SUPERSET</span>
+                  <span className="text-[10px] text-muted-foreground">{block.series.length} séries</span>
+                </div>
+                <div className="flex items-center gap-2 text-xs text-foreground font-semibold mb-3">
+                  <span className="text-primary">A</span><span>{block.aName}</span>
+                  <span className="text-muted-foreground">+</span>
+                  <span className="text-primary">B</span><span>{block.bName}</span>
+                </div>
+
+                <div className="space-y-3">
+                  {block.series.map((serie, localIdx) => {
+                    const aDone = sets[serie.aIdx].completed;
+                    const bDone = sets[serie.bIdx].completed;
+                    const bothDone = aDone && bDone;
+                    return (
+                      <div
+                        key={localIdx}
+                        className={`rounded-xl p-2.5 border transition-all ${
+                          bothDone ? 'bg-primary/15 border-primary/40' : 'bg-secondary/40 border-transparent'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-[11px] font-semibold text-muted-foreground">Série {localIdx + 1}</span>
+                          <button
+                            onClick={() => toggleSeries(serie.aIdx, serie.bIdx)}
+                            className={`touch-target rounded-lg p-1.5 transition-colors ${
+                              bothDone ? 'text-primary' : 'text-muted-foreground active:text-primary'
+                            }`}
+                          >
+                            <Check size={18} />
+                          </button>
+                        </div>
+                        {[
+                          { role: 'A', name: block.aName, idx: serie.aIdx },
+                          { role: 'B', name: block.bName, idx: serie.bIdx },
+                        ].map(row => (
+                          <div key={row.role} className="flex items-center gap-2 py-1">
+                            <span className="text-[10px] font-bold text-primary w-4">{row.role}</span>
+                            <span className="text-xs text-foreground/80 flex-1 truncate">{row.name}</span>
+                            <input
+                              type="number"
+                              value={sets[row.idx].weight || ''}
+                              onChange={e => updateSet(row.idx, 'weight', e.target.value)}
+                              onBlur={() => propagateWeightOnBlur(row.idx)}
+                              className="w-14 bg-background/60 rounded-md text-foreground text-sm text-center outline-none font-mono py-1"
+                              placeholder="kg"
+                            />
+                            <span className="text-muted-foreground text-xs">×</span>
+                            <input
+                              type="number"
+                              value={sets[row.idx].reps || ''}
+                              onChange={e => updateSet(row.idx, 'reps', e.target.value)}
+                              className="w-12 bg-background/60 rounded-md text-foreground text-sm text-center outline-none font-mono py-1"
+                              placeholder="reps"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          }
+
+          const { exerciseId, name, entries: exerciseSets } = block;
           const lastPerf = getLastPerformance(name);
           const isTemp = exerciseId.startsWith('temp-');
 
@@ -538,8 +613,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
                   </button>
                 )}
               </div>
-              
-              {/* Last performance reference */}
+
               {lastPerf && (
                 <p className="text-[10px] text-muted-foreground mb-2">
                   Last time: {lastPerf.weight}kg × {lastPerf.reps} — {new Date(lastPerf.date + 'T00:00:00').toLocaleDateString('default', { month: 'short', day: 'numeric' })}
