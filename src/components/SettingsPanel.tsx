@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { AppData, WorkoutType, Exercise, WORKOUT_COLORS, BodyWeightLog } from '@/lib/types';
-import { ArrowLeft, Plus, Trash2, EyeOff, RotateCcw, Scale } from 'lucide-react';
+import { linkSuperset, unlinkSuperset } from '@/lib/superset';
+import { ArrowLeft, Plus, Trash2, EyeOff, RotateCcw, Scale, Link2, Link2Off } from 'lucide-react';
 
 interface SettingsPanelProps {
   data: AppData;
