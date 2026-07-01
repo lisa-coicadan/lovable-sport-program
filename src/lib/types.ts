@@ -23,6 +23,8 @@ export interface SetLog {
   reps: number;
   weight: number;
   completed: boolean;
+  supersetGroupId?: string;
+  supersetRole?: 'A' | 'B';
 }
 
 export interface SessionLog {
