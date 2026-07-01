@@ -376,10 +376,44 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
     .map((s, i) => ({ ...s, globalIdx: i }))
     .filter(s => s.exerciseId !== '531-squat');
 
-  const groupedSets: Record<string, { name: string; entries: { globalIdx: number; set: SetLog }[] }> = {};
+  // Build ordered blocks (single exercise or superset pair)
+  type SingleBlock = { kind: 'single'; exerciseId: string; name: string; entries: { globalIdx: number; set: SetLog }[] };
+  type SupersetBlock = {
+    kind: 'superset';
+    groupId: string;
+    aId: string; aName: string;
+    bId: string; bName: string;
+    series: { aIdx: number; bIdx: number }[];
+  };
+  const blocks: (SingleBlock | SupersetBlock)[] = [];
+  const seenSingle = new Set<string>();
+  const seenSuperset = new Set<string>();
   regularSets.forEach(s => {
-    if (!groupedSets[s.exerciseId]) groupedSets[s.exerciseId] = { name: s.exerciseName, entries: [] };
-    groupedSets[s.exerciseId].entries.push({ globalIdx: s.globalIdx, set: s });
+    if (s.supersetGroupId) {
+      if (seenSuperset.has(s.supersetGroupId)) return;
+      seenSuperset.add(s.supersetGroupId);
+      const groupEntries = regularSets.filter(r => r.supersetGroupId === s.supersetGroupId);
+      const aEntries = groupEntries.filter(r => r.supersetRole === 'A').sort((a, b) => a.setNumber - b.setNumber);
+      const bEntries = groupEntries.filter(r => r.supersetRole === 'B').sort((a, b) => a.setNumber - b.setNumber);
+      const first = aEntries[0] || groupEntries[0];
+      const secondSample = bEntries[0];
+      const series = aEntries.map((a, i) => ({
+        aIdx: a.globalIdx,
+        bIdx: bEntries[i]?.globalIdx ?? -1,
+      })).filter(x => x.bIdx !== -1);
+      blocks.push({
+        kind: 'superset',
+        groupId: s.supersetGroupId,
+        aId: first.exerciseId, aName: first.exerciseName,
+        bId: secondSample?.exerciseId || '', bName: secondSample?.exerciseName || '',
+        series,
+      });
+    } else {
+      if (seenSingle.has(s.exerciseId)) return;
+      seenSingle.add(s.exerciseId);
+      const entries = regularSets.filter(r => r.exerciseId === s.exerciseId).map(r => ({ globalIdx: r.globalIdx, set: r }));
+      blocks.push({ kind: 'single', exerciseId: s.exerciseId, name: s.exerciseName, entries });
+    }
   });
 
   const currentFiveThreeOneSets = getWeekSets(data.fiveThreeOne.trainingMax, selectedWeek);
