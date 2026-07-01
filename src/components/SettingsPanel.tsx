@@ -64,13 +64,37 @@ const SettingsPanel = ({ data, onUpdateData, onUpdate531, onClose }: SettingsPan
 
   const removeExercise = (typeIndex: number, exIndex: number) => {
     const updated = [...workoutTypes];
+    const ex = updated[typeIndex].exercises[exIndex];
+    // If in superset, unlink first so the partner survives standalone
+    if (ex.supersetGroupId) {
+      updated[typeIndex].exercises = unlinkSuperset(updated[typeIndex].exercises, ex.supersetGroupId);
+    }
     updated[typeIndex].exercises.splice(exIndex, 1);
     setWorkoutTypes(updated);
   };
 
   const updateExercise = (typeIndex: number, exIndex: number, field: keyof Exercise, value: string | number) => {
     const updated = [...workoutTypes];
-    (updated[typeIndex].exercises[exIndex] as any)[field] = value;
+    const ex = updated[typeIndex].exercises[exIndex];
+    (ex as any)[field] = value;
+    // Keep sets synced between superset partners
+    if (field === 'sets' && ex.supersetGroupId) {
+      updated[typeIndex].exercises = updated[typeIndex].exercises.map(e =>
+        e.supersetGroupId === ex.supersetGroupId ? { ...e, sets: ex.sets } : e
+      );
+    }
+    setWorkoutTypes(updated);
+  };
+
+  const linkExerciseSuperset = (typeIndex: number, exId: string, partnerId: string) => {
+    const updated = [...workoutTypes];
+    updated[typeIndex].exercises = linkSuperset(updated[typeIndex].exercises, exId, partnerId);
+    setWorkoutTypes(updated);
+  };
+
+  const unlinkExerciseSuperset = (typeIndex: number, groupId: string) => {
+    const updated = [...workoutTypes];
+    updated[typeIndex].exercises = unlinkSuperset(updated[typeIndex].exercises, groupId);
     setWorkoutTypes(updated);
   };
 
