@@ -548,9 +548,13 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
             return (
               <div key={block.groupId} className="glass-card p-4 border border-primary/40 bg-primary/5">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-[10px] font-bold text-primary tracking-wider">SUPERSET</span>
+                  <div className="flex items-center gap-1">
+                    <DragHandle />
+                    <span className="text-[10px] font-bold text-primary tracking-wider">SUPERSET</span>
+                  </div>
                   <span className="text-[10px] text-muted-foreground">{block.series.length} séries</span>
                 </div>
+
                 <div className="flex items-center gap-2 text-xs text-foreground font-semibold mb-3">
                   <span className="text-primary">A</span><span>{block.aName}</span>
                   <span className="text-muted-foreground">+</span>
