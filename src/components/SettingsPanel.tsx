@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { AppData, WorkoutType, Exercise, WORKOUT_COLORS, BodyWeightLog } from '@/lib/types';
-import { linkSuperset, unlinkSuperset } from '@/lib/superset';
+import { linkSuperset, unlinkSuperset, buildExerciseBlocks, flattenBlocks, ExerciseBlock } from '@/lib/superset';
 import { ArrowLeft, Plus, Trash2, EyeOff, RotateCcw, Scale, Link2, Link2Off } from 'lucide-react';
+import { SortableList, DragHandle } from './SortableBlock';
+
 
 interface SettingsPanelProps {
   data: AppData;
