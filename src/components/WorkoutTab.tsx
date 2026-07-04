@@ -697,7 +697,11 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
               </button>
             </div>
           );
-        })}
+              }}
+            </SortableList>
+          );
+        })()}
+
       </div>
 
       {/* Add exercise button */}
