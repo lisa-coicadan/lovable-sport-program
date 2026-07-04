@@ -624,6 +624,8 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
           return (
             <div key={exerciseId} className="glass-card p-4">
               <div className="flex items-center gap-1.5 mb-1">
+                <DragHandle />
+
                 {isTemp ? (
                   <input
                     value={name}
