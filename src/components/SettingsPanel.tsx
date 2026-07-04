@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { AppData, WorkoutType, Exercise, WORKOUT_COLORS, BodyWeightLog } from '@/lib/types';
-import { linkSuperset, unlinkSuperset } from '@/lib/superset';
+import { linkSuperset, unlinkSuperset, buildExerciseBlocks, flattenBlocks, ExerciseBlock } from '@/lib/superset';
 import { ArrowLeft, Plus, Trash2, EyeOff, RotateCcw, Scale, Link2, Link2Off } from 'lucide-react';
+import { SortableList, DragHandle } from './SortableBlock';
+
 
 interface SettingsPanelProps {
   data: AppData;
@@ -259,127 +261,137 @@ const SettingsPanel = ({ data, onUpdateData, onUpdate531, onClose }: SettingsPan
                 </div>
                 <div className="space-y-1.5">
                   {(() => {
-                    const rendered = new Set<string>();
-                    const rows: JSX.Element[] = [];
+                    const blocks = buildExerciseBlocks(type.exercises);
 
-                    const renderRow = (ex: Exercise, ei: number, opts?: { hideSets?: boolean }) => (
-                      <div key={ex.id} className="flex items-center gap-1.5">
-                        <input
-                          value={ex.name}
-                          onChange={e => updateExercise(ti, ei, 'name', e.target.value)}
-                          className="flex-1 bg-secondary text-foreground rounded-lg px-2.5 py-1.5 text-sm outline-none"
-                          placeholder="Exercise"
-                        />
-                        {opts?.hideSets ? (
-                          <span className="text-[10px] text-muted-foreground w-12 text-center">shared</span>
-                        ) : (
+                    const renderRow = (ex: Exercise, opts?: { hideSets?: boolean }) => {
+                      const ei = type.exercises.findIndex(e => e.id === ex.id);
+                      return (
+                        <div className="flex items-center gap-1.5 flex-1">
+                          <input
+                            value={ex.name}
+                            onChange={e => updateExercise(ti, ei, 'name', e.target.value)}
+                            className="flex-1 min-w-0 bg-secondary text-foreground rounded-lg px-2.5 py-1.5 text-sm outline-none"
+                            placeholder="Exercise"
+                          />
+                          {opts?.hideSets ? (
+                            <span className="text-[10px] text-muted-foreground w-10 text-center">shared</span>
+                          ) : (
+                            <input
+                              type="number"
+                              value={ex.sets || ''}
+                              onChange={e => updateExercise(ti, ei, 'sets', e.target.value === '' ? '' as any : parseInt(e.target.value) || 0)}
+                              className="w-10 bg-secondary text-foreground rounded-lg px-1 py-1.5 text-sm text-center outline-none"
+                              placeholder="S"
+                            />
+                          )}
+                          <span className="text-muted-foreground text-xs">×</span>
                           <input
                             type="number"
-                            value={ex.sets || ''}
-                            onChange={e => updateExercise(ti, ei, 'sets', e.target.value === '' ? '' as any : parseInt(e.target.value) || 0)}
-                            className="w-12 bg-secondary text-foreground rounded-lg px-2 py-1.5 text-sm text-center outline-none"
-                            placeholder="S"
+                            value={ex.reps || ''}
+                            onChange={e => updateExercise(ti, ei, 'reps', e.target.value === '' ? '' as any : parseInt(e.target.value) || 0)}
+                            className="w-10 bg-secondary text-foreground rounded-lg px-1 py-1.5 text-sm text-center outline-none"
+                            placeholder="R"
                           />
-                        )}
-                        <span className="text-muted-foreground text-xs">×</span>
-                        <input
-                          type="number"
-                          value={ex.reps || ''}
-                          onChange={e => updateExercise(ti, ei, 'reps', e.target.value === '' ? '' as any : parseInt(e.target.value) || 0)}
-                          className="w-12 bg-secondary text-foreground rounded-lg px-2 py-1.5 text-sm text-center outline-none"
-                          placeholder="R"
-                        />
-                        <input
-                          type="number"
-                          value={ex.weight || ''}
-                          onChange={e => updateExercise(ti, ei, 'weight', e.target.value === '' ? 0 : parseFloat(e.target.value) || 0)}
-                          className="w-14 bg-secondary text-foreground rounded-lg px-2 py-1.5 text-sm text-center outline-none"
-                          placeholder="kg"
-                        />
-                        <button onClick={() => removeExercise(ti, ei)} className="text-muted-foreground p-1">
-                          <Trash2 size={12} />
-                        </button>
-                      </div>
-                    );
+                          <input
+                            type="number"
+                            value={ex.weight || ''}
+                            onChange={e => updateExercise(ti, ei, 'weight', e.target.value === '' ? 0 : parseFloat(e.target.value) || 0)}
+                            className="w-12 bg-secondary text-foreground rounded-lg px-1 py-1.5 text-sm text-center outline-none"
+                            placeholder="kg"
+                          />
+                          <button onClick={() => removeExercise(ti, ei)} className="text-muted-foreground p-1">
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                      );
+                    };
 
-                    type.exercises.forEach((ex, ei) => {
-                      if (rendered.has(ex.id)) return;
-                      if (ex.supersetGroupId) {
-                        const partnerIdx = type.exercises.findIndex(e => e.id !== ex.id && e.supersetGroupId === ex.supersetGroupId);
-                        const partner = partnerIdx >= 0 ? type.exercises[partnerIdx] : null;
-                        rendered.add(ex.id);
-                        if (partner) rendered.add(partner.id);
-                        const a = ex.supersetRole === 'B' && partner ? partner : ex;
-                        const b = a === ex ? partner : ex;
-                        const aIdx = type.exercises.findIndex(e => e.id === a.id);
-                        const bIdx = b ? type.exercises.findIndex(e => e.id === b.id) : -1;
-                        rows.push(
-                          <div key={ex.supersetGroupId} className="border border-primary/40 bg-primary/5 rounded-xl p-2.5 space-y-1.5">
-                            <div className="flex items-center justify-between mb-1">
-                              <span className="text-[10px] font-bold text-primary tracking-wider">SUPERSET</span>
-                              <div className="flex items-center gap-2">
-                                <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                                  <span>Series</span>
-                                  <input
-                                    type="number"
-                                    value={a.sets || ''}
-                                    onChange={e => updateExercise(ti, aIdx, 'sets', e.target.value === '' ? '' as any : parseInt(e.target.value) || 0)}
-                                    className="w-10 bg-secondary text-foreground rounded-md px-1 py-0.5 text-xs text-center outline-none"
-                                  />
-                                </div>
-                                <button
-                                  onClick={() => unlinkExerciseSuperset(ti, ex.supersetGroupId!)}
-                                  className="text-muted-foreground p-1 active:text-destructive"
-                                  title="Unlink"
-                                >
-                                  <Link2Off size={13} />
-                                </button>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-[10px] font-bold text-primary w-4">A</span>
-                              {renderRow(a, aIdx, { hideSets: true })}
-                            </div>
-                            {b && (
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-[10px] font-bold text-primary w-4">B</span>
-                                {renderRow(b, bIdx, { hideSets: true })}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      } else {
-                        rendered.add(ex.id);
-                        // Free partners = other exercises not in any superset
-                        const freePartners = type.exercises.filter(e => e.id !== ex.id && !e.supersetGroupId);
-                        rows.push(
-                          <div key={ex.id} className="space-y-1">
-                            {renderRow(ex, ei)}
-                            {freePartners.length > 0 && (
-                              <details className="pl-1">
-                                <summary className="text-[10px] text-muted-foreground cursor-pointer flex items-center gap-1 py-0.5">
-                                  <Link2 size={10} /> Link as superset
-                                </summary>
-                                <div className="flex flex-wrap gap-1 pt-1">
-                                  {freePartners.map(p => (
+                    const onReorder = (newBlocks: ExerciseBlock[]) => {
+                      const updated = [...workoutTypes];
+                      updated[ti] = { ...updated[ti], exercises: flattenBlocks(newBlocks, updated[ti].exercises) };
+                      setWorkoutTypes(updated);
+                    };
+
+                    return (
+                      <SortableList items={blocks} onReorder={onReorder}>
+                        {(block) => {
+                          if (block.isSuperset) {
+                            const [aId, bId] = block.exerciseIds;
+                            const a = type.exercises.find(e => e.id === aId)!;
+                            const b = type.exercises.find(e => e.id === bId);
+                            const aIdx = type.exercises.findIndex(e => e.id === aId);
+                            return (
+                              <div className="border border-primary/40 bg-primary/5 rounded-xl p-2.5 space-y-1.5 mb-1.5">
+                                <div className="flex items-center justify-between mb-1">
+                                  <div className="flex items-center gap-1">
+                                    <DragHandle />
+                                    <span className="text-[10px] font-bold text-primary tracking-wider">SUPERSET</span>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                                      <span>Series</span>
+                                      <input
+                                        type="number"
+                                        value={a.sets || ''}
+                                        onChange={e => updateExercise(ti, aIdx, 'sets', e.target.value === '' ? '' as any : parseInt(e.target.value) || 0)}
+                                        className="w-10 bg-secondary text-foreground rounded-md px-1 py-0.5 text-xs text-center outline-none"
+                                      />
+                                    </div>
                                     <button
-                                      key={p.id}
-                                      onClick={() => linkExerciseSuperset(ti, ex.id, p.id)}
-                                      className="text-[10px] bg-secondary hover:bg-primary/20 text-foreground px-2 py-1 rounded-md"
+                                      onClick={() => unlinkExerciseSuperset(ti, block.key)}
+                                      className="text-muted-foreground p-1 active:text-destructive"
+                                      title="Unlink"
                                     >
-                                      + {p.name || 'Unnamed'}
+                                      <Link2Off size={13} />
                                     </button>
-                                  ))}
+                                  </div>
                                 </div>
-                              </details>
-                            )}
-                          </div>
-                        );
-                      }
-                    });
-
-                    return rows;
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[10px] font-bold text-primary w-4">A</span>
+                                  {renderRow(a, { hideSets: true })}
+                                </div>
+                                {b && (
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-[10px] font-bold text-primary w-4">B</span>
+                                    {renderRow(b, { hideSets: true })}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          }
+                          const ex = type.exercises.find(e => e.id === block.exerciseIds[0])!;
+                          const freePartners = type.exercises.filter(e => e.id !== ex.id && !e.supersetGroupId);
+                          return (
+                            <div className="space-y-1 mb-1.5">
+                              <div className="flex items-center gap-1">
+                                <DragHandle />
+                                {renderRow(ex)}
+                              </div>
+                              {freePartners.length > 0 && (
+                                <details className="pl-6">
+                                  <summary className="text-[10px] text-muted-foreground cursor-pointer flex items-center gap-1 py-0.5">
+                                    <Link2 size={10} /> Link as superset
+                                  </summary>
+                                  <div className="flex flex-wrap gap-1 pt-1">
+                                    {freePartners.map(p => (
+                                      <button
+                                        key={p.id}
+                                        onClick={() => linkExerciseSuperset(ti, ex.id, p.id)}
+                                        className="text-[10px] bg-secondary hover:bg-primary/20 text-foreground px-2 py-1 rounded-md"
+                                      >
+                                        + {p.name || 'Unnamed'}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </details>
+                              )}
+                            </div>
+                          );
+                        }}
+                      </SortableList>
+                    );
                   })()}
+
                   <button onClick={() => addExercise(ti)} className="flex items-center gap-1 text-primary text-xs font-medium py-1">
                     <Plus size={12} /> Add exercise
                   </button>

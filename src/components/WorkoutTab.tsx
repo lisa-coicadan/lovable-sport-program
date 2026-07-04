@@ -6,6 +6,8 @@ import ExerciseHistory from './ExerciseHistory';
 import SessionSummary from './SessionSummary';
 import SettingsPanel from './SettingsPanel';
 import { Check, ChevronRight, ArrowLeft, Settings, History, Plus, Trash2 } from 'lucide-react';
+import { SortableList, DragHandle } from './SortableBlock';
+
 
 interface WorkoutTabProps {
   data: AppData;
@@ -512,7 +514,29 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
 
       {/* Regular exercises + Supersets */}
       <div className="space-y-4 mb-4">
-        {blocks.map(block => {
+        {(() => {
+          const sortableBlocks = blocks.map(b => ({
+            key: b.kind === 'superset' ? b.groupId : b.exerciseId,
+            block: b,
+          }));
+          const reorderBlocks = (newOrder: typeof sortableBlocks) => {
+            const fiveIdxs = sets.map((_, i) => i).filter(i => sets[i].exerciseId === '531-squat');
+            const idxsByKey = new Map<string, number[]>();
+            blocks.forEach(b => {
+              const key = b.kind === 'superset' ? b.groupId : b.exerciseId;
+              const idxs = b.kind === 'superset'
+                ? b.series.flatMap(s => [s.aIdx, s.bIdx])
+                : b.entries.map(e => e.globalIdx);
+              idxsByKey.set(key, idxs);
+            });
+            const newRegular = newOrder.flatMap(item => (idxsByKey.get(item.key) || []).map(i => sets[i]));
+            const fiveSets = fiveIdxs.map(i => sets[i]);
+            setSets([...fiveSets, ...newRegular]);
+          };
+          return (
+            <SortableList items={sortableBlocks} onReorder={reorderBlocks}>
+              {({ block }) => {
+
           if (block.kind === 'superset') {
             const toggleSeries = (aIdx: number, bIdx: number) => {
               const bothDone = sets[aIdx].completed && sets[bIdx].completed;
@@ -524,9 +548,13 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
             return (
               <div key={block.groupId} className="glass-card p-4 border border-primary/40 bg-primary/5">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-[10px] font-bold text-primary tracking-wider">SUPERSET</span>
+                  <div className="flex items-center gap-1">
+                    <DragHandle />
+                    <span className="text-[10px] font-bold text-primary tracking-wider">SUPERSET</span>
+                  </div>
                   <span className="text-[10px] text-muted-foreground">{block.series.length} séries</span>
                 </div>
+
                 <div className="flex items-center gap-2 text-xs text-foreground font-semibold mb-3">
                   <span className="text-primary">A</span><span>{block.aName}</span>
                   <span className="text-muted-foreground">+</span>
@@ -596,6 +624,8 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
           return (
             <div key={exerciseId} className="glass-card p-4">
               <div className="flex items-center gap-1.5 mb-1">
+                <DragHandle />
+
                 {isTemp ? (
                   <input
                     value={name}
@@ -673,7 +703,11 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
               </button>
             </div>
           );
-        })}
+              }}
+            </SortableList>
+          );
+        })()}
+
       </div>
 
       {/* Add exercise button */}
