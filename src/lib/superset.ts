@@ -32,3 +32,36 @@ export function linkSuperset(exercises: Exercise[], idA: string, idB: string): E
     return e;
   });
 }
+
+// Build ordered blocks so each superset counts as one draggable unit.
+export interface ExerciseBlock {
+  key: string;              // stable id (supersetGroupId or exercise id)
+  exerciseIds: string[];    // 1 for single, 2 for superset (A then B)
+  isSuperset: boolean;
+}
+
+export function buildExerciseBlocks(exercises: Exercise[]): ExerciseBlock[] {
+  const seen = new Set<string>();
+  const blocks: ExerciseBlock[] = [];
+  exercises.forEach(ex => {
+    if (seen.has(ex.id)) return;
+    if (ex.supersetGroupId) {
+      const partner = exercises.find(e => e.id !== ex.id && e.supersetGroupId === ex.supersetGroupId);
+      const a = ex.supersetRole === 'B' && partner ? partner : ex;
+      const b = a === ex ? partner : ex;
+      const ids = b ? [a.id, b.id] : [a.id];
+      ids.forEach(id => seen.add(id));
+      blocks.push({ key: ex.supersetGroupId, exerciseIds: ids, isSuperset: !!b });
+    } else {
+      seen.add(ex.id);
+      blocks.push({ key: ex.id, exerciseIds: [ex.id], isSuperset: false });
+    }
+  });
+  return blocks;
+}
+
+export function flattenBlocks(blocks: ExerciseBlock[], exercises: Exercise[]): Exercise[] {
+  const map = new Map(exercises.map(e => [e.id, e]));
+  return blocks.flatMap(b => b.exerciseIds.map(id => map.get(id)).filter(Boolean) as Exercise[]);
+}
+
