@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState } from 'react';
 import { AppData, calculate1RM } from '@/lib/types';
 import { normalizeExerciseName } from '@/lib/exerciseNormalize';
 import { Trophy, Scale, Crown } from 'lucide-react';
