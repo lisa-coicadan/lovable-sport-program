@@ -33,7 +33,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
   const isSquatSession = (type: WorkoutType) => type.id === data.squatSessionId;
   const activeTypes = data.workoutTypes.filter(t => !t.hidden);
 
-  // Get last performance for an exercise
+  // Get last performance for an exercise (most recent session containing it)
   const getLastPerformance = useCallback((exerciseName: string) => {
     for (let i = data.sessions.length - 1; i >= 0; i--) {
       const s = data.sessions[i];
@@ -44,6 +44,20 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
       }
     }
     return null;
+  }, [data.sessions]);
+
+  // Absolute record (heaviest weight ever lifted) for an exercise, by exact name match
+  const getAbsoluteRecord = useCallback((exerciseName: string) => {
+    let best: { weight: number; reps: number } | null = null;
+    data.sessions.forEach(s => {
+      s.sets.forEach(set => {
+        if (set.exerciseName !== exerciseName || !set.completed || set.weight <= 0) return;
+        if (!best || set.weight > best.weight || (set.weight === best.weight && set.reps > best.reps)) {
+          best = { weight: set.weight, reps: set.reps };
+        }
+      });
+    });
+    return best;
   }, [data.sessions]);
 
   // Get last session weights for pre-fill
