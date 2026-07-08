@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { AppData, calculate1RM } from '@/lib/types';
-import { normalizeExerciseName, isPrTracked } from '@/lib/exerciseNormalize';
-import { Trophy, Scale } from 'lucide-react';
+import { normalizeExerciseName } from '@/lib/exerciseNormalize';
+import { Trophy, Scale, Crown } from 'lucide-react';
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine
@@ -11,58 +11,89 @@ interface StatsTabProps {
   data: AppData;
 }
 
+const RPE_CUTOFF = '2026-06-01';
+
+type PR = { name: string; e1rm: number; weight: number; reps: number; date: string };
+
+const daysAgo = (dateStr: string) => {
+  const d = new Date(dateStr + 'T00:00:00');
+  const diff = Math.floor((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24));
+  return diff;
+};
+
 const StatsTab = ({ data }: StatsTabProps) => {
   const [difficultyFilter, setDifficultyFilter] = useState<string | null>(null);
+  const [weeklyRange, setWeeklyRange] = useState<'4' | '16' | 'all'>('16');
 
-  // Personal Records — only tracked canonical exercises (Tractions lestées, Dips lestés, Squat, Développé couché)
-  const personalRecords = useMemo(() => {
-    const prMap: Record<string, { e1rm: number; weight: number; reps: number; date: string }> = {};
+  // All PRs, grouped by normalized name -> best e1rm ever
+  const prByName = useMemo(() => {
+    const map: Record<string, PR> = {};
     data.sessions.forEach(session => {
-      session.sets.filter(s => s.completed && s.weight > 0).forEach(s => {
-        if (!isPrTracked(s.exerciseName)) return;
-        const canonical = normalizeExerciseName(s.exerciseName);
+      session.sets.filter(s => s.completed && s.weight > 0 && s.reps > 0).forEach(s => {
+        const name = normalizeExerciseName(s.exerciseName);
         const e1rm = calculate1RM(s.weight, s.reps);
-        if (!prMap[canonical] || e1rm > prMap[canonical].e1rm) {
-          prMap[canonical] = { e1rm, weight: s.weight, reps: s.reps, date: session.date };
+        if (!map[name] || e1rm > map[name].e1rm) {
+          map[name] = { name, e1rm, weight: s.weight, reps: s.reps, date: session.date };
         }
       });
     });
-    return Object.entries(prMap).sort(([, a], [, b]) => b.e1rm - a.e1rm);
+    return map;
   }, [data.sessions]);
 
-  // TM progression
-  const tmData = useMemo(() => {
-    const points = [];
-    const cycle = data.fiveThreeOne.currentCycle;
-    for (let c = 1; c <= cycle; c++) {
-      const historicalTm = data.fiveThreeOne.trainingMax - (cycle - c) * 2.5;
-      points.push({ cycle: `C${c}`, tm: Math.max(historicalTm, 0) });
-    }
-    if (points.length === 0) points.push({ cycle: 'C1', tm: data.fiveThreeOne.trainingMax });
-    return points;
-  }, [data.fiveThreeOne]);
+  const squatPR = prByName['Squat'];
+  const otherPRs = useMemo(() => {
+    return Object.values(prByName)
+      .filter(p => p.name !== 'Squat')
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .slice(0, 5);
+  }, [prByName]);
 
-  // Weekly frequency
+  // Weekly frequency — include empty weeks
   const weeklyData = useMemo(() => {
-    const weeks: Record<string, number> = {};
+    const mondayOf = (d: Date) => {
+      const day = d.getDay();
+      const diff = d.getDate() - (day === 0 ? 6 : day - 1);
+      const m = new Date(d);
+      m.setDate(diff);
+      m.setHours(0, 0, 0, 0);
+      return m;
+    };
+    const countByWeek = new Map<string, number>();
     data.sessions.forEach(s => {
-      const d = new Date(s.date);
-      const dayOfWeek = d.getDay();
-      const diff = d.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1);
-      const monday = new Date(d);
-      monday.setDate(diff);
-      const key = monday.toISOString().split('T')[0];
-      weeks[key] = (weeks[key] || 0) + 1;
+      const m = mondayOf(new Date(s.date + 'T00:00:00'));
+      const key = m.toISOString().split('T')[0];
+      countByWeek.set(key, (countByWeek.get(key) || 0) + 1);
     });
-    return Object.entries(weeks)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .slice(-8)
-      .map(([week, count]) => ({
-        week: new Date(week).toLocaleDateString('default', { month: 'short', day: 'numeric' }),
-        sessions: count,
+
+    const nowMonday = mondayOf(new Date());
+    let firstMonday: Date;
+    if (weeklyRange === 'all') {
+      if (data.sessions.length === 0) {
+        firstMonday = new Date(nowMonday);
+        firstMonday.setDate(firstMonday.getDate() - 7 * 3);
+      } else {
+        const earliest = data.sessions.map(s => s.date).sort()[0];
+        firstMonday = mondayOf(new Date(earliest + 'T00:00:00'));
+      }
+    } else {
+      const n = weeklyRange === '4' ? 4 : 16;
+      firstMonday = new Date(nowMonday);
+      firstMonday.setDate(firstMonday.getDate() - 7 * (n - 1));
+    }
+
+    const out: { week: string; sessions: number; goal: number }[] = [];
+    const cursor = new Date(firstMonday);
+    while (cursor <= nowMonday) {
+      const key = cursor.toISOString().split('T')[0];
+      out.push({
+        week: cursor.toLocaleDateString('default', { month: 'short', day: 'numeric' }),
+        sessions: countByWeek.get(key) || 0,
         goal: data.weeklyGoal,
-      }));
-  }, [data.sessions, data.weeklyGoal]);
+      });
+      cursor.setDate(cursor.getDate() + 7);
+    }
+    return out;
+  }, [data.sessions, data.weeklyGoal, weeklyRange]);
 
   // Volume per session
   const volumeData = useMemo(() => {
@@ -76,9 +107,10 @@ const StatsTab = ({ data }: StatsTabProps) => {
     });
   }, [data.sessions]);
 
-  // Difficulty over time
+  // Difficulty over time — only sessions from June 2026 onward (RPE /5 scale)
   const difficultyData = useMemo(() => {
     return data.sessions
+      .filter(s => s.date >= RPE_CUTOFF)
       .filter(s => s.difficulty && s.difficulty > 0)
       .filter(s => !difficultyFilter || s.workoutTypeId === difficultyFilter)
       .sort((a, b) => a.date.localeCompare(b.date))
@@ -128,18 +160,6 @@ const StatsTab = ({ data }: StatsTabProps) => {
       }));
   }, [data.sessions]);
 
-  // Body weight data
-  const bodyWeightData = useMemo(() => {
-    return (data.bodyWeightLogs || [])
-      .sort((a, b) => a.date.localeCompare(b.date))
-      .map(l => ({
-        date: new Date(l.date).toLocaleDateString('default', { month: 'short', day: 'numeric' }),
-        weight: l.weight,
-      }));
-  }, [data.bodyWeightLogs]);
-
-  // (Body weight vs Squat TM correlation removed per user request)
-
   const currentWeekTime = weeklyTimeData.length > 0 ? weeklyTimeData[weeklyTimeData.length - 1]?.minutes || 0 : 0;
   const prevWeekTime = weeklyTimeData.length > 1 ? weeklyTimeData[weeklyTimeData.length - 2]?.minutes || 0 : 0;
   const latestBodyWeight = (data.bodyWeightLogs || []).sort((a, b) => b.date.localeCompare(a.date))[0];
@@ -172,50 +192,74 @@ const StatsTab = ({ data }: StatsTabProps) => {
         </div>
       )}
 
-      {/* Personal Records */}
-      {personalRecords.length > 0 && (
+      {/* Squat PR — isolated */}
+      {squatPR && (
+        <div className="glass-card p-4 mb-4 border border-warning/40 bg-warning/5">
+          <div className="flex items-center gap-2 mb-2">
+            <Crown size={16} className="text-warning" />
+            <h3 className="text-sm font-semibold text-foreground">Record Squat</h3>
+          </div>
+          <div className="flex items-baseline gap-2">
+            <span className="text-3xl font-bold text-warning">{squatPR.e1rm} kg</span>
+            <span className="text-sm text-muted-foreground">1RM théorique</span>
+          </div>
+          <p className="text-xs text-muted-foreground mt-1">
+            {squatPR.reps} × {squatPR.weight} kg — il y a {daysAgo(squatPR.date)} jour{daysAgo(squatPR.date) > 1 ? 's' : ''}
+          </p>
+        </div>
+      )}
+
+      {/* Top 5 other PRs */}
+      {otherPRs.length > 0 && (
         <div className="glass-card p-4 mb-4">
           <div className="flex items-center gap-2 mb-3">
             <Trophy size={16} className="text-warning" />
-            <h3 className="text-sm font-semibold text-foreground">Personal Records</h3>
+            <h3 className="text-sm font-semibold text-foreground">Derniers records</h3>
           </div>
           <div className="space-y-2">
-            {personalRecords.slice(0, 6).map(([name, pr]) => (
-              <div key={name} className="flex items-center justify-between bg-secondary rounded-lg px-3 py-2">
-                <span className="text-sm text-foreground">{name}</span>
-                <div className="text-right">
-                  <span className="text-sm font-bold text-warning">{pr.e1rm} kg</span>
-                  <span className="text-[10px] text-muted-foreground ml-2">({pr.weight}×{pr.reps})</span>
+            {otherPRs.map(pr => {
+              const d = daysAgo(pr.date);
+              return (
+                <div key={pr.name} className="flex items-center justify-between bg-secondary rounded-lg px-3 py-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-foreground truncate">{pr.name}</p>
+                    <p className="text-[10px] text-muted-foreground">Il y a {d} jour{d > 1 ? 's' : ''}</p>
+                  </div>
+                  <div className="text-right shrink-0 ml-2">
+                    <span className="text-sm font-bold text-warning">{pr.reps} × {pr.weight} kg</span>
+                    <p className="text-[10px] text-muted-foreground">1RM {pr.e1rm} kg</p>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
 
-      {/* TM Progression */}
-      <div className="glass-card p-4 mb-4">
-        <h3 className="text-sm font-semibold text-foreground mb-3">Squat TM Progression</h3>
-        <ResponsiveContainer width="100%" height={180}>
-          <LineChart data={tmData}>
-            <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 4% 20%)" />
-            <XAxis dataKey="cycle" tick={chartStyle} axisLine={false} tickLine={false} />
-            <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={40} />
-            <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: 'hsl(0 0% 95%)' }} />
-            <Line type="monotone" dataKey="tm" stroke="hsl(84 81% 44%)" strokeWidth={2.5} dot={{ r: 4, fill: 'hsl(84 81% 44%)' }} />
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
-
       {/* Weekly Frequency */}
       {weeklyData.length > 0 && (
         <div className="glass-card p-4 mb-4">
-          <h3 className="text-sm font-semibold text-foreground mb-3">Weekly Sessions</h3>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-foreground">Weekly Sessions</h3>
+            <div className="flex gap-1">
+              {([['4', '4w'], ['16', '16w'], ['all', 'All']] as const).map(([v, label]) => (
+                <button
+                  key={v}
+                  onClick={() => setWeeklyRange(v)}
+                  className={`px-2 py-1 rounded-lg text-[10px] font-medium transition-colors ${
+                    weeklyRange === v ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
           <ResponsiveContainer width="100%" height={180}>
             <BarChart data={weeklyData}>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 4% 20%)" />
               <XAxis dataKey="week" tick={chartStyle} axisLine={false} tickLine={false} />
-              <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={30} />
+              <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={30} allowDecimals={false} />
               <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: 'hsl(0 0% 95%)' }} />
               <ReferenceLine y={data.weeklyGoal} stroke="hsl(84 81% 44%)" strokeDasharray="4 4" strokeWidth={1.5} />
               <Bar dataKey="sessions" fill="hsl(199 89% 48%)" radius={[6, 6, 0, 0]} />
@@ -244,7 +288,7 @@ const StatsTab = ({ data }: StatsTabProps) => {
       {difficultyData.length > 0 && (
         <div className="glass-card p-4 mb-4">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-foreground">Perceived Effort (RPE)</h3>
+            <h3 className="text-sm font-semibold text-foreground">Perceived Effort (RPE /5)</h3>
           </div>
           <div className="flex gap-1 mb-3 flex-wrap">
             <button
@@ -320,23 +364,6 @@ const StatsTab = ({ data }: StatsTabProps) => {
           </ResponsiveContainer>
         </div>
       )}
-
-      {/* Body Weight Over Time */}
-      {bodyWeightData.length > 1 && (
-        <div className="glass-card p-4 mb-4">
-          <h3 className="text-sm font-semibold text-foreground mb-3">Body Weight</h3>
-          <ResponsiveContainer width="100%" height={160}>
-            <LineChart data={bodyWeightData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 4% 20%)" />
-              <XAxis dataKey="date" tick={chartStyle} axisLine={false} tickLine={false} />
-              <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={40} />
-              <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: 'hsl(0 0% 95%)' }} />
-              <Line type="monotone" dataKey="weight" stroke="hsl(199 89% 48%)" strokeWidth={2.5} dot={{ r: 3, fill: 'hsl(199 89% 48%)' }} />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      )}
-
     </div>
   );
 };

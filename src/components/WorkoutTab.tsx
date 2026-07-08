@@ -29,11 +29,18 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
   const [pendingSession, setPendingSession] = useState<SessionLog | null>(null);
   const [historyExercise, setHistoryExercise] = useState<string | null>(null);
   const [restDuration, setRestDuration] = useState(data.restDuration || 90);
+  const [nowTick, setNowTick] = useState(Date.now());
+
+  useEffect(() => {
+    if (mode !== 'recap') return;
+    const id = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [mode]);
 
   const isSquatSession = (type: WorkoutType) => type.id === data.squatSessionId;
   const activeTypes = data.workoutTypes.filter(t => !t.hidden);
 
-  // Get last performance for an exercise
+  // Get last performance for an exercise (most recent session containing it)
   const getLastPerformance = useCallback((exerciseName: string) => {
     for (let i = data.sessions.length - 1; i >= 0; i--) {
       const s = data.sessions[i];
@@ -44,6 +51,20 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
       }
     }
     return null;
+  }, [data.sessions]);
+
+  // Absolute record (heaviest weight ever lifted) for an exercise, by exact name match
+  const getAbsoluteRecord = useCallback((exerciseName: string) => {
+    let best: { weight: number; reps: number } | null = null;
+    data.sessions.forEach(s => {
+      s.sets.forEach(set => {
+        if (set.exerciseName !== exerciseName || !set.completed || set.weight <= 0) return;
+        if (!best || set.weight > best.weight || (set.weight === best.weight && set.reps > best.reps)) {
+          best = { weight: set.weight, reps: set.reps };
+        }
+      });
+    });
+    return best;
   }, [data.sessions]);
 
   // Get last session weights for pre-fill
@@ -428,7 +449,16 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
           <ArrowLeft size={20} />
         </button>
         <h1 className="text-xl font-bold text-foreground">{selectedType?.name}</h1>
-        <span className="text-xs text-muted-foreground ml-auto">Recap</span>
+        {(() => {
+          const elapsed = Math.max(0, Math.floor((nowTick - startTime) / 1000));
+          const mm = String(Math.floor(elapsed / 60)).padStart(2, '0');
+          const ss = String(elapsed % 60).padStart(2, '0');
+          return (
+            <span className="ml-auto text-sm font-mono font-semibold text-primary tabular-nums bg-primary/10 px-2.5 py-1 rounded-lg">
+              {mm}:{ss}
+            </span>
+          );
+        })()}
       </div>
 
       {/* 5/3/1 Block in session — editable weights */}
@@ -619,6 +649,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
 
           const { exerciseId, name, entries: exerciseSets } = block;
           const lastPerf = getLastPerformance(name);
+          const absRecord = getAbsoluteRecord(name);
           const isTemp = exerciseId.startsWith('temp-');
 
           return (
@@ -644,10 +675,19 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
                 )}
               </div>
 
-              {lastPerf && (
-                <p className="text-[10px] text-muted-foreground mb-2">
-                  Last time: {lastPerf.weight}kg × {lastPerf.reps} — {new Date(lastPerf.date + 'T00:00:00').toLocaleDateString('default', { month: 'short', day: 'numeric' })}
-                </p>
+              {(lastPerf || absRecord) && (
+                <div className="flex flex-wrap gap-x-3 gap-y-0.5 mb-2">
+                  {lastPerf && (
+                    <p className="text-[10px] text-muted-foreground">
+                      Dernière: <span className="text-foreground/80 font-medium">{lastPerf.weight}kg × {lastPerf.reps}</span>
+                    </p>
+                  )}
+                  {absRecord && (
+                    <p className="text-[10px] text-muted-foreground">
+                      Max: <span className="text-warning font-medium">{absRecord.weight}kg × {absRecord.reps}</span>
+                    </p>
+                  )}
+                </div>
               )}
 
               <div className="space-y-2">
