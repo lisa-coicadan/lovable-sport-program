@@ -649,6 +649,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
 
           const { exerciseId, name, entries: exerciseSets } = block;
           const lastPerf = getLastPerformance(name);
+          const absRecord = getAbsoluteRecord(name);
           const isTemp = exerciseId.startsWith('temp-');
 
           return (
@@ -674,10 +675,19 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
                 )}
               </div>
 
-              {lastPerf && (
-                <p className="text-[10px] text-muted-foreground mb-2">
-                  Last time: {lastPerf.weight}kg × {lastPerf.reps} — {new Date(lastPerf.date + 'T00:00:00').toLocaleDateString('default', { month: 'short', day: 'numeric' })}
-                </p>
+              {(lastPerf || absRecord) && (
+                <div className="flex flex-wrap gap-x-3 gap-y-0.5 mb-2">
+                  {lastPerf && (
+                    <p className="text-[10px] text-muted-foreground">
+                      Dernière: <span className="text-foreground/80 font-medium">{lastPerf.weight}kg × {lastPerf.reps}</span>
+                    </p>
+                  )}
+                  {absRecord && (
+                    <p className="text-[10px] text-muted-foreground">
+                      Max: <span className="text-warning font-medium">{absRecord.weight}kg × {absRecord.reps}</span>
+                    </p>
+                  )}
+                </div>
               )}
 
               <div className="space-y-2">
