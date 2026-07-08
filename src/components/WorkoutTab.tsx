@@ -29,6 +29,13 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
   const [pendingSession, setPendingSession] = useState<SessionLog | null>(null);
   const [historyExercise, setHistoryExercise] = useState<string | null>(null);
   const [restDuration, setRestDuration] = useState(data.restDuration || 90);
+  const [nowTick, setNowTick] = useState(Date.now());
+
+  useEffect(() => {
+    if (mode !== 'recap') return;
+    const id = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [mode]);
 
   const isSquatSession = (type: WorkoutType) => type.id === data.squatSessionId;
   const activeTypes = data.workoutTypes.filter(t => !t.hidden);
