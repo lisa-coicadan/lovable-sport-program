@@ -449,7 +449,16 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
           <ArrowLeft size={20} />
         </button>
         <h1 className="text-xl font-bold text-foreground">{selectedType?.name}</h1>
-        <span className="text-xs text-muted-foreground ml-auto">Recap</span>
+        {(() => {
+          const elapsed = Math.max(0, Math.floor((nowTick - startTime) / 1000));
+          const mm = String(Math.floor(elapsed / 60)).padStart(2, '0');
+          const ss = String(elapsed % 60).padStart(2, '0');
+          return (
+            <span className="ml-auto text-sm font-mono font-semibold text-primary tabular-nums bg-primary/10 px-2.5 py-1 rounded-lg">
+              {mm}:{ss}
+            </span>
+          );
+        })()}
       </div>
 
       {/* 5/3/1 Block in session — editable weights */}
