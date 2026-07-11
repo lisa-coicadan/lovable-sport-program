@@ -1,8 +1,11 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { AppData, WorkoutType, Exercise, WORKOUT_COLORS, BodyWeightLog } from '@/lib/types';
 import { linkSuperset, unlinkSuperset, buildExerciseBlocks, flattenBlocks, ExerciseBlock } from '@/lib/superset';
-import { ArrowLeft, Plus, Trash2, EyeOff, RotateCcw, Scale, Link2, Link2Off } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, EyeOff, RotateCcw, Scale, Link2, Link2Off, Download, Upload, Database } from 'lucide-react';
 import { SortableList, DragHandle } from './SortableBlock';
+import { loadData, saveData } from '@/lib/storage';
+import { toast } from '@/hooks/use-toast';
+
 
 
 interface SettingsPanelProps {
@@ -20,6 +23,61 @@ const SettingsPanel = ({ data, onUpdateData, onUpdate531, onClose }: SettingsPan
   const [squatSessionId, setSquatSessionId] = useState(data.squatSessionId);
   const [bodyWeight, setBodyWeight] = useState('');
   const [weeklyGoal, setWeeklyGoal] = useState(data.weeklyGoal);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleExport = () => {
+    try {
+      const current = loadData();
+      const payload = {
+        __app: 'fittrack',
+        __version: 1,
+        exportedAt: new Date().toISOString(),
+        data: current,
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const stamp = new Date().toISOString().split('T')[0];
+      a.href = url;
+      a.download = `fittrack-backup-${stamp}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast({ title: 'Sauvegarde exportée', description: 'Le fichier JSON a été téléchargé.' });
+    } catch (e) {
+      toast({ title: 'Erreur export', description: String(e), variant: 'destructive' });
+    }
+  };
+
+  const handleImportClick = () => fileInputRef.current?.click();
+
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      const imported: AppData | undefined =
+        parsed?.data && typeof parsed.data === 'object' ? parsed.data :
+        (parsed && Array.isArray(parsed.sessions) && Array.isArray(parsed.workoutTypes)) ? parsed :
+        undefined;
+      if (!imported || !Array.isArray(imported.workoutTypes) || !Array.isArray(imported.sessions)) {
+        throw new Error('Fichier invalide');
+      }
+      const confirmed = window.confirm(
+        `Restaurer cette sauvegarde ?\n\n• ${imported.sessions.length} séances\n• ${imported.workoutTypes.length} types de séance\n\nCela remplacera les données actuelles de cet appareil.`
+      );
+      if (!confirmed) return;
+      saveData(imported);
+      toast({ title: 'Sauvegarde restaurée', description: 'Rechargement…' });
+      setTimeout(() => window.location.reload(), 400);
+    } catch (err) {
+      toast({ title: 'Import impossible', description: 'Fichier JSON invalide.', variant: 'destructive' });
+    }
+  };
+
 
   const save = () => {
     const partial: Partial<AppData> = { workoutTypes, squatSessionId, weeklyGoal };
@@ -432,6 +490,42 @@ const SettingsPanel = ({ data, onUpdateData, onUpdate531, onClose }: SettingsPan
       >
         <Plus size={16} /> Add new session type
       </button>
+
+      {/* Backup / Restore */}
+      <div className="glass-card p-4 mb-6">
+        <div className="flex items-center gap-2 mb-1">
+          <Database size={16} className="text-primary" />
+          <h3 className="text-sm font-bold text-foreground">Sauvegarde</h3>
+        </div>
+        <p className="text-[11px] text-muted-foreground mb-3">
+          Vos données sont stockées uniquement sur cet appareil. Exportez un fichier pour ne rien perdre.
+        </p>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={handleExport}
+            className="flex items-center justify-center gap-1.5 bg-secondary text-foreground rounded-xl py-2.5 text-sm font-medium active:scale-95 transition-transform"
+          >
+            <Download size={14} /> Export
+          </button>
+          <button
+            onClick={handleImportClick}
+            className="flex items-center justify-center gap-1.5 bg-secondary text-foreground rounded-xl py-2.5 text-sm font-medium active:scale-95 transition-transform"
+          >
+            <Upload size={14} /> Import
+          </button>
+        </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="application/json,.json"
+          onChange={handleImportFile}
+          className="hidden"
+        />
+        <p className="text-[10px] text-muted-foreground mt-2">
+          {(data.sessions?.length || 0)} séances enregistrées sur cet appareil.
+        </p>
+      </div>
+
 
       <button
         onClick={save}
