@@ -491,6 +491,42 @@ const SettingsPanel = ({ data, onUpdateData, onUpdate531, onClose }: SettingsPan
         <Plus size={16} /> Add new session type
       </button>
 
+      {/* Backup / Restore */}
+      <div className="glass-card p-4 mb-6">
+        <div className="flex items-center gap-2 mb-1">
+          <Database size={16} className="text-primary" />
+          <h3 className="text-sm font-bold text-foreground">Sauvegarde</h3>
+        </div>
+        <p className="text-[11px] text-muted-foreground mb-3">
+          Vos données sont stockées uniquement sur cet appareil. Exportez un fichier pour ne rien perdre.
+        </p>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={handleExport}
+            className="flex items-center justify-center gap-1.5 bg-secondary text-foreground rounded-xl py-2.5 text-sm font-medium active:scale-95 transition-transform"
+          >
+            <Download size={14} /> Export
+          </button>
+          <button
+            onClick={handleImportClick}
+            className="flex items-center justify-center gap-1.5 bg-secondary text-foreground rounded-xl py-2.5 text-sm font-medium active:scale-95 transition-transform"
+          >
+            <Upload size={14} /> Import
+          </button>
+        </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="application/json,.json"
+          onChange={handleImportFile}
+          className="hidden"
+        />
+        <p className="text-[10px] text-muted-foreground mt-2">
+          {(data.sessions?.length || 0)} séances enregistrées sur cet appareil.
+        </p>
+      </div>
+
+
       <button
         onClick={save}
         className="w-full bg-primary text-primary-foreground font-semibold py-4 rounded-2xl touch-target text-lg transition-transform active:scale-95"
