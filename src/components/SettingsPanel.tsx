@@ -23,6 +23,61 @@ const SettingsPanel = ({ data, onUpdateData, onUpdate531, onClose }: SettingsPan
   const [squatSessionId, setSquatSessionId] = useState(data.squatSessionId);
   const [bodyWeight, setBodyWeight] = useState('');
   const [weeklyGoal, setWeeklyGoal] = useState(data.weeklyGoal);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleExport = () => {
+    try {
+      const current = loadData();
+      const payload = {
+        __app: 'fittrack',
+        __version: 1,
+        exportedAt: new Date().toISOString(),
+        data: current,
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const stamp = new Date().toISOString().split('T')[0];
+      a.href = url;
+      a.download = `fittrack-backup-${stamp}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast({ title: 'Sauvegarde exportée', description: 'Le fichier JSON a été téléchargé.' });
+    } catch (e) {
+      toast({ title: 'Erreur export', description: String(e), variant: 'destructive' });
+    }
+  };
+
+  const handleImportClick = () => fileInputRef.current?.click();
+
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      const imported: AppData | undefined =
+        parsed?.data && typeof parsed.data === 'object' ? parsed.data :
+        (parsed && Array.isArray(parsed.sessions) && Array.isArray(parsed.workoutTypes)) ? parsed :
+        undefined;
+      if (!imported || !Array.isArray(imported.workoutTypes) || !Array.isArray(imported.sessions)) {
+        throw new Error('Fichier invalide');
+      }
+      const confirmed = window.confirm(
+        `Restaurer cette sauvegarde ?\n\n• ${imported.sessions.length} séances\n• ${imported.workoutTypes.length} types de séance\n\nCela remplacera les données actuelles de cet appareil.`
+      );
+      if (!confirmed) return;
+      saveData(imported);
+      toast({ title: 'Sauvegarde restaurée', description: 'Rechargement…' });
+      setTimeout(() => window.location.reload(), 400);
+    } catch (err) {
+      toast({ title: 'Import impossible', description: 'Fichier JSON invalide.', variant: 'destructive' });
+    }
+  };
+
 
   const save = () => {
     const partial: Partial<AppData> = { workoutTypes, squatSessionId, weeklyGoal };
