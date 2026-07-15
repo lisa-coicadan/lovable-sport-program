@@ -273,18 +273,43 @@ const StatsTab = ({ data }: StatsTabProps) => {
       )}
 
       {/* Volume */}
-      {volumeData.length > 0 && (
+      {(volumeData.length > 0 || volumeFilter) && (
         <div className="glass-card p-4 mb-4">
           <h3 className="text-sm font-semibold text-foreground mb-3">Session Volume (kg)</h3>
-          <ResponsiveContainer width="100%" height={180}>
-            <LineChart data={volumeData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 4% 20%)" />
-              <XAxis dataKey="date" tick={chartStyle} axisLine={false} tickLine={false} />
-              <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={45} />
-              <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: 'hsl(0 0% 95%)' }} />
-              <Line type="monotone" dataKey="volume" stroke="hsl(330 81% 60%)" strokeWidth={2.5} dot={{ r: 3, fill: 'hsl(330 81% 60%)' }} />
-            </LineChart>
-          </ResponsiveContainer>
+          <div className="flex gap-1 mb-3 flex-wrap">
+            <button
+              onClick={() => setVolumeFilter(null)}
+              className={`px-2 py-1 rounded-lg text-[10px] font-medium transition-colors ${
+                !volumeFilter ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
+              }`}
+            >
+              All
+            </button>
+            {activeTypes.map(t => (
+              <button
+                key={t.id}
+                onClick={() => setVolumeFilter(t.id)}
+                className={`px-2 py-1 rounded-lg text-[10px] font-medium transition-colors ${
+                  volumeFilter === t.id ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
+                }`}
+              >
+                {t.name}
+              </button>
+            ))}
+          </div>
+          {volumeData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={180}>
+              <LineChart data={volumeData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 4% 20%)" />
+                <XAxis dataKey="date" tick={chartStyle} axisLine={false} tickLine={false} />
+                <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={45} />
+                <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: 'hsl(0 0% 95%)' }} />
+                <Line type="monotone" dataKey="volume" stroke="hsl(330 81% 60%)" strokeWidth={2.5} dot={{ r: 3, fill: 'hsl(330 81% 60%)' }} />
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            <p className="text-xs text-muted-foreground text-center py-8">No data for this session type</p>
+          )}
         </div>
       )}
 
