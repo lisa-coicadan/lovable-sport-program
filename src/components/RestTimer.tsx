@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Pause, Play, RotateCcw, X, Timer } from 'lucide-react';
 
 interface RestTimerProps {
