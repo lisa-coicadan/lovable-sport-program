@@ -23,6 +23,7 @@ const daysAgo = (dateStr: string) => {
 
 const StatsTab = ({ data }: StatsTabProps) => {
   const [difficultyFilter, setDifficultyFilter] = useState<string | null>(null);
+  const [volumeFilter, setVolumeFilter] = useState<string | null>(null);
   const [weeklyRange, setWeeklyRange] = useState<'4' | '16' | 'all'>('16');
 
   // All PRs, grouped by normalized name -> best e1rm ever
