@@ -133,6 +133,27 @@ const SessionSummary = ({ session, previousSessions = [], onSave, onBack, readOn
         </div>
       </div>
 
+      {/* Total tonnage vs last session of same type */}
+      {volumePct !== null && (
+        <div className="glass-card p-4 mb-6 flex items-center gap-3">
+          {volumePct > 0 ? (
+            <TrendingUp size={20} className="text-success shrink-0" />
+          ) : volumePct < 0 ? (
+            <TrendingDown size={20} className="text-destructive shrink-0" />
+          ) : (
+            <Minus size={20} className="text-muted-foreground shrink-0" />
+          )}
+          <div className="min-w-0 flex-1">
+            <p className={`text-sm font-bold ${volumePct > 0 ? 'text-success' : volumePct < 0 ? 'text-destructive' : 'text-muted-foreground'}`}>
+              {volumePct > 0 ? '+' : ''}{volumePct}% de volume
+            </p>
+            <p className="text-[10px] text-muted-foreground">
+              vs dernière séance {session.workoutTypeName} ({Math.round(lastTotalVolume)} kg)
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Exercises with 1RM and progression */}
       {groupedExercises.length > 0 && (
         <div className="space-y-3 mb-6">
