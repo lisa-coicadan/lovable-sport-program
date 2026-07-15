@@ -30,6 +30,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
   const [historyExercise, setHistoryExercise] = useState<string | null>(null);
   const [restDuration, setRestDuration] = useState(data.restDuration || 90);
   const [nowTick, setNowTick] = useState(Date.now());
+  const [previewOpen, setPreviewOpen] = useState(true);
 
   useEffect(() => {
     if (mode !== 'recap') return;
