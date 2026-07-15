@@ -396,7 +396,7 @@ const StatsTab = ({ data }: StatsTabProps) => {
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 4% 20%)" />
               <XAxis dataKey="month" tick={chartStyle} axisLine={false} tickLine={false} />
               <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={35} />
-              <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: 'hsl(0 0% 95%)' }} formatter={(value: number) => [`${value} min`, 'Time']} />
+              <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: 'hsl(0 0% 95%)' }} formatter={(value: number) => [formatHM(value), 'Time']} />
               <Bar dataKey="minutes" fill="hsl(38 92% 50%)" radius={[6, 6, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
