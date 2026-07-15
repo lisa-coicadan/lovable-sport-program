@@ -29,24 +29,39 @@ const SessionSummary = ({ session, previousSessions = [], onSave, onBack, readOn
     return Object.entries(map);
   }, [completedSets]);
 
-  // Progression vs last session of same type
-  const progressions = useMemo(() => {
-    const lastSession = previousSessions
+  // Last session of same type (for volume comparison and per-exercise progression)
+  const lastSameTypeSession = useMemo(() => {
+    return previousSessions
       .filter(s => s.workoutTypeId === session.workoutTypeId && s.id !== session.id)
       .sort((a, b) => b.date.localeCompare(a.date))[0];
-    if (!lastSession) return {};
+  }, [previousSessions, session]);
+
+  const lastTotalVolume = useMemo(() => {
+    if (!lastSameTypeSession) return 0;
+    return lastSameTypeSession.sets
+      .filter(s => s.completed)
+      .reduce((acc, s) => acc + s.weight * s.reps, 0);
+  }, [lastSameTypeSession]);
+
+  const volumePct = lastTotalVolume > 0
+    ? Math.round(((totalVolume - lastTotalVolume) / lastTotalVolume) * 100)
+    : null;
+
+  // Progression vs last session of same type
+  const progressions = useMemo(() => {
+    if (!lastSameTypeSession) return {};
 
     const result: Record<string, { weightDiff: number; repDiff: number; e1rmDiff: number }> = {};
-    
+
     groupedExercises.forEach(([name, sets]) => {
       const bestSet = sets.reduce((best, s) => {
         const e1rm = calculate1RM(s.weight, s.reps);
         return e1rm > calculate1RM(best.weight, best.reps) ? s : best;
       }, sets[0]);
-      
-      const lastSets = lastSession.sets.filter(s => s.exerciseName === name && s.completed && s.weight > 0);
+
+      const lastSets = lastSameTypeSession.sets.filter(s => s.exerciseName === name && s.completed && s.weight > 0);
       if (lastSets.length === 0) return;
-      
+
       const lastBest = lastSets.reduce((best, s) => {
         const e1rm = calculate1RM(s.weight, s.reps);
         return e1rm > calculate1RM(best.weight, best.reps) ? s : best;
@@ -59,7 +74,7 @@ const SessionSummary = ({ session, previousSessions = [], onSave, onBack, readOn
       };
     });
     return result;
-  }, [previousSessions, session, groupedExercises]);
+  }, [lastSameTypeSession, groupedExercises]);
 
   const handleSave = () => {
     onSave({ ...session, duration: duration || 60, difficulty, notes });
