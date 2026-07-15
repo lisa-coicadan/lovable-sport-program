@@ -367,11 +367,11 @@ const StatsTab = ({ data }: StatsTabProps) => {
           <h3 className="text-sm font-semibold text-foreground mb-2">Weekly Training Time</h3>
           <div className="flex gap-4 mb-3">
             <div className="text-center">
-              <p className="text-lg font-bold text-foreground">{currentWeekTime} min</p>
+              <p className="text-lg font-bold text-foreground">{formatHM(currentWeekTime)}</p>
               <p className="text-[10px] text-muted-foreground">This week</p>
             </div>
             <div className="text-center">
-              <p className="text-lg font-bold text-muted-foreground">{prevWeekTime} min</p>
+              <p className="text-lg font-bold text-muted-foreground">{formatHM(prevWeekTime)}</p>
               <p className="text-[10px] text-muted-foreground">Last week</p>
             </div>
           </div>
