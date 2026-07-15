@@ -96,17 +96,20 @@ const StatsTab = ({ data }: StatsTabProps) => {
     return out;
   }, [data.sessions, data.weeklyGoal, weeklyRange]);
 
-  // Volume per session
+  // Volume per session (filterable by workout type)
   const volumeData = useMemo(() => {
-    return data.sessions.slice(-10).map(s => {
-      const volume = s.sets.reduce((acc, set) => acc + set.reps * set.weight, 0);
-      return {
-        date: new Date(s.date).toLocaleDateString('default', { month: 'short', day: 'numeric' }),
-        volume,
-        type: s.workoutTypeName,
-      };
-    });
-  }, [data.sessions]);
+    return data.sessions
+      .filter(s => !volumeFilter || s.workoutTypeId === volumeFilter)
+      .slice(-10)
+      .map(s => {
+        const volume = s.sets.reduce((acc, set) => acc + set.reps * set.weight, 0);
+        return {
+          date: new Date(s.date).toLocaleDateString('default', { month: 'short', day: 'numeric' }),
+          volume,
+          type: s.workoutTypeName,
+        };
+      });
+  }, [data.sessions, volumeFilter]);
 
   // Difficulty over time — only sessions from June 2026 onward (RPE /5 scale)
   const difficultyData = useMemo(() => {
