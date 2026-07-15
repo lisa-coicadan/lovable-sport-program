@@ -5,6 +5,46 @@ interface RestTimerProps {
   defaultSeconds?: number;
 }
 
+// Persistent AudioContext — created once on first user gesture.
+// Web Audio API by default mixes with background media (Spotify/Apple Music on iOS)
+// as long as we never touch an HTMLAudioElement.
+let sharedCtx: AudioContext | null = null;
+const getCtx = (): AudioContext | null => {
+  try {
+    if (!sharedCtx) {
+      const AC = (window.AudioContext || (window as any).webkitAudioContext);
+      if (!AC) return null;
+      sharedCtx = new AC({ latencyHint: 'interactive' });
+    }
+    if (sharedCtx.state === 'suspended') sharedCtx.resume().catch(() => {});
+    return sharedCtx;
+  } catch {
+    return null;
+  }
+};
+
+const playBeep = () => {
+  const ctx = getCtx();
+  if (!ctx) return;
+  const now = ctx.currentTime;
+  const beep = (start: number, freq: number) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    // Short, clean envelope — no click, no sustain — keeps it non-intrusive over music
+    gain.gain.setValueAtTime(0, start);
+    gain.gain.linearRampToValueAtTime(0.35, start + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.18);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(start);
+    osc.stop(start + 0.2);
+  };
+  beep(now, 880);
+  beep(now + 0.22, 1175);
+};
+
 const RestTimer = ({ defaultSeconds = 90 }: RestTimerProps) => {
   const [seconds, setSeconds] = useState(defaultSeconds);
   const [isRunning, setIsRunning] = useState(false);
@@ -22,19 +62,10 @@ const RestTimer = ({ defaultSeconds = 90 }: RestTimerProps) => {
       setSeconds(s => {
         if (s <= 1) {
           setIsRunning(false);
-          // Sound + vibration
           try {
-            if ('vibrate' in navigator) navigator.vibrate([200, 100, 200, 100, 200]);
-            const ctx = new AudioContext();
-            const osc = ctx.createOscillator();
-            const gain = ctx.createGain();
-            osc.connect(gain);
-            gain.connect(ctx.destination);
-            osc.frequency.value = 880;
-            gain.gain.value = 0.3;
-            osc.start();
-            setTimeout(() => { osc.stop(); ctx.close(); }, 500);
+            if ('vibrate' in navigator) navigator.vibrate([200, 100, 200]);
           } catch {}
+          playBeep();
           return 0;
         }
         return s - 1;
@@ -49,6 +80,8 @@ const RestTimer = ({ defaultSeconds = 90 }: RestTimerProps) => {
   }, [total]);
 
   const start = () => {
+    // Prime the audio context on the user gesture so iOS allows playback later.
+    getCtx();
     if (seconds === 0) setSeconds(total);
     setIsRunning(true);
   };

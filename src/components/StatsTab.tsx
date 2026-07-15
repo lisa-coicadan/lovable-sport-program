@@ -21,8 +21,18 @@ const daysAgo = (dateStr: string) => {
   return diff;
 };
 
+const formatHM = (mins: number) => {
+  if (!mins || mins <= 0) return '0min';
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  if (h === 0) return `${m}min`;
+  if (m === 0) return `${h}h`;
+  return `${h}h${String(m).padStart(2, '0')}`;
+};
+
 const StatsTab = ({ data }: StatsTabProps) => {
   const [difficultyFilter, setDifficultyFilter] = useState<string | null>(null);
+  const [volumeFilter, setVolumeFilter] = useState<string | null>(null);
   const [weeklyRange, setWeeklyRange] = useState<'4' | '16' | 'all'>('16');
 
   // All PRs, grouped by normalized name -> best e1rm ever
@@ -95,17 +105,20 @@ const StatsTab = ({ data }: StatsTabProps) => {
     return out;
   }, [data.sessions, data.weeklyGoal, weeklyRange]);
 
-  // Volume per session
+  // Volume per session (filterable by workout type)
   const volumeData = useMemo(() => {
-    return data.sessions.slice(-10).map(s => {
-      const volume = s.sets.reduce((acc, set) => acc + set.reps * set.weight, 0);
-      return {
-        date: new Date(s.date).toLocaleDateString('default', { month: 'short', day: 'numeric' }),
-        volume,
-        type: s.workoutTypeName,
-      };
-    });
-  }, [data.sessions]);
+    return data.sessions
+      .filter(s => !volumeFilter || s.workoutTypeId === volumeFilter)
+      .slice(-10)
+      .map(s => {
+        const volume = s.sets.reduce((acc, set) => acc + set.reps * set.weight, 0);
+        return {
+          date: new Date(s.date).toLocaleDateString('default', { month: 'short', day: 'numeric' }),
+          volume,
+          type: s.workoutTypeName,
+        };
+      });
+  }, [data.sessions, volumeFilter]);
 
   // Difficulty over time — only sessions from June 2026 onward (RPE /5 scale)
   const difficultyData = useMemo(() => {
@@ -269,18 +282,43 @@ const StatsTab = ({ data }: StatsTabProps) => {
       )}
 
       {/* Volume */}
-      {volumeData.length > 0 && (
+      {(volumeData.length > 0 || volumeFilter) && (
         <div className="glass-card p-4 mb-4">
           <h3 className="text-sm font-semibold text-foreground mb-3">Session Volume (kg)</h3>
-          <ResponsiveContainer width="100%" height={180}>
-            <LineChart data={volumeData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 4% 20%)" />
-              <XAxis dataKey="date" tick={chartStyle} axisLine={false} tickLine={false} />
-              <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={45} />
-              <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: 'hsl(0 0% 95%)' }} />
-              <Line type="monotone" dataKey="volume" stroke="hsl(330 81% 60%)" strokeWidth={2.5} dot={{ r: 3, fill: 'hsl(330 81% 60%)' }} />
-            </LineChart>
-          </ResponsiveContainer>
+          <div className="flex gap-1 mb-3 flex-wrap">
+            <button
+              onClick={() => setVolumeFilter(null)}
+              className={`px-2 py-1 rounded-lg text-[10px] font-medium transition-colors ${
+                !volumeFilter ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
+              }`}
+            >
+              All
+            </button>
+            {activeTypes.map(t => (
+              <button
+                key={t.id}
+                onClick={() => setVolumeFilter(t.id)}
+                className={`px-2 py-1 rounded-lg text-[10px] font-medium transition-colors ${
+                  volumeFilter === t.id ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
+                }`}
+              >
+                {t.name}
+              </button>
+            ))}
+          </div>
+          {volumeData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={180}>
+              <LineChart data={volumeData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 4% 20%)" />
+                <XAxis dataKey="date" tick={chartStyle} axisLine={false} tickLine={false} />
+                <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={45} />
+                <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: 'hsl(0 0% 95%)' }} />
+                <Line type="monotone" dataKey="volume" stroke="hsl(330 81% 60%)" strokeWidth={2.5} dot={{ r: 3, fill: 'hsl(330 81% 60%)' }} />
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            <p className="text-xs text-muted-foreground text-center py-8">No data for this session type</p>
+          )}
         </div>
       )}
 
@@ -329,11 +367,11 @@ const StatsTab = ({ data }: StatsTabProps) => {
           <h3 className="text-sm font-semibold text-foreground mb-2">Weekly Training Time</h3>
           <div className="flex gap-4 mb-3">
             <div className="text-center">
-              <p className="text-lg font-bold text-foreground">{currentWeekTime} min</p>
+              <p className="text-lg font-bold text-foreground">{formatHM(currentWeekTime)}</p>
               <p className="text-[10px] text-muted-foreground">This week</p>
             </div>
             <div className="text-center">
-              <p className="text-lg font-bold text-muted-foreground">{prevWeekTime} min</p>
+              <p className="text-lg font-bold text-muted-foreground">{formatHM(prevWeekTime)}</p>
               <p className="text-[10px] text-muted-foreground">Last week</p>
             </div>
           </div>
@@ -342,7 +380,7 @@ const StatsTab = ({ data }: StatsTabProps) => {
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 4% 20%)" />
               <XAxis dataKey="week" tick={chartStyle} axisLine={false} tickLine={false} />
               <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={35} />
-              <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: 'hsl(0 0% 95%)' }} formatter={(value: number) => [`${value} min`, 'Time']} />
+              <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: 'hsl(0 0% 95%)' }} formatter={(value: number) => [formatHM(value), 'Time']} />
               <Bar dataKey="minutes" fill="hsl(174 72% 46%)" radius={[6, 6, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
@@ -358,7 +396,7 @@ const StatsTab = ({ data }: StatsTabProps) => {
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 4% 20%)" />
               <XAxis dataKey="month" tick={chartStyle} axisLine={false} tickLine={false} />
               <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={35} />
-              <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: 'hsl(0 0% 95%)' }} formatter={(value: number) => [`${value} min`, 'Time']} />
+              <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: 'hsl(0 0% 95%)' }} formatter={(value: number) => [formatHM(value), 'Time']} />
               <Bar dataKey="minutes" fill="hsl(38 92% 50%)" radius={[6, 6, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>

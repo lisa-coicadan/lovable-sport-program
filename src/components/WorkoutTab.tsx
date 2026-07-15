@@ -5,7 +5,7 @@ import RestTimer from './RestTimer';
 import ExerciseHistory from './ExerciseHistory';
 import SessionSummary from './SessionSummary';
 import SettingsPanel from './SettingsPanel';
-import { Check, ChevronRight, ArrowLeft, Settings, History, Plus, Trash2 } from 'lucide-react';
+import { Check, ChevronRight, ArrowLeft, Settings, History, Plus, Trash2, ChevronDown } from 'lucide-react';
 import { SortableList, DragHandle } from './SortableBlock';
 
 
@@ -30,6 +30,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
   const [historyExercise, setHistoryExercise] = useState<string | null>(null);
   const [restDuration, setRestDuration] = useState(data.restDuration || 90);
   const [nowTick, setNowTick] = useState(Date.now());
+  const [previewOpen, setPreviewOpen] = useState(true);
 
   useEffect(() => {
     if (mode !== 'recap') return;
@@ -460,6 +461,51 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
           );
         })()}
       </div>
+
+      {/* Session preview (collapsible accordion) */}
+      {selectedType && selectedType.exercises.length > 0 && (
+        <div className="glass-card mb-4 overflow-hidden">
+          <button
+            onClick={() => setPreviewOpen(v => !v)}
+            className="w-full flex items-center justify-between p-3 touch-target"
+          >
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Aperçu séance</span>
+            <ChevronDown
+              size={16}
+              className={`text-muted-foreground transition-transform ${previewOpen ? 'rotate-180' : ''}`}
+            />
+          </button>
+          {previewOpen && (
+            <div className="px-3 pb-3 space-y-1">
+              {(() => {
+                const seen = new Set<string>();
+                const rows: { label: string; volume: string }[] = [];
+                selectedType.exercises.forEach(ex => {
+                  if (ex.supersetGroupId) {
+                    if (seen.has(ex.supersetGroupId)) return;
+                    seen.add(ex.supersetGroupId);
+                    const partner = selectedType.exercises.find(e => e.id !== ex.id && e.supersetGroupId === ex.supersetGroupId);
+                    const a = ex.supersetRole === 'B' && partner ? partner : ex;
+                    const b = a === ex ? partner : ex;
+                    rows.push({
+                      label: `${a.name} + ${b?.name || '—'}`,
+                      volume: `${a.sets} × ${a.reps} / ${b?.reps ?? '—'}`,
+                    });
+                  } else {
+                    rows.push({ label: ex.name, volume: `${ex.sets} × ${ex.reps}` });
+                  }
+                });
+                return rows.map((r, i) => (
+                  <div key={i} className="flex items-center justify-between text-xs py-1">
+                    <span className="text-foreground/80 truncate flex-1 pr-2">{r.label}</span>
+                    <span className="text-muted-foreground font-mono shrink-0">{r.volume}</span>
+                  </div>
+                ));
+              })()}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 5/3/1 Block in session — editable weights */}
       {selectedType && isSquatSession(selectedType) && fiveThreeOneLiveSets.length > 0 && (
