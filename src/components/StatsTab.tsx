@@ -21,6 +21,15 @@ const daysAgo = (dateStr: string) => {
   return diff;
 };
 
+const formatHM = (mins: number) => {
+  if (!mins || mins <= 0) return '0min';
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  if (h === 0) return `${m}min`;
+  if (m === 0) return `${h}h`;
+  return `${h}h${String(m).padStart(2, '0')}`;
+};
+
 const StatsTab = ({ data }: StatsTabProps) => {
   const [difficultyFilter, setDifficultyFilter] = useState<string | null>(null);
   const [volumeFilter, setVolumeFilter] = useState<string | null>(null);
