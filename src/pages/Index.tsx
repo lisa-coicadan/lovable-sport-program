@@ -66,7 +66,8 @@ const Index = () => {
       {activeTab === 0 && (
         <CalendarTab data={data} onDaySelect={handleDaySelect} onUpdateSession={handleUpdateSession} onDeleteSession={handleDeleteSession} />
       )}
-      {activeTab === 1 && (
+      {/* WorkoutTab always mounted to preserve session state (timer, entered sets) across tab navigation */}
+      <div style={{ display: activeTab === 1 ? 'block' : 'none' }}>
         <WorkoutTab
           data={data}
           onSaveSession={handleSaveSession}
@@ -74,9 +75,9 @@ const Index = () => {
           onUpdateData={handleUpdateData}
           selectedDate={selectedDate}
         />
-      )}
+      </div>
       {activeTab === 2 && <StatsTab data={data} />}
-      <BottomTabBar activeTab={activeTab} onTabChange={(tab) => { setActiveTab(tab); if (tab !== 1) setSelectedDate(null); }} />
+      <BottomTabBar activeTab={activeTab} onTabChange={(tab) => { setActiveTab(tab); }} />
     </div>
   );
 };
