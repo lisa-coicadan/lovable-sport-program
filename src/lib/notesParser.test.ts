@@ -12,10 +12,10 @@ describe('parseSessionNotes', () => {
     expect(parseSessionNotes('Séance : Pull\nTractions : 3x8').sessionName).toBe('Pull');
   });
 
-  it('leaves sessionName null when the first line is itself a valid exercise', () => {
+  it('always treats the first non-blank line as the session name, even if it looks like an exercise', () => {
     const result = parseSessionNotes('Développé couché : 3x8');
-    expect(result.sessionName).toBeNull();
-    expect(result.exercises).toHaveLength(1);
+    expect(result.sessionName).toBe('Développé couché : 3x8');
+    expect(result.exercises).toHaveLength(0);
   });
 
   it('accepts "Nom : SxR", "Nom SxR" and "SxR Nom" order', () => {
@@ -86,5 +86,24 @@ describe('parseSessionNotes', () => {
   it('handles a fully empty input', () => {
     const result = parseSessionNotes('');
     expect(result).toEqual({ sessionName: null, exercises: [], unrecognizedLines: [] });
+  });
+
+  it('reads a lone "Nx" as sets with reps left unknown (0, to fill in)', () => {
+    const result = parseSessionNotes('Pull\n4x tractions');
+    expect(result.exercises).toEqual([{ name: 'tractions', sets: 4, reps: 0 }]);
+  });
+
+  it('reads a lone "xN" as reps with sets left unknown (0, to fill in)', () => {
+    const result = parseSessionNotes('Pull\nx12 tractions');
+    expect(result.exercises).toEqual([{ name: 'tractions', sets: 0, reps: 12 }]);
+  });
+
+  it('strips checklist-style brackets from any line, including the session name', () => {
+    const result = parseSessionNotes('[ ] Push\n[x] Développé couché : 3x8\n[]Dips : 3x10');
+    expect(result.sessionName).toBe('Push');
+    expect(result.exercises).toEqual([
+      { name: 'Développé couché', sets: 3, reps: 8 },
+      { name: 'Dips', sets: 3, reps: 10 },
+    ]);
   });
 });

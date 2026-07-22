@@ -570,7 +570,7 @@ const SettingsPanel = ({ data, onUpdateData, onUpdate531, onClose }: SettingsPan
             <textarea
               value={notesText}
               onChange={e => setNotesText(e.target.value)}
-              placeholder={'Push\nDéveloppé couché : 3x8\nDéveloppé militaire 4x12 @10kg'}
+              placeholder={'Push\nDéveloppé couché : 3x8\nDéveloppé militaire 4x12 à 10kg'}
               rows={6}
               className="w-full bg-secondary text-foreground rounded-xl px-3 py-2.5 text-sm outline-none font-mono mb-2"
             />
