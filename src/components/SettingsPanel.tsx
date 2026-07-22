@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react';
-import { AppData, WorkoutType, Exercise, WORKOUT_COLORS, BodyWeightLog } from '@/lib/types';
+import { AppData, WorkoutType, Exercise, WORKOUT_COLORS, BodyWeightLog, DEFAULT_APP_DATA } from '@/lib/types';
 import { linkSuperset, unlinkSuperset, buildExerciseBlocks, flattenBlocks, ExerciseBlock } from '@/lib/superset';
-import { ArrowLeft, Plus, Trash2, EyeOff, RotateCcw, Scale, Link2, Link2Off, Download, Upload, Database } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, EyeOff, RotateCcw, Scale, Link2, Link2Off, Download, Upload, Database, AlertTriangle } from 'lucide-react';
 import { SortableList, DragHandle } from './SortableBlock';
 import { loadData, saveData } from '@/lib/storage';
 import { toast } from '@/hooks/use-toast';
@@ -76,6 +76,17 @@ const SettingsPanel = ({ data, onUpdateData, onUpdate531, onClose }: SettingsPan
     } catch (err) {
       toast({ title: 'Import impossible', description: 'Fichier JSON invalide.', variant: 'destructive' });
     }
+  };
+
+  const handleReset = () => {
+    const confirmed = window.confirm(
+      `Réinitialiser complètement l'app ?\n\n` +
+      `Ceci supprime définitivement TOUTES les données de cet appareil ` +
+      `(${data.sessions?.length || 0} séances, programmes, réglages) et relance l'écran d'initialisation.\n\n` +
+      `As-tu bien exporté une sauvegarde JSON récente ? Cette action est irréversible.`
+    );
+    if (!confirmed) return;
+    onUpdateData(DEFAULT_APP_DATA);
   };
 
 
@@ -531,6 +542,18 @@ const SettingsPanel = ({ data, onUpdateData, onUpdate531, onClose }: SettingsPan
         />
         <p className="text-[10px] text-muted-foreground mt-2">
           {(data.sessions?.length || 0)} séances enregistrées sur cet appareil.
+        </p>
+
+        <div className="h-px bg-border my-3" />
+
+        <button
+          onClick={handleReset}
+          className="w-full flex items-center justify-center gap-1.5 bg-destructive/10 text-destructive rounded-xl py-2.5 text-sm font-medium active:scale-95 transition-transform"
+        >
+          <AlertTriangle size={14} /> Réinitialiser l'app
+        </button>
+        <p className="text-[10px] text-muted-foreground mt-2">
+          Supprime toutes les données locales et relance l'initialisation. Pense à exporter une sauvegarde avant.
         </p>
       </div>
 
