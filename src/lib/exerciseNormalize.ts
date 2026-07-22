@@ -18,6 +18,56 @@ const EQUIPMENT: EquipmentDetection[] = [
   { key: 'barre', label: 'barre', keywords: ['barre', 'barbell', 'bb'] },
 ];
 
+// General word-abbreviation dictionary, applied to ANY exercise name (not just the
+// canonical lifts below) so common shorthand and full spellings converge to the same
+// grouping key for stats/history — e.g. "dev militaire" and "Développé militaire" become
+// the same exercise. Keys are matched against already-`clean()`ed tokens (lowercase,
+// accents stripped), values are the nicely-accented canonical spelling. Grow this list
+// as new abbreviations come up — equipment words (haltère, barre, poulie...) don't need
+// an entry here, they're already handled by EQUIPMENT above.
+const WORD_CANONICAL: Record<string, string> = {
+  dev: 'développé', dvpe: 'développé', dc: 'développé', developpe: 'développé',
+  mil: 'militaire', milit: 'militaire',
+  lat: 'latérale', later: 'latérale', laterale: 'latérale', laterales: 'latérales', lats: 'latérales',
+  uni: 'unilatéral', unilat: 'unilatéral', unilateral: 'unilatéral', unilaterale: 'unilatérale',
+  trac: 'traction',
+  ext: 'extension',
+  sdt: 'soulevé de terre',
+  ohp: 'overhead press',
+};
+
+// Expands abbreviation tokens, word by word, on the ORIGINAL (accent/case-preserving)
+// text — only tokens that match a WORD_CANONICAL key get replaced (with the dictionary's
+// accented spelling); every other token keeps its original accents/case untouched.
+// Returns whether any token actually changed.
+function expandAbbreviations(original: string): { text: string; changed: boolean } {
+  let changed = false;
+  const tokens = original.split(/\s+/).map(tok => {
+    const canonical = WORD_CANONICAL[clean(tok)];
+    if (canonical) { changed = true; return canonical; }
+    return tok;
+  });
+  return { text: tokens.join(' '), changed };
+}
+
+// Finds an equipment keyword among the (already whitespace-split) ORIGINAL tokens by
+// comparing their cleaned forms — so it works regardless of accents/case in the input.
+// Handles multi-word keywords (e.g. "smith machine") as a token window.
+function findEquipmentSpan(tokens: string[]): { eq: EquipmentDetection; start: number; end: number } | null {
+  const cleanedTokens = tokens.map(clean);
+  for (const eq of EQUIPMENT) {
+    for (const kw of eq.keywords) {
+      const kwTokens = kw.split(' ');
+      for (let i = 0; i <= cleanedTokens.length - kwTokens.length; i++) {
+        if (cleanedTokens.slice(i, i + kwTokens.length).join(' ') === kwTokens.join(' ')) {
+          return { eq, start: i, end: i + kwTokens.length };
+        }
+      }
+    }
+  }
+  return null;
+}
+
 interface NormalizationRule {
   canonical: string; // canonical name when equipment is BARBELL (or default for the lift)
   prTracked: boolean; // PR is tracked for the barbell variant only
@@ -99,17 +149,42 @@ function matchRule(cleaned: string): NormalizationRule | null {
   return null;
 }
 
+// Sentence case: capitalize the first letter, lowercase the rest — matches the
+// convention used by the canonical lifts (e.g. "Développé couché"). Accents are
+// preserved (JS's toLowerCase/toUpperCase don't strip them).
+function sentenceCase(s: string): string {
+  if (!s) return s;
+  return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+}
+
 export function normalizeExerciseName(name: string): string {
   if (!name) return name;
-  const c = clean(name);
+  const trimmed = name.trim();
+  const c = clean(trimmed);
   const rule = matchRule(c);
-  if (!rule) return name.trim();
 
-  const eq = detectEquipment(c);
-  // No equipment qualifier OR explicit barbell -> canonical
-  if (!eq || eq.key === 'barre') return rule.canonical;
-  // Other equipment: keep distinct, e.g. "Développé couché haltères"
-  return `${rule.baseLabel} ${eq.label}`;
+  if (rule) {
+    const eq = detectEquipment(c);
+    // No equipment qualifier OR explicit barbell -> canonical
+    if (!eq || eq.key === 'barre') return rule.canonical;
+    // Other equipment: keep distinct, e.g. "Développé couché haltères"
+    return `${rule.baseLabel} ${eq.label}`;
+  }
+
+  // Not one of the canonical/PR-tracked lifts. Only rewrite the name if an abbreviation
+  // or an equipment variant was actually detected — otherwise preserve exactly what was
+  // typed (just case-normalized) so unrelated exercise names are never altered. Works
+  // token by token on the ORIGINAL text so untouched words keep their original accents.
+  const tokens = trimmed.split(/\s+/);
+  const eqSpan = findEquipmentSpan(tokens);
+  const remainingTokens = eqSpan ? [...tokens.slice(0, eqSpan.start), ...tokens.slice(eqSpan.end)] : tokens;
+  const { text: expanded, changed } = expandAbbreviations(remainingTokens.join(' '));
+
+  if (!eqSpan && !changed) return sentenceCase(trimmed);
+
+  const base = sentenceCase(expanded);
+  if (!eqSpan || eqSpan.eq.key === 'barre') return base;
+  return `${base} ${eqSpan.eq.label}`;
 }
 
 export function isPrTracked(name: string): boolean {

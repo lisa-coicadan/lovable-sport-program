@@ -32,6 +32,39 @@ describe('normalizeExerciseName', () => {
   it('handles empty input', () => {
     expect(normalizeExerciseName('')).toBe('');
   });
+
+  it('expands common abbreviations even for non-canonical exercises', () => {
+    expect(normalizeExerciseName('dev militaire')).toBe('Développé militaire');
+    expect(normalizeExerciseName('Développé militaire')).toBe('Développé militaire');
+    expect(normalizeExerciseName('DEV MILITAIRE')).toBe('Développé militaire');
+    expect(normalizeExerciseName('élévation lat')).toBe('Élévation latérale');
+    expect(normalizeExerciseName('row uni')).toBe('Row unilatéral');
+    expect(normalizeExerciseName('row unilatéral')).toBe('Row unilatéral');
+  });
+
+  it('preserves accents on words untouched by abbreviation expansion', () => {
+    expect(normalizeExerciseName('rowing bûcheron')).toBe('Rowing bûcheron');
+    expect(normalizeExerciseName('ROWING BÛCHERON')).toBe('Rowing bûcheron');
+  });
+
+  it('never treats a case difference as a different exercise', () => {
+    expect(normalizeExerciseName('curl biceps')).toBe(normalizeExerciseName('CURL BICEPS'));
+  });
+
+  it('generalizes equipment-variant suffixing to any exercise, not just canonical lifts', () => {
+    expect(normalizeExerciseName('curl haltere')).toBe('Curl haltères');
+    expect(normalizeExerciseName('Curl haltère')).toBe('Curl haltères');
+    expect(normalizeExerciseName('curl poulie')).toBe('Curl poulie');
+    expect(normalizeExerciseName('curl machine')).toBe('Curl machine');
+  });
+
+  it('treats the barbell variant of a non-canonical exercise as the plain/default name', () => {
+    expect(normalizeExerciseName('curl barre')).toBe('Curl');
+  });
+
+  it('does not auto-convert equipment variants into a single shared number (kept distinct)', () => {
+    expect(normalizeExerciseName('curl haltere')).not.toBe(normalizeExerciseName('curl barre'));
+  });
 });
 
 describe('isPrTracked', () => {
