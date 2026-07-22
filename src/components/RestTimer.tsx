@@ -77,14 +77,19 @@ const RestTimer = ({ defaultSeconds = 90 }: RestTimerProps) => {
   const syncFromWallClock = useCallback(() => {
     if (endAtRef.current === null) return;
     const remaining = Math.max(0, Math.ceil((endAtRef.current - Date.now()) / 1000));
-    setSeconds(remaining);
     if (remaining <= 0) {
+      endAtRef.current = null;
+      cancelBeep(scheduledBeepRef.current);
+      scheduledBeepRef.current = [];
       setIsRunning(false);
+      setSeconds(total); // auto-reset, ready for the next rest period
       try {
         if ('vibrate' in navigator) navigator.vibrate([200, 100, 200]);
       } catch { /* vibration unsupported/blocked */ }
+      return;
     }
-  }, []);
+    setSeconds(remaining);
+  }, [total]);
 
   const stopAndCancel = useCallback(() => {
     cancelBeep(scheduledBeepRef.current);
