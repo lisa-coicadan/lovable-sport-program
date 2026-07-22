@@ -1,7 +1,8 @@
 import { useState, useRef } from 'react';
 import { AppData, WorkoutType, Exercise, WORKOUT_COLORS, BodyWeightLog, DEFAULT_APP_DATA } from '@/lib/types';
 import { linkSuperset, unlinkSuperset, buildExerciseBlocks, flattenBlocks, ExerciseBlock } from '@/lib/superset';
-import { ArrowLeft, Plus, Trash2, EyeOff, RotateCcw, Scale, Link2, Link2Off, Download, Upload, Database, AlertTriangle } from 'lucide-react';
+import { parseSessionNotes, NOTES_SYNTAX_HELP } from '@/lib/notesParser';
+import { ArrowLeft, Plus, Trash2, EyeOff, RotateCcw, Scale, Link2, Link2Off, Download, Upload, Database, AlertTriangle, FileText } from 'lucide-react';
 import { SortableList, DragHandle } from './SortableBlock';
 import { loadData, saveData } from '@/lib/storage';
 import { toast } from '@/hooks/use-toast';
@@ -23,7 +24,50 @@ const SettingsPanel = ({ data, onUpdateData, onUpdate531, onClose }: SettingsPan
   const [squatSessionId, setSquatSessionId] = useState(data.squatSessionId);
   const [bodyWeight, setBodyWeight] = useState('');
   const [weeklyGoal, setWeeklyGoal] = useState(data.weeklyGoal);
+  const [notesOpen, setNotesOpen] = useState(false);
+  const [notesText, setNotesText] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleParseNotes = () => {
+    const result = parseSessionNotes(notesText);
+    if (result.exercises.length === 0) {
+      toast({
+        title: 'Aucun exercice reconnu',
+        description: 'Vérifie le format (voir l\'aide juste au-dessus) et réessaie.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    const colorIdx = workoutTypes.length % WORKOUT_COLORS.length;
+    const newType: WorkoutType = {
+      id: `wt${Date.now()}`,
+      name: result.sessionName || 'Nouvelle séance',
+      color: WORKOUT_COLORS[colorIdx],
+      exercises: result.exercises.map((e, i) => ({
+        id: `e${Date.now()}-${i}`,
+        name: e.name,
+        sets: e.sets,
+        reps: e.reps,
+        weight: e.weight,
+        supersetGroupId: e.supersetGroupId,
+        supersetRole: e.supersetRole,
+      })),
+    };
+    setWorkoutTypes([...workoutTypes, newType]);
+    setNotesText('');
+    setNotesOpen(false);
+    if (result.unrecognizedLines.length > 0) {
+      toast({
+        title: `Séance créée (${result.exercises.length} exercice${result.exercises.length > 1 ? 's' : ''})`,
+        description: `${result.unrecognizedLines.length} ligne(s) non reconnue(s), à ajouter à la main : ${result.unrecognizedLines.join(' / ')}`,
+      });
+    } else {
+      toast({
+        title: 'Séance créée',
+        description: `${result.exercises.length} exercice${result.exercises.length > 1 ? 's' : ''} ajouté${result.exercises.length > 1 ? 's' : ''} depuis tes notes.`,
+      });
+    }
+  };
 
   const handleExport = () => {
     try {
@@ -505,10 +549,48 @@ const SettingsPanel = ({ data, onUpdateData, onUpdate531, onClose }: SettingsPan
 
       <button
         onClick={addWorkoutType}
-        className="w-full glass-card p-3 flex items-center justify-center gap-2 text-primary text-sm font-medium mb-6 transition-transform active:scale-95"
+        className="w-full glass-card p-3 flex items-center justify-center gap-2 text-primary text-sm font-medium mb-3 transition-transform active:scale-95"
       >
         <Plus size={16} /> Add new session type
       </button>
+
+      {/* Create a session from freeform notes */}
+      <div className="glass-card p-4 mb-6">
+        <button
+          onClick={() => setNotesOpen(v => !v)}
+          className="w-full flex items-center justify-center gap-2 text-primary text-sm font-medium"
+        >
+          <FileText size={16} /> Créer une séance depuis des notes
+        </button>
+        {notesOpen && (
+          <div className="mt-3">
+            <pre className="text-[10px] text-muted-foreground whitespace-pre-wrap bg-secondary rounded-lg p-2.5 mb-2">
+              {NOTES_SYNTAX_HELP}
+            </pre>
+            <textarea
+              value={notesText}
+              onChange={e => setNotesText(e.target.value)}
+              placeholder={'Push\nDéveloppé couché : 3x8\nDéveloppé militaire 4x12 @10kg'}
+              rows={6}
+              className="w-full bg-secondary text-foreground rounded-xl px-3 py-2.5 text-sm outline-none font-mono mb-2"
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => { setNotesOpen(false); setNotesText(''); }}
+                className="bg-secondary text-secondary-foreground rounded-xl py-2.5 text-sm font-medium active:scale-95 transition-transform"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={handleParseNotes}
+                className="bg-primary text-primary-foreground rounded-xl py-2.5 text-sm font-medium active:scale-95 transition-transform"
+              >
+                Créer la séance
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Backup / Restore */}
       <div className="glass-card p-4 mb-6">
