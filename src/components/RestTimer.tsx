@@ -23,18 +23,37 @@ const getCtx = (): AudioContext | null => {
   }
 };
 
-// Schedules 2 sharp, loud beeps in a row starting at the given AudioContext time.
-// Scheduled ahead of time (rather than played from a setInterval tick) so it still
-// fires on the audio clock even if iOS throttles the page's JS timers in the background.
-// Square wave + high pitch for cut-through; each pulse stacks the fundamental with its
-// octave (extra perceived loudness/brightness) through a shared limiter so the stack
-// doesn't harshly clip. A web page can't detect or duck another app's volume (Spotify/
-// Apple Music), so this is the loudest tone we can generate on our own end — the
-// ceiling of what's possible without a native app.
-// Returns the oscillators so a caller can cancel them (pause/reset/duration change).
-const scheduleBeep = (when: number): OscillatorNode[] => {
+// Recorded "censor beep" (public/sounds/rest-timer-beep.mp3), decoded once and reused.
+const BEEP_SRC = '/sounds/rest-timer-beep.mp3';
+let beepBufferPromise: Promise<AudioBuffer | null> | null = null;
+const loadBeepBuffer = (ctx: AudioContext): Promise<AudioBuffer | null> => {
+  if (!beepBufferPromise) {
+    beepBufferPromise = fetch(BEEP_SRC)
+      .then(res => res.arrayBuffer())
+      .then(data => ctx.decodeAudioData(data))
+      .catch(() => null);
+  }
+  return beepBufferPromise;
+};
+
+interface BeepHandle {
+  sources: AudioBufferSourceNode[];
+  cancelled: boolean;
+}
+
+// Schedules the recorded beep twice in a row, starting at the given AudioContext time.
+// Played through the Web Audio API (never an HTMLAudioElement) so it keeps mixing with
+// background media (Spotify/Apple Music) instead of pausing it. Scheduled ahead of time
+// (rather than played from a setInterval tick) so it still fires on the audio clock even
+// if iOS throttles the page's JS timers in the background. Gain is pushed hot through a
+// limiter so it stays as loud as possible without harsh clipping — the ceiling of what's
+// possible from a web page (which can't detect or duck another app's volume).
+// Returns a handle a caller can use to cancel it (pause/reset/duration change).
+const scheduleBeep = (when: number): BeepHandle => {
+  const handle: BeepHandle = { sources: [], cancelled: false };
   const ctx = getCtx();
-  if (!ctx) return [];
+  if (!ctx) return handle;
+
   const limiter = ctx.createDynamicsCompressor();
   limiter.threshold.value = -24;
   limiter.knee.value = 10;
@@ -43,38 +62,28 @@ const scheduleBeep = (when: number): OscillatorNode[] => {
   limiter.release.value = 0.1;
   limiter.connect(ctx.destination);
 
-  const pulses = [
-    { offset: 0, freq: 1400 },
-    { offset: 0.22, freq: 1400 },
-  ];
-  const oscillators: OscillatorNode[] = [];
-  pulses.forEach(({ offset, freq }) => {
-    const start = when + offset;
-    // Fundamental + octave stacked for extra loudness, tamed by the shared limiter
-    [{ f: freq, peak: 1 }, { f: freq * 2, peak: 0.6 }].forEach(({ f, peak }) => {
-      const osc = ctx.createOscillator();
+  loadBeepBuffer(ctx).then(buffer => {
+    if (handle.cancelled || !buffer) return;
+    [0, buffer.duration + 0.1].forEach(offset => {
+      const source = ctx.createBufferSource();
       const gain = ctx.createGain();
-      osc.type = 'square';
-      osc.frequency.value = f;
-      // Near-instant attack, short hold, quick decay — hits hard and sharp
-      gain.gain.setValueAtTime(0, start);
-      gain.gain.linearRampToValueAtTime(peak, start + 0.002);
-      gain.gain.setValueAtTime(peak, start + 0.12);
-      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.2);
-      osc.connect(gain);
+      source.buffer = buffer;
+      gain.gain.value = 3; // pushed hot on purpose — the limiter tames the peaks
+      source.connect(gain);
       gain.connect(limiter);
-      osc.start(start);
-      osc.stop(start + 0.22);
-      oscillators.push(osc);
+      source.start(when + offset);
+      handle.sources.push(source);
     });
   });
-  return oscillators;
+
+  return handle;
 };
 
-// Cancels oscillators scheduled via scheduleBeep, whether or not they've started yet.
-const cancelBeep = (oscillators: OscillatorNode[]) => {
-  oscillators.forEach(osc => {
-    try { osc.stop(); } catch { /* already stopped/ended */ }
+// Cancels a beep scheduled via scheduleBeep, whether or not it has started playing yet.
+const cancelBeep = (handle: BeepHandle) => {
+  handle.cancelled = true;
+  handle.sources.forEach(source => {
+    try { source.stop(); } catch { /* already stopped/ended */ }
   });
 };
 
@@ -84,7 +93,7 @@ const RestTimer = ({ defaultSeconds = 90 }: RestTimerProps) => {
   const [total, setTotal] = useState(defaultSeconds);
   const [expanded, setExpanded] = useState(false);
   const endAtRef = useRef<number | null>(null);
-  const scheduledBeepRef = useRef<OscillatorNode[]>([]);
+  const scheduledBeepRef = useRef<BeepHandle>({ sources: [], cancelled: false });
 
   // Recompute remaining time from wall-clock time rather than trusting the interval's
   // tick count: iOS throttles/pauses setInterval when the tab is backgrounded or the
@@ -95,7 +104,7 @@ const RestTimer = ({ defaultSeconds = 90 }: RestTimerProps) => {
     if (remaining <= 0) {
       endAtRef.current = null;
       cancelBeep(scheduledBeepRef.current);
-      scheduledBeepRef.current = [];
+      scheduledBeepRef.current = { sources: [], cancelled: false };
       setIsRunning(false);
       setSeconds(total); // auto-reset, ready for the next rest period
       try {
@@ -108,7 +117,7 @@ const RestTimer = ({ defaultSeconds = 90 }: RestTimerProps) => {
 
   const stopAndCancel = useCallback(() => {
     cancelBeep(scheduledBeepRef.current);
-    scheduledBeepRef.current = [];
+    scheduledBeepRef.current = { sources: [], cancelled: false };
     endAtRef.current = null;
   }, []);
 
@@ -170,7 +179,7 @@ const RestTimer = ({ defaultSeconds = 90 }: RestTimerProps) => {
     if (seconds === 0) setSeconds(total);
     endAtRef.current = Date.now() + runFor * 1000;
     cancelBeep(scheduledBeepRef.current);
-    scheduledBeepRef.current = ctx ? scheduleBeep(ctx.currentTime + runFor) : [];
+    scheduledBeepRef.current = ctx ? scheduleBeep(ctx.currentTime + runFor) : { sources: [], cancelled: false };
     setIsRunning(true);
   };
 
