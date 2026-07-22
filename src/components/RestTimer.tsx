@@ -24,22 +24,51 @@ const getCtx = (): AudioContext | null => {
 };
 
 // Recorded "censor beep" (public/sounds/rest-timer-beep.mp3), decoded once and reused.
+// A failed fetch/decode is NOT cached — e.g. right after a deploy, a still-active old
+// service worker can serve a stale/wrong response for the new asset until it takes over;
+// caching that failure would silence the beep for the rest of the session.
 const BEEP_SRC = '/sounds/rest-timer-beep.mp3';
-let beepBufferPromise: Promise<AudioBuffer | null> | null = null;
-const loadBeepBuffer = (ctx: AudioContext): Promise<AudioBuffer | null> => {
+let beepBufferPromise: Promise<AudioBuffer> | null = null;
+const loadBeepBuffer = (ctx: AudioContext): Promise<AudioBuffer> => {
   if (!beepBufferPromise) {
     beepBufferPromise = fetch(BEEP_SRC)
       .then(res => res.arrayBuffer())
       .then(data => ctx.decodeAudioData(data))
-      .catch(() => null);
+      .catch(err => {
+        beepBufferPromise = null; // allow retrying next time instead of failing forever
+        throw err;
+      });
   }
   return beepBufferPromise;
 };
 
+type CancelableSource = AudioBufferSourceNode | OscillatorNode;
+
 interface BeepHandle {
-  sources: AudioBufferSourceNode[];
+  sources: CancelableSource[];
   cancelled: boolean;
 }
+
+// Fallback tone used only if the recorded beep fails to load/decode (e.g. offline, or a
+// stale service worker mid-deploy) — so the timer is never silently mute.
+const scheduleSynthFallback = (ctx: AudioContext, limiter: DynamicsCompressorNode, when: number, handle: BeepHandle) => {
+  [0, 0.3].forEach(offset => {
+    const start = when + offset;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'square';
+    osc.frequency.value = 1400;
+    gain.gain.setValueAtTime(0, start);
+    gain.gain.linearRampToValueAtTime(1, start + 0.002);
+    gain.gain.setValueAtTime(1, start + 0.12);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.2);
+    osc.connect(gain);
+    gain.connect(limiter);
+    osc.start(start);
+    osc.stop(start + 0.22);
+    handle.sources.push(osc);
+  });
+};
 
 // Schedules the recorded beep twice in a row, starting at the given AudioContext time.
 // Played through the Web Audio API (never an HTMLAudioElement) so it keeps mixing with
@@ -62,19 +91,24 @@ const scheduleBeep = (when: number): BeepHandle => {
   limiter.release.value = 0.1;
   limiter.connect(ctx.destination);
 
-  loadBeepBuffer(ctx).then(buffer => {
-    if (handle.cancelled || !buffer) return;
-    [0, buffer.duration + 0.1].forEach(offset => {
-      const source = ctx.createBufferSource();
-      const gain = ctx.createGain();
-      source.buffer = buffer;
-      gain.gain.value = 3; // pushed hot on purpose — the limiter tames the peaks
-      source.connect(gain);
-      gain.connect(limiter);
-      source.start(when + offset);
-      handle.sources.push(source);
+  loadBeepBuffer(ctx)
+    .then(buffer => {
+      if (handle.cancelled) return;
+      [0, buffer.duration + 0.1].forEach(offset => {
+        const source = ctx.createBufferSource();
+        const gain = ctx.createGain();
+        source.buffer = buffer;
+        gain.gain.value = 3; // pushed hot on purpose — the limiter tames the peaks
+        source.connect(gain);
+        gain.connect(limiter);
+        source.start(when + offset);
+        handle.sources.push(source);
+      });
+    })
+    .catch(() => {
+      if (handle.cancelled) return;
+      scheduleSynthFallback(ctx, limiter, when, handle);
     });
-  });
 
   return handle;
 };
