@@ -1,4 +1,4 @@
-# 🏋️‍♂️ Strength & Calisthenics Tracker
+# Strength & Calisthenics Tracker
  
 > A mobile-first web app (PWA) for hybrid strength training (weightlifting + calisthenics), custom-built and continuously refined since March 2026 based on real day-to-day usage.
  
