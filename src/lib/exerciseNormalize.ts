@@ -194,3 +194,35 @@ export function isPrTracked(name: string): boolean {
 
 // Back-compat export
 export const PR_TRACKED_EXERCISES = PR_TRACKED_CANONICAL;
+
+// French sub-group label for each equipment variant, for grouping in the history view
+// (e.g. "Développé couché" as a group, with "à la barre" / "aux haltères" / ... as
+// sub-exercises). Distinct from the PR-tracking convention above, where the barbell
+// variant has no suffix — here every detected variant, barbell included, gets an
+// explicit label so they can be shown as siblings without merging their loads.
+const EQUIPMENT_VARIANT_LABEL: Record<EquipmentDetection['key'], string> = {
+  barre: 'à la barre',
+  haltere: 'aux haltères',
+  smith: 'à la Smith',
+  machine: 'à la machine',
+  poulie: 'à la poulie',
+  elastique: "à l'élastique",
+  unilateral: 'unilatéral',
+};
+
+// Splits a raw exercise name into its equipment-agnostic base name and, if an equipment
+// keyword was detected, a sub-group label for that variant (null otherwise). Used to
+// group equipment variants of the same exercise together in the UI (history view)
+// without merging their tracked loads — see EQUIPMENT/normalizeExerciseName above.
+export function splitEquipmentVariant(name: string): { base: string; variantLabel: string | null } {
+  if (!name) return { base: name, variantLabel: null };
+  const tokens = name.trim().split(/\s+/);
+  const eqSpan = findEquipmentSpan(tokens);
+  if (!eqSpan) return { base: normalizeExerciseName(name), variantLabel: null };
+
+  const withoutEquipment = [...tokens.slice(0, eqSpan.start), ...tokens.slice(eqSpan.end)].join(' ');
+  return {
+    base: normalizeExerciseName(withoutEquipment || name),
+    variantLabel: EQUIPMENT_VARIANT_LABEL[eqSpan.eq.key] ?? eqSpan.eq.label,
+  };
+}

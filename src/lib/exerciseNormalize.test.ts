@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeExerciseName, isPrTracked, PR_TRACKED_CANONICAL } from './exerciseNormalize';
+import { normalizeExerciseName, isPrTracked, PR_TRACKED_CANONICAL, splitEquipmentVariant } from './exerciseNormalize';
 
 describe('normalizeExerciseName', () => {
   it('maps spelling variants to the same canonical name', () => {
@@ -81,5 +81,33 @@ describe('isPrTracked', () => {
 
   it('does not track PRs for unrecognized exercises', () => {
     expect(isPrTracked('Curl biceps')).toBe(false);
+  });
+});
+
+describe('splitEquipmentVariant', () => {
+  it('splits a canonical lift with an equipment suffix into base + variant label', () => {
+    expect(splitEquipmentVariant('Développé couché haltères')).toEqual({
+      base: 'Développé couché', variantLabel: 'aux haltères',
+    });
+    expect(splitEquipmentVariant('Développé couché barre')).toEqual({
+      base: 'Développé couché', variantLabel: 'à la barre',
+    });
+    expect(splitEquipmentVariant('Développé couché machine')).toEqual({
+      base: 'Développé couché', variantLabel: 'à la machine',
+    });
+  });
+
+  it('generalizes to any exercise, not just canonical lifts', () => {
+    expect(splitEquipmentVariant('curl haltere')).toEqual({ base: 'Curl', variantLabel: 'aux haltères' });
+    expect(splitEquipmentVariant('curl poulie')).toEqual({ base: 'Curl', variantLabel: 'à la poulie' });
+  });
+
+  it('returns a null variant label when no equipment is mentioned', () => {
+    expect(splitEquipmentVariant('Développé couché')).toEqual({ base: 'Développé couché', variantLabel: null });
+    expect(splitEquipmentVariant('rowing bûcheron')).toEqual({ base: 'Rowing bûcheron', variantLabel: null });
+  });
+
+  it('handles empty input', () => {
+    expect(splitEquipmentVariant('')).toEqual({ base: '', variantLabel: null });
   });
 });
