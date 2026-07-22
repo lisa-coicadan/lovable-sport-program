@@ -56,7 +56,7 @@ export interface AppData {
   workoutTypes: WorkoutType[];
   sessions: SessionLog[];
   fiveThreeOne: FiveThreeOneConfig;
-  squatSessionId: string;
+  squatSessionId: string | null; // null = no session runs the 5/3/1 program
   weeklyGoal: number;
   setupComplete: boolean;
   restDuration: number; // seconds
@@ -83,7 +83,7 @@ export const DEFAULT_APP_DATA: AppData = {
     currentWeek: 1,
     startDate: new Date().toISOString().split('T')[0],
   },
-  squatSessionId: '3',
+  squatSessionId: null,
   weeklyGoal: 4,
   setupComplete: false,
   restDuration: 90,

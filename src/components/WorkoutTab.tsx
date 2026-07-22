@@ -341,24 +341,26 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
           </button>
         </div>
 
-        {/* 5/3/1 Block */}
-        <div className="glass-card p-4 mb-6">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-bold text-primary">5/3/1 Squat</span>
-            <span className="text-xs text-muted-foreground">Cycle {data.fiveThreeOne.currentCycle}</span>
+        {/* 5/3/1 Block — only shown when a session is actually configured for it */}
+        {data.squatSessionId && (
+          <div className="glass-card p-4 mb-6">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-bold text-primary">5/3/1 Squat</span>
+              <span className="text-xs text-muted-foreground">Cycle {data.fiveThreeOne.currentCycle}</span>
+            </div>
+            <p className="text-sm text-foreground font-medium mb-3">{weekLabel}</p>
+            <div className="space-y-1.5">
+              {fiveThreeOneSets.map((s, i) => (
+                <div key={i} className="flex items-center justify-between bg-secondary rounded-lg px-3 py-2">
+                  <span className="text-sm text-foreground">{s.weight} kg</span>
+                  <span className="text-sm text-muted-foreground">× {s.reps}</span>
+                  <span className="text-xs text-muted-foreground">{Math.round(s.percentage * 100)}%</span>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">TM: {data.fiveThreeOne.trainingMax} kg</p>
           </div>
-          <p className="text-sm text-foreground font-medium mb-3">{weekLabel}</p>
-          <div className="space-y-1.5">
-            {fiveThreeOneSets.map((s, i) => (
-              <div key={i} className="flex items-center justify-between bg-secondary rounded-lg px-3 py-2">
-                <span className="text-sm text-foreground">{s.weight} kg</span>
-                <span className="text-sm text-muted-foreground">× {s.reps}</span>
-                <span className="text-xs text-muted-foreground">{Math.round(s.percentage * 100)}%</span>
-              </div>
-            ))}
-          </div>
-          <p className="text-xs text-muted-foreground mt-2">TM: {data.fiveThreeOne.trainingMax} kg</p>
-        </div>
+        )}
 
         {/* Session Selection */}
         <p className="text-sm text-muted-foreground mb-3">Choose a session</p>

@@ -23,32 +23,35 @@ const getCtx = (): AudioContext | null => {
   }
 };
 
-// Schedules a ~1s, 3-pulse beep starting at the given AudioContext time.
+// Schedules 2 sharp, loud beeps in a row starting at the given AudioContext time.
 // Scheduled ahead of time (rather than played from a setInterval tick) so it still
 // fires on the audio clock even if iOS throttles the page's JS timers in the background.
+// Square wave + near-max gain + high pitch: a web page can't detect or duck another
+// app's volume (Spotify/Apple Music), so this is the loudest/most piercing tone we can
+// generate on our own end — the ceiling of what's possible without a native app.
 // Returns the oscillators so a caller can cancel them (pause/reset/duration change).
 const scheduleBeep = (when: number): OscillatorNode[] => {
   const ctx = getCtx();
   if (!ctx) return [];
   const pulses = [
-    { offset: 0, freq: 880 },
-    { offset: 0.35, freq: 880 },
-    { offset: 0.7, freq: 1175 },
+    { offset: 0, freq: 1400 },
+    { offset: 0.22, freq: 1400 },
   ];
   return pulses.map(({ offset, freq }) => {
     const start = when + offset;
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
-    osc.type = 'sine';
+    osc.type = 'square';
     osc.frequency.value = freq;
-    // Short, clean envelope per pulse — no click, no sustain — non-intrusive over music
+    // Fast attack, short hold, quick decay — loud and sharp without clipping
     gain.gain.setValueAtTime(0, start);
-    gain.gain.linearRampToValueAtTime(0.35, start + 0.01);
-    gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.3);
+    gain.gain.linearRampToValueAtTime(0.9, start + 0.005);
+    gain.gain.setValueAtTime(0.9, start + 0.12);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.2);
     osc.connect(gain);
     gain.connect(ctx.destination);
     osc.start(start);
-    osc.stop(start + 0.32);
+    osc.stop(start + 0.22);
     return osc;
   });
 };

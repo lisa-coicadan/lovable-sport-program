@@ -15,7 +15,7 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
     { id: '4', name: 'Full Body', color: WORKOUT_COLORS[3], exercises: [{ id: 'e4', name: 'Deadlift', sets: 3, reps: 5 }] },
   ]);
   const [trainingMax, setTrainingMax] = useState(100);
-  const [squatSessionId, setSquatSessionId] = useState('3');
+  const [squatSessionId, setSquatSessionId] = useState<string | null>('3');
   const [currentCycle, setCurrentCycle] = useState(1);
   const [currentWeek, setCurrentWeek] = useState(1);
 
@@ -158,16 +158,6 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
         <p className="text-muted-foreground text-sm mb-6 ml-8">Configure your squat program</p>
 
         <div className="glass-card p-6 mb-4">
-          <label className="text-sm text-muted-foreground mb-2 block">Training Max (kg)</label>
-          <input
-            type="number"
-            value={trainingMax || ''}
-            onChange={e => setTrainingMax(e.target.value === '' ? 0 : parseFloat(e.target.value))}
-            className="w-full bg-secondary text-foreground text-3xl font-bold rounded-xl px-4 py-4 text-center outline-none"
-          />
-        </div>
-
-        <div className="glass-card p-6 mb-4">
           <label className="text-sm text-muted-foreground mb-3 block">Which session includes squats?</label>
           <div className="grid grid-cols-2 gap-2">
             {workoutTypes.map(type => (
@@ -181,34 +171,56 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
                 {type.name}
               </button>
             ))}
+            <button
+              onClick={() => setSquatSessionId(null)}
+              className={`py-3 rounded-xl text-sm font-medium transition-all ${
+                squatSessionId === null ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground'
+              }`}
+            >
+              None — skip 5/3/1
+            </button>
           </div>
         </div>
 
-        <div className="glass-card p-6 mb-4">
-          <label className="text-sm text-muted-foreground mb-3 block">Current cycle number</label>
-          <div className="flex items-center gap-4">
-            <button onClick={() => setCurrentCycle(Math.max(1, currentCycle - 1))} className="bg-secondary text-foreground rounded-xl w-12 h-12 text-xl font-bold touch-target">-</button>
-            <span className="text-foreground text-2xl font-bold flex-1 text-center">{currentCycle}</span>
-            <button onClick={() => setCurrentCycle(currentCycle + 1)} className="bg-secondary text-foreground rounded-xl w-12 h-12 text-xl font-bold touch-target">+</button>
-          </div>
-        </div>
+        {squatSessionId && (
+          <>
+            <div className="glass-card p-6 mb-4">
+              <label className="text-sm text-muted-foreground mb-2 block">Training Max (kg)</label>
+              <input
+                type="number"
+                value={trainingMax || ''}
+                onChange={e => setTrainingMax(e.target.value === '' ? 0 : parseFloat(e.target.value))}
+                className="w-full bg-secondary text-foreground text-3xl font-bold rounded-xl px-4 py-4 text-center outline-none"
+              />
+            </div>
 
-        <div className="glass-card p-6 mb-8">
-          <label className="text-sm text-muted-foreground mb-3 block">Current week</label>
-          <div className="flex gap-2">
-            {[1, 2, 3, 4].map(w => (
-              <button
-                key={w}
-                onClick={() => setCurrentWeek(w)}
-                className={`flex-1 py-3 rounded-xl text-sm font-medium transition-all ${
-                  currentWeek === w ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground'
-                }`}
-              >
-                {w === 4 ? 'Deload' : `W${w}`}
-              </button>
-            ))}
-          </div>
-        </div>
+            <div className="glass-card p-6 mb-4">
+              <label className="text-sm text-muted-foreground mb-3 block">Current cycle number</label>
+              <div className="flex items-center gap-4">
+                <button onClick={() => setCurrentCycle(Math.max(1, currentCycle - 1))} className="bg-secondary text-foreground rounded-xl w-12 h-12 text-xl font-bold touch-target">-</button>
+                <span className="text-foreground text-2xl font-bold flex-1 text-center">{currentCycle}</span>
+                <button onClick={() => setCurrentCycle(currentCycle + 1)} className="bg-secondary text-foreground rounded-xl w-12 h-12 text-xl font-bold touch-target">+</button>
+              </div>
+            </div>
+
+            <div className="glass-card p-6 mb-8">
+              <label className="text-sm text-muted-foreground mb-3 block">Current week</label>
+              <div className="flex gap-2">
+                {[1, 2, 3, 4].map(w => (
+                  <button
+                    key={w}
+                    onClick={() => setCurrentWeek(w)}
+                    className={`flex-1 py-3 rounded-xl text-sm font-medium transition-all ${
+                      currentWeek === w ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground'
+                    }`}
+                  >
+                    {w === 4 ? 'Deload' : `W${w}`}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
 
         <button
           onClick={() => setStep(3)}
@@ -246,20 +258,26 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
         ))}
       </div>
 
-      <div className="glass-card p-4 mb-8">
-        <div className="flex items-center justify-between mb-1">
-          <span className="text-sm text-muted-foreground">Squat TM</span>
-          <span className="text-foreground font-bold">{trainingMax} kg</span>
+      {squatSessionId ? (
+        <div className="glass-card p-4 mb-8">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-sm text-muted-foreground">Squat TM</span>
+            <span className="text-foreground font-bold">{trainingMax} kg</span>
+          </div>
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-sm text-muted-foreground">Cycle</span>
+            <span className="text-foreground font-bold">{currentCycle}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">Week</span>
+            <span className="text-foreground font-bold">{currentWeek === 4 ? 'Deload' : `Week ${currentWeek}`}</span>
+          </div>
         </div>
-        <div className="flex items-center justify-between mb-1">
-          <span className="text-sm text-muted-foreground">Cycle</span>
-          <span className="text-foreground font-bold">{currentCycle}</span>
+      ) : (
+        <div className="glass-card p-4 mb-8">
+          <p className="text-sm text-muted-foreground">No 5/3/1 program — you can turn it on later in Settings.</p>
         </div>
-        <div className="flex items-center justify-between">
-          <span className="text-sm text-muted-foreground">Week</span>
-          <span className="text-foreground font-bold">{currentWeek === 4 ? 'Deload' : `Week ${currentWeek}`}</span>
-        </div>
-      </div>
+      )}
 
       <button
         onClick={handleFinish}

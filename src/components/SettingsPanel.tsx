@@ -278,6 +278,14 @@ const SettingsPanel = ({ data, onUpdateData, onUpdate531, onClose }: SettingsPan
                 {type.name || 'Unnamed'}
               </button>
             ))}
+            <button
+              onClick={() => setSquatSessionId(null)}
+              className={`py-2 rounded-lg text-xs font-medium transition-all ${
+                squatSessionId === null ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground'
+              }`}
+            >
+              None
+            </button>
           </div>
         </div>
       </div>
