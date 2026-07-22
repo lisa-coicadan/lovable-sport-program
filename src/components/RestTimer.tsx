@@ -23,66 +23,24 @@ const getCtx = (): AudioContext | null => {
   }
 };
 
-// Recorded "censor beep" (public/sounds/rest-timer-beep.mp3), decoded once and reused.
-// A failed fetch/decode is NOT cached — e.g. right after a deploy, a still-active old
-// service worker can serve a stale/wrong response for the new asset until it takes over;
-// caching that failure would silence the beep for the rest of the session.
-const BEEP_SRC = '/sounds/rest-timer-beep.mp3';
-let beepBufferPromise: Promise<AudioBuffer> | null = null;
-const loadBeepBuffer = (ctx: AudioContext): Promise<AudioBuffer> => {
-  if (!beepBufferPromise) {
-    beepBufferPromise = fetch(BEEP_SRC)
-      .then(res => res.arrayBuffer())
-      .then(data => ctx.decodeAudioData(data))
-      .catch(err => {
-        beepBufferPromise = null; // allow retrying next time instead of failing forever
-        throw err;
-      });
-  }
-  return beepBufferPromise;
-};
-
-type CancelableSource = AudioBufferSourceNode | OscillatorNode;
-
-interface BeepHandle {
-  sources: CancelableSource[];
-  cancelled: boolean;
-}
-
-// Fallback tone used only if the recorded beep fails to load/decode (e.g. offline, or a
-// stale service worker mid-deploy) — so the timer is never silently mute.
-const scheduleSynthFallback = (ctx: AudioContext, limiter: DynamicsCompressorNode, when: number, handle: BeepHandle) => {
-  [0, 0.3].forEach(offset => {
-    const start = when + offset;
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = 'square';
-    osc.frequency.value = 1400;
-    gain.gain.setValueAtTime(0, start);
-    gain.gain.linearRampToValueAtTime(1, start + 0.002);
-    gain.gain.setValueAtTime(1, start + 0.12);
-    gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.2);
-    osc.connect(gain);
-    gain.connect(limiter);
-    osc.start(start);
-    osc.stop(start + 0.22);
-    handle.sources.push(osc);
-  });
-};
-
-// Schedules the recorded beep twice in a row, starting at the given AudioContext time.
-// Played through the Web Audio API (never an HTMLAudioElement) so it keeps mixing with
-// background media (Spotify/Apple Music) instead of pausing it. Scheduled ahead of time
-// (rather than played from a setInterval tick) so it still fires on the audio clock even
-// if iOS throttles the page's JS timers in the background. Gain is pushed hot through a
-// limiter so it stays as loud as possible without harsh clipping — the ceiling of what's
-// possible from a web page (which can't detect or duck another app's volume).
-// Returns a handle a caller can use to cancel it (pause/reset/duration change).
-const scheduleBeep = (when: number): BeepHandle => {
-  const handle: BeepHandle = { sources: [], cancelled: false };
+// Schedules 2 sharp, loud beeps in a row starting at the given AudioContext time.
+// Scheduled ahead of time (rather than played from a setInterval tick) so it still
+// fires on the audio clock even if iOS throttles the page's JS timers in the background.
+// Square wave + high pitch for cut-through; each pulse stacks the fundamental with its
+// octave (extra perceived loudness/brightness) through a shared limiter so the stack
+// doesn't harshly clip. A web page can't detect or duck another app's volume (Spotify/
+// Apple Music), so this is the loudest tone we can generate on our own end — the
+// ceiling of what's possible without a native app.
+//
+// NOTE: this used to play a real recorded "censor beep" (public/sounds/rest-timer-beep.mp3)
+// decoded via fetch + decodeAudioData. Reverted temporarily to this synthesized version
+// to test whether that binary asset was the reason Lovable's build stopped picking up new
+// commits (its Preview stayed stuck on an older build after that commit landed). Revisit
+// once confirmed one way or the other.
+// Returns the oscillators so a caller can cancel them (pause/reset/duration change).
+const scheduleBeep = (when: number): OscillatorNode[] => {
   const ctx = getCtx();
-  if (!ctx) return handle;
-
+  if (!ctx) return [];
   const limiter = ctx.createDynamicsCompressor();
   limiter.threshold.value = -24;
   limiter.knee.value = 10;
@@ -91,33 +49,38 @@ const scheduleBeep = (when: number): BeepHandle => {
   limiter.release.value = 0.1;
   limiter.connect(ctx.destination);
 
-  loadBeepBuffer(ctx)
-    .then(buffer => {
-      if (handle.cancelled) return;
-      [0, buffer.duration + 0.1].forEach(offset => {
-        const source = ctx.createBufferSource();
-        const gain = ctx.createGain();
-        source.buffer = buffer;
-        gain.gain.value = 3; // pushed hot on purpose — the limiter tames the peaks
-        source.connect(gain);
-        gain.connect(limiter);
-        source.start(when + offset);
-        handle.sources.push(source);
-      });
-    })
-    .catch(() => {
-      if (handle.cancelled) return;
-      scheduleSynthFallback(ctx, limiter, when, handle);
+  const pulses = [
+    { offset: 0, freq: 1400 },
+    { offset: 0.22, freq: 1400 },
+  ];
+  const oscillators: OscillatorNode[] = [];
+  pulses.forEach(({ offset, freq }) => {
+    const start = when + offset;
+    // Fundamental + octave stacked for extra loudness, tamed by the shared limiter
+    [{ f: freq, peak: 1 }, { f: freq * 2, peak: 0.6 }].forEach(({ f, peak }) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'square';
+      osc.frequency.value = f;
+      // Near-instant attack, short hold, quick decay — hits hard and sharp
+      gain.gain.setValueAtTime(0, start);
+      gain.gain.linearRampToValueAtTime(peak, start + 0.002);
+      gain.gain.setValueAtTime(peak, start + 0.12);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.2);
+      osc.connect(gain);
+      gain.connect(limiter);
+      osc.start(start);
+      osc.stop(start + 0.22);
+      oscillators.push(osc);
     });
-
-  return handle;
+  });
+  return oscillators;
 };
 
-// Cancels a beep scheduled via scheduleBeep, whether or not it has started playing yet.
-const cancelBeep = (handle: BeepHandle) => {
-  handle.cancelled = true;
-  handle.sources.forEach(source => {
-    try { source.stop(); } catch { /* already stopped/ended */ }
+// Cancels oscillators scheduled via scheduleBeep, whether or not they've started yet.
+const cancelBeep = (oscillators: OscillatorNode[]) => {
+  oscillators.forEach(osc => {
+    try { osc.stop(); } catch { /* already stopped/ended */ }
   });
 };
 
@@ -127,7 +90,7 @@ const RestTimer = ({ defaultSeconds = 90 }: RestTimerProps) => {
   const [total, setTotal] = useState(defaultSeconds);
   const [expanded, setExpanded] = useState(false);
   const endAtRef = useRef<number | null>(null);
-  const scheduledBeepRef = useRef<BeepHandle>({ sources: [], cancelled: false });
+  const scheduledBeepRef = useRef<OscillatorNode[]>([]);
 
   // Recompute remaining time from wall-clock time rather than trusting the interval's
   // tick count: iOS throttles/pauses setInterval when the tab is backgrounded or the
@@ -138,7 +101,7 @@ const RestTimer = ({ defaultSeconds = 90 }: RestTimerProps) => {
     if (remaining <= 0) {
       endAtRef.current = null;
       cancelBeep(scheduledBeepRef.current);
-      scheduledBeepRef.current = { sources: [], cancelled: false };
+      scheduledBeepRef.current = [];
       setIsRunning(false);
       setSeconds(total); // auto-reset, ready for the next rest period
       try {
@@ -151,7 +114,7 @@ const RestTimer = ({ defaultSeconds = 90 }: RestTimerProps) => {
 
   const stopAndCancel = useCallback(() => {
     cancelBeep(scheduledBeepRef.current);
-    scheduledBeepRef.current = { sources: [], cancelled: false };
+    scheduledBeepRef.current = [];
     endAtRef.current = null;
   }, []);
 
@@ -213,7 +176,7 @@ const RestTimer = ({ defaultSeconds = 90 }: RestTimerProps) => {
     if (seconds === 0) setSeconds(total);
     endAtRef.current = Date.now() + runFor * 1000;
     cancelBeep(scheduledBeepRef.current);
-    scheduledBeepRef.current = ctx ? scheduleBeep(ctx.currentTime + runFor) : { sources: [], cancelled: false };
+    scheduledBeepRef.current = ctx ? scheduleBeep(ctx.currentTime + runFor) : [];
     setIsRunning(true);
   };
 
