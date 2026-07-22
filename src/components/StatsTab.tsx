@@ -21,6 +21,15 @@ const daysAgo = (dateStr: string) => {
   return diff;
 };
 
+const mondayOf = (d: Date): Date => {
+  const day = d.getDay();
+  const diff = d.getDate() - (day === 0 ? 6 : day - 1);
+  const m = new Date(d);
+  m.setDate(diff);
+  m.setHours(0, 0, 0, 0);
+  return m;
+};
+
 const formatHM = (mins: number) => {
   if (!mins || mins <= 0) return '0min';
   const h = Math.floor(mins / 60);
@@ -60,14 +69,6 @@ const StatsTab = ({ data }: StatsTabProps) => {
 
   // Weekly frequency — include empty weeks
   const weeklyData = useMemo(() => {
-    const mondayOf = (d: Date) => {
-      const day = d.getDay();
-      const diff = d.getDate() - (day === 0 ? 6 : day - 1);
-      const m = new Date(d);
-      m.setDate(diff);
-      m.setHours(0, 0, 0, 0);
-      return m;
-    };
     const countByWeek = new Map<string, number>();
     data.sessions.forEach(s => {
       const m = mondayOf(new Date(s.date + 'T00:00:00'));
@@ -139,11 +140,7 @@ const StatsTab = ({ data }: StatsTabProps) => {
   const weeklyTimeData = useMemo(() => {
     const weeks: Record<string, number> = {};
     data.sessions.filter(s => s.duration).forEach(s => {
-      const d = new Date(s.date);
-      const dayOfWeek = d.getDay();
-      const diff = d.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1);
-      const monday = new Date(d);
-      monday.setDate(diff);
+      const monday = mondayOf(new Date(s.date + 'T00:00:00'));
       const key = monday.toISOString().split('T')[0];
       weeks[key] = (weeks[key] || 0) + (s.duration || 0);
     });

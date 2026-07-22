@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { AppData, WorkoutType, SetLog, SessionLog, calculate1RM } from '@/lib/types';
 import { getWeekSets, getWeekLabel } from '@/lib/531';
+import { buildExerciseBlocks } from '@/lib/superset';
 import RestTimer from './RestTimer';
 import ExerciseHistory from './ExerciseHistory';
 import SessionSummary from './SessionSummary';
@@ -108,16 +109,12 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
       });
     }
 
-    const handledSupersets = new Set<string>();
-    type.exercises.forEach(ex => {
-      if (ex.supersetGroupId && handledSupersets.has(ex.supersetGroupId)) return;
-      if (ex.supersetGroupId) {
-        handledSupersets.add(ex.supersetGroupId);
-        const partner = type.exercises.find(e => e.id !== ex.id && e.supersetGroupId === ex.supersetGroupId);
-        const a = ex.supersetRole === 'B' && partner ? partner : ex;
-        const b = a === ex ? partner : ex;
-        const nSets = a.sets;
-        for (let i = 0; i < nSets; i++) {
+    const exerciseMap = new Map(type.exercises.map(e => [e.id, e]));
+    buildExerciseBlocks(type.exercises).forEach(block => {
+      if (block.isSuperset) {
+        const a = exerciseMap.get(block.exerciseIds[0])!;
+        const b = exerciseMap.get(block.exerciseIds[1])!;
+        for (let i = 0; i < a.sets; i++) {
           initialSets.push({
             exerciseId: a.id,
             exerciseName: a.name,
@@ -128,20 +125,19 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
             supersetGroupId: a.supersetGroupId,
             supersetRole: 'A',
           });
-          if (b) {
-            initialSets.push({
-              exerciseId: b.id,
-              exerciseName: b.name,
-              setNumber: i + 1,
-              reps: b.reps,
-              weight: lastWeights[b.id] || b.weight || 0,
-              completed: false,
-              supersetGroupId: b.supersetGroupId,
-              supersetRole: 'B',
-            });
-          }
+          initialSets.push({
+            exerciseId: b.id,
+            exerciseName: b.name,
+            setNumber: i + 1,
+            reps: b.reps,
+            weight: lastWeights[b.id] || b.weight || 0,
+            completed: false,
+            supersetGroupId: b.supersetGroupId,
+            supersetRole: 'B',
+          });
         }
       } else {
+        const ex = exerciseMap.get(block.exerciseIds[0])!;
         const lastWeight = lastWeights[ex.id] || 0;
         for (let i = 0; i < ex.sets; i++) {
           initialSets.push({
@@ -478,22 +474,15 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
           {previewOpen && (
             <div className="px-3 pb-3 space-y-1">
               {(() => {
-                const seen = new Set<string>();
-                const rows: { label: string; volume: string }[] = [];
-                selectedType.exercises.forEach(ex => {
-                  if (ex.supersetGroupId) {
-                    if (seen.has(ex.supersetGroupId)) return;
-                    seen.add(ex.supersetGroupId);
-                    const partner = selectedType.exercises.find(e => e.id !== ex.id && e.supersetGroupId === ex.supersetGroupId);
-                    const a = ex.supersetRole === 'B' && partner ? partner : ex;
-                    const b = a === ex ? partner : ex;
-                    rows.push({
-                      label: `${a.name} + ${b?.name || '—'}`,
-                      volume: `${a.sets} × ${a.reps} / ${b?.reps ?? '—'}`,
-                    });
-                  } else {
-                    rows.push({ label: ex.name, volume: `${ex.sets} × ${ex.reps}` });
+                const previewMap = new Map(selectedType.exercises.map(e => [e.id, e]));
+                const rows = buildExerciseBlocks(selectedType.exercises).map(block => {
+                  if (block.isSuperset) {
+                    const a = previewMap.get(block.exerciseIds[0])!;
+                    const b = previewMap.get(block.exerciseIds[1])!;
+                    return { label: `${a.name} + ${b.name}`, volume: `${a.sets} × ${a.reps} / ${b.reps}` };
                   }
+                  const ex = previewMap.get(block.exerciseIds[0])!;
+                  return { label: ex.name, volume: `${ex.sets} × ${ex.reps}` };
                 });
                 return rows.map((r, i) => (
                   <div key={i} className="flex items-center justify-between text-xs py-1">
