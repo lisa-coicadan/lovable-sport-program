@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Pause, Play, RotateCcw, X, Timer } from 'lucide-react';
 
 interface RestTimerProps {
@@ -12,7 +12,7 @@ let sharedCtx: AudioContext | null = null;
 const getCtx = (): AudioContext | null => {
   try {
     if (!sharedCtx) {
-      const AC = (window.AudioContext || (window as any).webkitAudioContext);
+      const AC = (window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext);
       if (!AC) return null;
       sharedCtx = new AC({ latencyHint: 'interactive' });
     }
@@ -23,26 +23,41 @@ const getCtx = (): AudioContext | null => {
   }
 };
 
-const playBeep = () => {
+// Schedules a ~1s, 3-pulse beep starting at the given AudioContext time.
+// Scheduled ahead of time (rather than played from a setInterval tick) so it still
+// fires on the audio clock even if iOS throttles the page's JS timers in the background.
+// Returns the oscillators so a caller can cancel them (pause/reset/duration change).
+const scheduleBeep = (when: number): OscillatorNode[] => {
   const ctx = getCtx();
-  if (!ctx) return;
-  const now = ctx.currentTime;
-  const beep = (start: number, freq: number) => {
+  if (!ctx) return [];
+  const pulses = [
+    { offset: 0, freq: 880 },
+    { offset: 0.35, freq: 880 },
+    { offset: 0.7, freq: 1175 },
+  ];
+  return pulses.map(({ offset, freq }) => {
+    const start = when + offset;
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.type = 'sine';
     osc.frequency.value = freq;
-    // Short, clean envelope — no click, no sustain — keeps it non-intrusive over music
+    // Short, clean envelope per pulse — no click, no sustain — non-intrusive over music
     gain.gain.setValueAtTime(0, start);
     gain.gain.linearRampToValueAtTime(0.35, start + 0.01);
-    gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.18);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.3);
     osc.connect(gain);
     gain.connect(ctx.destination);
     osc.start(start);
-    osc.stop(start + 0.2);
-  };
-  beep(now, 880);
-  beep(now + 0.22, 1175);
+    osc.stop(start + 0.32);
+    return osc;
+  });
+};
+
+// Cancels oscillators scheduled via scheduleBeep, whether or not they've started yet.
+const cancelBeep = (oscillators: OscillatorNode[]) => {
+  oscillators.forEach(osc => {
+    try { osc.stop(); } catch { /* already stopped/ended */ }
+  });
 };
 
 const RestTimer = ({ defaultSeconds = 90 }: RestTimerProps) => {
@@ -50,40 +65,103 @@ const RestTimer = ({ defaultSeconds = 90 }: RestTimerProps) => {
   const [isRunning, setIsRunning] = useState(false);
   const [total, setTotal] = useState(defaultSeconds);
   const [expanded, setExpanded] = useState(false);
+  const endAtRef = useRef<number | null>(null);
+  const scheduledBeepRef = useRef<OscillatorNode[]>([]);
+
+  // Recompute remaining time from wall-clock time rather than trusting the interval's
+  // tick count: iOS throttles/pauses setInterval when the tab is backgrounded or the
+  // screen locks, so a plain decrementing counter drifts or freezes.
+  const syncFromWallClock = useCallback(() => {
+    if (endAtRef.current === null) return;
+    const remaining = Math.max(0, Math.ceil((endAtRef.current - Date.now()) / 1000));
+    setSeconds(remaining);
+    if (remaining <= 0) {
+      setIsRunning(false);
+      try {
+        if ('vibrate' in navigator) navigator.vibrate([200, 100, 200]);
+      } catch { /* vibration unsupported/blocked */ }
+    }
+  }, []);
+
+  const stopAndCancel = useCallback(() => {
+    cancelBeep(scheduledBeepRef.current);
+    scheduledBeepRef.current = [];
+    endAtRef.current = null;
+  }, []);
 
   useEffect(() => {
+    stopAndCancel();
     setTotal(defaultSeconds);
     setSeconds(defaultSeconds);
-  }, [defaultSeconds]);
+  }, [defaultSeconds, stopAndCancel]);
+
+  // Cancel any pending scheduled beep if the timer unmounts mid-countdown.
+  useEffect(() => () => cancelBeep(scheduledBeepRef.current), []);
 
   useEffect(() => {
-    if (!isRunning || seconds <= 0) return;
-    const interval = setInterval(() => {
-      setSeconds(s => {
-        if (s <= 1) {
-          setIsRunning(false);
-          try {
-            if ('vibrate' in navigator) navigator.vibrate([200, 100, 200]);
-          } catch {}
-          playBeep();
-          return 0;
-        }
-        return s - 1;
-      });
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [isRunning, seconds]);
+    if (!isRunning) return;
+    const interval = setInterval(syncFromWallClock, 1000);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        getCtx(); // try to resume the audio context now that we're back in the foreground
+        syncFromWallClock();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [isRunning, syncFromWallClock]);
+
+  // Best-effort: keep the screen awake while resting. iOS auto-locks the screen quickly,
+  // which throttles the timer and can prevent the scheduled beep from being heard.
+  // No-ops silently if unsupported or refused (e.g. Low Power Mode).
+  useEffect(() => {
+    if (!isRunning) return;
+    const nav = navigator as Navigator & {
+      wakeLock?: { request(type: 'screen'): Promise<{ release(): Promise<void> }> };
+    };
+    if (!nav.wakeLock) return;
+    let sentinel: { release(): Promise<void> } | null = null;
+    let cancelled = false;
+    nav.wakeLock.request('screen').then(s => {
+      if (cancelled) { s.release().catch(() => {}); return; }
+      sentinel = s;
+    }).catch(() => {});
+    return () => {
+      cancelled = true;
+      sentinel?.release().catch(() => {});
+    };
+  }, [isRunning]);
 
   const reset = useCallback(() => {
+    stopAndCancel();
     setSeconds(total);
     setIsRunning(false);
-  }, [total]);
+  }, [total, stopAndCancel]);
 
   const start = () => {
-    // Prime the audio context on the user gesture so iOS allows playback later.
-    getCtx();
+    const ctx = getCtx(); // Prime/resume the audio context on this user gesture.
+    const runFor = seconds === 0 ? total : seconds;
     if (seconds === 0) setSeconds(total);
+    endAtRef.current = Date.now() + runFor * 1000;
+    cancelBeep(scheduledBeepRef.current);
+    scheduledBeepRef.current = ctx ? scheduleBeep(ctx.currentTime + runFor) : [];
     setIsRunning(true);
+  };
+
+  const pause = () => {
+    syncFromWallClock();
+    stopAndCancel();
+    setIsRunning(false);
+  };
+
+  const applyDuration = (t: number) => {
+    stopAndCancel();
+    setTotal(t);
+    setSeconds(t);
+    setIsRunning(false);
   };
 
   const progress = total > 0 ? (seconds / total) * 100 : 0;
@@ -116,13 +194,13 @@ const RestTimer = ({ defaultSeconds = 90 }: RestTimerProps) => {
           <X size={16} />
         </button>
       </div>
-      
+
       {/* Duration selector */}
       <div className="flex gap-1 mb-3">
         {[30, 60, 90, 120, 180, 300].map(t => (
           <button
             key={t}
-            onClick={() => { setTotal(t); setSeconds(t); setIsRunning(false); }}
+            onClick={() => applyDuration(t)}
             className={`flex-1 py-1.5 rounded-lg text-[10px] font-medium transition-colors ${
               total === t ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground'
             }`}
@@ -152,7 +230,7 @@ const RestTimer = ({ defaultSeconds = 90 }: RestTimerProps) => {
         </div>
         <div className="flex gap-2 flex-1">
           <button
-            onClick={isRunning ? () => setIsRunning(false) : start}
+            onClick={isRunning ? pause : start}
             className="flex-1 touch-target bg-primary text-primary-foreground rounded-xl py-2.5 font-medium text-sm flex items-center justify-center gap-1.5 transition-transform active:scale-95"
           >
             {isRunning ? <Pause size={14} /> : <Play size={14} />}
