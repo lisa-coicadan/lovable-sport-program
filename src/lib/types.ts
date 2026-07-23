@@ -6,8 +6,15 @@ export interface FiveThreeOneMethod {
   increment?: number; // kg added to the TM at the end of each 4-week cycle (default 2.5)
 }
 
-// Extensible union — only '531' implemented so far; cluster/EMOM will extend this later.
-export type ExerciseMethod = FiveThreeOneMethod;
+// Fixed scheme (4 series x 3 mini-series of 2 reps, 90% TM, 20s/3min rest) — see
+// src/lib/cluster.ts. Only the Training Max is per-exercise for now.
+export interface ClusterMethod {
+  type: 'cluster';
+  trainingMax: number;
+}
+
+// Extensible union — 531 and cluster implemented; EMOM will extend this later.
+export type ExerciseMethod = FiveThreeOneMethod | ClusterMethod;
 
 export interface Exercise {
   id: string;

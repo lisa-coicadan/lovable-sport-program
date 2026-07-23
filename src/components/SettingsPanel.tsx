@@ -2,7 +2,7 @@ import { useState, useRef } from 'react';
 import { AppData, WorkoutType, Exercise, ExerciseMethod, WORKOUT_COLORS, BodyWeightLog, DEFAULT_APP_DATA } from '@/lib/types';
 import { linkSuperset, unlinkSuperset, buildExerciseBlocks, flattenBlocks, ExerciseBlock } from '@/lib/superset';
 import { parseSessionNotes, NOTES_SYNTAX_HELP } from '@/lib/notesParser';
-import { ArrowLeft, Plus, Trash2, EyeOff, RotateCcw, Scale, Link2, Link2Off, Download, Upload, Database, AlertTriangle, FileText, Zap } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, EyeOff, RotateCcw, Scale, Link2, Link2Off, Download, Upload, Database, AlertTriangle, FileText, Zap, Timer } from 'lucide-react';
 import { SortableList, DragHandle } from './SortableBlock';
 import { loadData, saveData } from '@/lib/storage';
 import { toast } from '@/hooks/use-toast';
@@ -332,7 +332,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                           />
                           {hasMethod ? (
                             <span className="text-[10px] text-muted-foreground px-1 flex-shrink-0" title="Séries, reps et poids sont calculés automatiquement à partir du Training Max">
-                              auto (5/3/1)
+                              auto ({ex.method?.type === 'cluster' ? 'Cluster' : '5/3/1'})
                             </span>
                           ) : (
                             <>
@@ -430,6 +430,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                           const exIdx = type.exercises.findIndex(e => e.id === ex.id);
                           const freePartners = type.exercises.filter(e => e.id !== ex.id && !e.supersetGroupId);
                           const method531 = ex.method?.type === '531' ? ex.method : null;
+                          const methodCluster = ex.method?.type === 'cluster' ? ex.method : null;
                           return (
                             <div className="space-y-1 mb-1.5">
                               <div className="flex items-center gap-1">
@@ -529,13 +530,50 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                     </div>
                                   </div>
                                 </div>
+                              ) : methodCluster ? (
+                                <div className="rounded-xl p-3 bg-primary/10 border border-primary/30 space-y-2.5">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-xs font-bold text-primary flex items-center gap-1">
+                                      <Timer size={12} /> Cluster actif
+                                    </span>
+                                    <button
+                                      onClick={() => updateExerciseMethod(ti, exIdx, undefined)}
+                                      className="text-[10px] text-muted-foreground underline"
+                                    >
+                                      Retirer
+                                    </button>
+                                  </div>
+                                  <div>
+                                    <label className="text-[10px] text-muted-foreground block mb-1">Training Max (kg)</label>
+                                    <input
+                                      type="number"
+                                      value={methodCluster.trainingMax || ''}
+                                      onChange={e => updateExerciseMethod(ti, exIdx, {
+                                        ...methodCluster,
+                                        trainingMax: e.target.value === '' ? 0 : parseFloat(e.target.value),
+                                      })}
+                                      className="w-full bg-background/60 text-foreground text-lg font-bold rounded-lg px-2 py-2 text-center outline-none"
+                                    />
+                                  </div>
+                                  <p className="text-[10px] text-muted-foreground">
+                                    4 séries × 3 mini-séries de 2 reps à 90% du TM · repos 20s / 3min
+                                  </p>
+                                </div>
                               ) : (
-                                <button
-                                  onClick={() => updateExerciseMethod(ti, exIdx, { type: '531', trainingMax: 60, currentCycle: 1, currentWeek: 1, increment: 2.5 })}
-                                  className="text-[10px] text-muted-foreground flex items-center gap-1 pl-1"
-                                >
-                                  <Zap size={10} /> Ajouter une méthode 5/3/1
-                                </button>
+                                <div className="flex items-center gap-3 pl-1">
+                                  <button
+                                    onClick={() => updateExerciseMethod(ti, exIdx, { type: '531', trainingMax: 60, currentCycle: 1, currentWeek: 1, increment: 2.5 })}
+                                    className="text-[10px] text-muted-foreground flex items-center gap-1"
+                                  >
+                                    <Zap size={10} /> Ajouter une méthode 5/3/1
+                                  </button>
+                                  <button
+                                    onClick={() => updateExerciseMethod(ti, exIdx, { type: 'cluster', trainingMax: 60 })}
+                                    className="text-[10px] text-muted-foreground flex items-center gap-1"
+                                  >
+                                    <Timer size={10} /> Ajouter un Cluster
+                                  </button>
+                                </div>
                               )}
                             </div>
                           );

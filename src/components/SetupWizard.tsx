@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AppData, WorkoutType, Exercise, ExerciseMethod, FiveThreeOneMethod, WORKOUT_COLORS } from '@/lib/types';
+import { AppData, WorkoutType, Exercise, ExerciseMethod, FiveThreeOneMethod, ClusterMethod, WORKOUT_COLORS } from '@/lib/types';
 import { Plus, Trash2, ChevronRight, ChevronLeft, Check } from 'lucide-react';
 
 interface SetupWizardProps {
@@ -148,7 +148,7 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
           <h2 className="text-2xl font-bold text-foreground">Méthodes d'entraînement</h2>
         </div>
         <p className="text-muted-foreground text-sm mb-6 ml-8">
-          Optionnel — active un programme 5/3/1 pour les exercices que tu veux muscler en force. Aucun choix n'est obligatoire.
+          Optionnel — active un programme 5/3/1 ou Cluster pour les exercices que tu veux muscler en force. Aucun choix n'est obligatoire.
         </p>
 
         <div className="space-y-4 mb-8">
@@ -161,6 +161,7 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
               <div className="space-y-2">
                 {type.exercises.map((ex, ei) => {
                   const method531 = ex.method?.type === '531' ? ex.method : null;
+                  const methodCluster = ex.method?.type === 'cluster' ? ex.method : null;
                   return (
                     <div key={ex.id} className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm text-foreground flex-1 min-w-0 truncate">{ex.name || 'Sans titre'}</span>
@@ -180,12 +181,20 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
                       >
                         5/3/1
                       </button>
-                      {method531 && (
+                      <button
+                        onClick={() => updateExerciseMethod(ti, ei, methodCluster ?? { type: 'cluster', trainingMax: 60 })}
+                        className={`text-xs px-2.5 py-1.5 rounded-lg font-medium transition-all ${
+                          methodCluster ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground'
+                        }`}
+                      >
+                        Cluster
+                      </button>
+                      {(method531 || methodCluster) && (
                         <input
                           type="number"
-                          value={method531.trainingMax || ''}
+                          value={(method531 ?? methodCluster)!.trainingMax || ''}
                           onChange={e => updateExerciseMethod(ti, ei, {
-                            ...method531,
+                            ...(method531 ?? methodCluster)!,
                             trainingMax: e.target.value === '' ? 0 : parseFloat(e.target.value),
                           })}
                           className="w-20 bg-secondary text-foreground rounded-lg px-2 py-1.5 text-xs text-center outline-none"
@@ -228,6 +237,9 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
               {type.exercises.some(e => e.method?.type === '531') && (
                 <span className="text-[10px] font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-full">5/3/1</span>
               )}
+              {type.exercises.some(e => e.method?.type === 'cluster') && (
+                <span className="text-[10px] font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-full">Cluster</span>
+              )}
             </div>
             <p className="text-xs text-muted-foreground ml-6">
               {type.exercises.map(e => e.name).filter(Boolean).join(' · ') || 'Aucun exercice'}
@@ -237,13 +249,13 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
       </div>
 
       {(() => {
-        const fiveThreeOneExercises = workoutTypes.flatMap(t => t.exercises.filter(e => e.method?.type === '531'));
-        return fiveThreeOneExercises.length > 0 ? (
+        const methodExercises = workoutTypes.flatMap(t => t.exercises.filter(e => e.method?.type === '531' || e.method?.type === 'cluster'));
+        return methodExercises.length > 0 ? (
           <div className="glass-card p-4 mb-8">
-            {fiveThreeOneExercises.map(ex => (
+            {methodExercises.map(ex => (
               <div key={ex.id} className="flex items-center justify-between mb-1 last:mb-0">
                 <span className="text-sm text-muted-foreground">{ex.name} — TM</span>
-                <span className="text-foreground font-bold">{(ex.method as FiveThreeOneMethod).trainingMax} kg</span>
+                <span className="text-foreground font-bold">{(ex.method as FiveThreeOneMethod | ClusterMethod).trainingMax} kg</span>
               </div>
             ))}
           </div>

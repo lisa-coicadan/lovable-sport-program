@@ -1,8 +1,15 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, forwardRef, useImperativeHandle } from 'react';
 import { Pause, Play, RotateCcw, X, Timer } from 'lucide-react';
 
 interface RestTimerProps {
   defaultSeconds?: number;
+}
+
+// Imperative handle so other cards (e.g. the Cluster block) can start a rest countdown
+// of their own duration on tap, synchronously within the click — needed so the audio
+// context unlock still counts as happening within the user gesture on iOS.
+export interface RestTimerHandle {
+  startWithDuration: (seconds: number) => void;
 }
 
 // Persistent AudioContext — created once on first user gesture.
@@ -84,7 +91,7 @@ const cancelBeep = (oscillators: OscillatorNode[]) => {
   });
 };
 
-const RestTimer = ({ defaultSeconds = 90 }: RestTimerProps) => {
+const RestTimer = forwardRef<RestTimerHandle, RestTimerProps>(({ defaultSeconds = 90 }, ref) => {
   const [seconds, setSeconds] = useState(defaultSeconds);
   const [isRunning, setIsRunning] = useState(false);
   const [total, setTotal] = useState(defaultSeconds);
@@ -170,15 +177,31 @@ const RestTimer = ({ defaultSeconds = 90 }: RestTimerProps) => {
     setIsRunning(false);
   }, [total, stopAndCancel]);
 
+  // Primes/resumes the audio context and schedules the end-of-rest beep. Must be called
+  // synchronously from a user gesture (click handler) for iOS to allow the audio context.
+  const beginCountdown = useCallback((duration: number) => {
+    const ctx = getCtx();
+    endAtRef.current = Date.now() + duration * 1000;
+    cancelBeep(scheduledBeepRef.current);
+    scheduledBeepRef.current = ctx ? scheduleBeep(ctx.currentTime + duration) : [];
+    setIsRunning(true);
+  }, []);
+
   const start = () => {
-    const ctx = getCtx(); // Prime/resume the audio context on this user gesture.
     const runFor = seconds === 0 ? total : seconds;
     if (seconds === 0) setSeconds(total);
-    endAtRef.current = Date.now() + runFor * 1000;
-    cancelBeep(scheduledBeepRef.current);
-    scheduledBeepRef.current = ctx ? scheduleBeep(ctx.currentTime + runFor) : [];
-    setIsRunning(true);
+    beginCountdown(runFor);
   };
+
+  useImperativeHandle(ref, () => ({
+    startWithDuration: (secs: number) => {
+      stopAndCancel();
+      setTotal(secs);
+      setSeconds(secs);
+      setExpanded(true);
+      beginCountdown(secs);
+    },
+  }), [stopAndCancel, beginCountdown]);
 
   const pause = () => {
     syncFromWallClock();
@@ -275,6 +298,8 @@ const RestTimer = ({ defaultSeconds = 90 }: RestTimerProps) => {
       </div>
     </div>
   );
-};
+});
+
+RestTimer.displayName = 'RestTimer';
 
 export default RestTimer;

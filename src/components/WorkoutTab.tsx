@@ -1,12 +1,16 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import { AppData, WorkoutType, SetLog, SessionLog, FiveThreeOneMethod, calculate1RM } from '@/lib/types';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { AppData, WorkoutType, SetLog, SessionLog, FiveThreeOneMethod, ClusterMethod, calculate1RM } from '@/lib/types';
 import { getWeekSets, getWeekLabel } from '@/lib/531';
+import {
+  CLUSTER_SERIES, CLUSTER_MINI_SERIES, CLUSTER_REPS_PER_MINI_SERIES,
+  CLUSTER_REST_MINI_SERIES, CLUSTER_REST_SERIES, getClusterWeight,
+} from '@/lib/cluster';
 import { buildExerciseBlocks } from '@/lib/superset';
-import RestTimer from './RestTimer';
+import RestTimer, { RestTimerHandle } from './RestTimer';
 import ExerciseHistory from './ExerciseHistory';
 import SessionSummary from './SessionSummary';
 import SettingsPanel from './SettingsPanel';
-import { Check, ChevronRight, ArrowLeft, Settings, History, Plus, Trash2, ChevronDown } from 'lucide-react';
+import { Check, ChevronRight, ArrowLeft, Settings, History, Plus, Trash2, ChevronDown, Timer } from 'lucide-react';
 import { SortableList, DragHandle } from './SortableBlock';
 
 
@@ -31,6 +35,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
   const [restDuration, setRestDuration] = useState(data.restDuration || 90);
   const [nowTick, setNowTick] = useState(Date.now());
   const [previewOpen, setPreviewOpen] = useState(true);
+  const restTimerRef = useRef<RestTimerHandle>(null);
 
   useEffect(() => {
     if (mode !== 'recap') return;
@@ -140,6 +145,22 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
               completed: false,
             });
           });
+          return;
+        }
+        // Cluster exercises get their fixed series x mini-series scheme at 90% TM
+        if (ex.method?.type === 'cluster') {
+          const weight = getClusterWeight(ex.method.trainingMax);
+          const total = CLUSTER_SERIES * CLUSTER_MINI_SERIES;
+          for (let i = 0; i < total; i++) {
+            initialSets.push({
+              exerciseId: ex.id,
+              exerciseName: ex.name,
+              setNumber: i + 1,
+              reps: CLUSTER_REPS_PER_MINI_SERIES,
+              weight,
+              completed: false,
+            });
+          }
           return;
         }
         const lastWeight = lastWeights[ex.id] || 0;
@@ -349,6 +370,11 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
         .filter(ex => ex.method?.type === '531')
         .map(ex => ({ type, exercise: ex, method: ex.method as FiveThreeOneMethod }))
     );
+    const clusterExercises = activeTypes.flatMap(type =>
+      type.exercises
+        .filter(ex => ex.method?.type === 'cluster')
+        .map(ex => ({ type, exercise: ex, method: ex.method as ClusterMethod }))
+    );
 
     return (
       <div className="px-4 pt-12 pb-24 animate-slide-up">
@@ -387,6 +413,20 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
           );
         })}
 
+        {/* Cluster Block — one card per exercise using the method, if any */}
+        {clusterExercises.map(({ exercise, method }) => (
+          <div key={exercise.id} className="glass-card p-4 mb-6">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-bold text-primary">{exercise.name}</span>
+              <span className="text-xs text-muted-foreground">Cluster</span>
+            </div>
+            <p className="text-sm text-foreground font-medium">
+              {CLUSTER_SERIES} × {CLUSTER_MINI_SERIES}×{CLUSTER_REPS_PER_MINI_SERIES} à {getClusterWeight(method.trainingMax)} kg
+            </p>
+            <p className="text-xs text-muted-foreground mt-2">TM: {method.trainingMax} kg</p>
+          </div>
+        ))}
+
         {/* Session Selection */}
         <p className="text-sm text-muted-foreground mb-3">Choisis une séance</p>
         <div className="space-y-2">
@@ -397,6 +437,9 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                 <span className="text-foreground font-semibold flex-1">{type.name}</span>
                 {type.exercises.some(e => e.method?.type === '531') && (
                   <span className="text-[10px] font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-full">5/3/1</span>
+                )}
+                {type.exercises.some(e => e.method?.type === 'cluster') && (
+                  <span className="text-[10px] font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-full">Cluster</span>
                 )}
               </div>
               <p className="text-xs text-muted-foreground mb-3">
@@ -419,9 +462,12 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
   const fiveThreeOneExerciseIds = new Set(
     (selectedType?.exercises || []).filter(ex => ex.method?.type === '531').map(ex => ex.id)
   );
+  const clusterExerciseIds = new Set(
+    (selectedType?.exercises || []).filter(ex => ex.method?.type === 'cluster').map(ex => ex.id)
+  );
   const regularSets = sets
     .map((s, i) => ({ ...s, globalIdx: i }))
-    .filter(s => !fiveThreeOneExerciseIds.has(s.exerciseId));
+    .filter(s => !fiveThreeOneExerciseIds.has(s.exerciseId) && !clusterExerciseIds.has(s.exerciseId));
 
   // Build ordered blocks (single exercise or superset pair)
   type SingleBlock = { kind: 'single'; exerciseId: string; name: string; entries: { globalIdx: number; set: SetLog }[] };
@@ -612,6 +658,74 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
         );
       })}
 
+      {/* Cluster Block(s) in session — manual rest timers, one card per exercise using the method */}
+      {selectedType && selectedType.exercises.filter(ex => ex.method?.type === 'cluster').map(ex => {
+        const method = ex.method as ClusterMethod;
+        const weight = getClusterWeight(method.trainingMax);
+        const liveSets = sets
+          .map((s, i) => ({ ...s, globalIdx: i }))
+          .filter(s => s.exerciseId === ex.id);
+        if (liveSets.length === 0) return null;
+
+        return (
+          <div key={ex.id} className="glass-card p-4 mb-4 border-primary/30">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-bold text-primary">{ex.name}</h3>
+              <span className="text-xs text-muted-foreground">Cluster · TM {method.trainingMax} kg</span>
+            </div>
+            <div className="space-y-2">
+              {Array.from({ length: CLUSTER_SERIES }).map((_, seriesIdx) => {
+                const seriesSets = liveSets.slice(seriesIdx * CLUSTER_MINI_SERIES, (seriesIdx + 1) * CLUSTER_MINI_SERIES);
+                const allDone = seriesSets.every(s => sets[s.globalIdx].completed);
+                return (
+                  <div
+                    key={seriesIdx}
+                    className={`rounded-xl p-2.5 border transition-all ${
+                      allDone ? 'bg-primary/15 border-primary/40' : 'bg-secondary/40 border-transparent'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[11px] font-semibold text-muted-foreground">Série {seriesIdx + 1}</span>
+                      {seriesIdx < CLUSTER_SERIES - 1 && (
+                        <button
+                          onClick={() => restTimerRef.current?.startWithDuration(CLUSTER_REST_SERIES)}
+                          className="text-[10px] text-primary font-medium flex items-center gap-1"
+                        >
+                          <Timer size={10} /> Repos 3min
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      {seriesSets.map((s, miniIdx) => (
+                        <div key={s.globalIdx} className="flex items-center gap-1.5 flex-1">
+                          <button
+                            onClick={() => toggleSet(s.globalIdx)}
+                            className={`flex-1 rounded-lg py-2 text-xs font-mono font-medium transition-colors ${
+                              sets[s.globalIdx].completed ? 'bg-primary text-primary-foreground' : 'bg-background/60 text-foreground'
+                            }`}
+                          >
+                            {weight}kg × {CLUSTER_REPS_PER_MINI_SERIES}
+                          </button>
+                          {miniIdx < seriesSets.length - 1 && (
+                            <button
+                              onClick={() => restTimerRef.current?.startWithDuration(CLUSTER_REST_MINI_SERIES)}
+                              className="text-muted-foreground p-1.5 active:text-primary shrink-0"
+                              title="Repos 20s"
+                            >
+                              <Timer size={12} />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+
       {/* Regular exercises + Supersets */}
       <div className="space-y-4 mb-4">
         {(() => {
@@ -620,7 +734,9 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
             block: b,
           }));
           const reorderBlocks = (newOrder: typeof sortableBlocks) => {
-            const fiveIdxs = sets.map((_, i) => i).filter(i => fiveThreeOneExerciseIds.has(sets[i].exerciseId));
+            const pinnedIdxs = sets.map((_, i) => i).filter(i =>
+              fiveThreeOneExerciseIds.has(sets[i].exerciseId) || clusterExerciseIds.has(sets[i].exerciseId)
+            );
             const idxsByKey = new Map<string, number[]>();
             blocks.forEach(b => {
               const key = b.kind === 'superset' ? b.groupId : b.exerciseId;
@@ -630,8 +746,8 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
               idxsByKey.set(key, idxs);
             });
             const newRegular = newOrder.flatMap(item => (idxsByKey.get(item.key) || []).map(i => sets[i]));
-            const fiveSets = fiveIdxs.map(i => sets[i]);
-            setSets([...fiveSets, ...newRegular]);
+            const pinnedSets = pinnedIdxs.map(i => sets[i]);
+            setSets([...pinnedSets, ...newRegular]);
           };
           return (
             <SortableList items={sortableBlocks} onReorder={reorderBlocks}>
@@ -837,7 +953,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
 
       {/* Floating rest timer */}
       {mode === 'recap' && (
-        <RestTimer defaultSeconds={restDuration} />
+        <RestTimer ref={restTimerRef} defaultSeconds={restDuration} />
       )}
     </div>
   );
