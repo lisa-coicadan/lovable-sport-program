@@ -13,8 +13,14 @@ export interface ClusterMethod {
   trainingMax: number;
 }
 
-// Extensible union — 531 and cluster implemented; EMOM will extend this later.
-export type ExerciseMethod = FiveThreeOneMethod | ClusterMethod;
+// Fixed scheme (10min, 2 reps every minute, 90% TM) — see src/lib/emom.ts.
+// Only the Training Max is per-exercise for now.
+export interface EMOMMethod {
+  type: 'emom';
+  trainingMax: number;
+}
+
+export type ExerciseMethod = FiveThreeOneMethod | ClusterMethod | EMOMMethod;
 
 export interface Exercise {
   id: string;

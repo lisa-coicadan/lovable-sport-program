@@ -243,7 +243,7 @@ const StatsTab = ({ data }: StatsTabProps) => {
           <div>
             <p className="text-2xl font-bold text-foreground">{latestBodyWeight.weight} kg</p>
             <p className="text-[10px] text-muted-foreground">
-              Poids corporel — {new Date(latestBodyWeight.date).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })}
+              Bodyweight — {new Date(latestBodyWeight.date).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })}
             </p>
           </div>
         </div>

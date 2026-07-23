@@ -1,12 +1,14 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { AppData, WorkoutType, SetLog, SessionLog, FiveThreeOneMethod, ClusterMethod, calculate1RM } from '@/lib/types';
+import { AppData, WorkoutType, SetLog, SessionLog, FiveThreeOneMethod, ClusterMethod, EMOMMethod, calculate1RM } from '@/lib/types';
 import { getWeekSets, getWeekLabel } from '@/lib/531';
 import {
   CLUSTER_SERIES, CLUSTER_MINI_SERIES, CLUSTER_REPS_PER_MINI_SERIES,
   CLUSTER_REST_MINI_SERIES, CLUSTER_REST_SERIES, getClusterWeight,
 } from '@/lib/cluster';
+import { EMOM_DURATION_MINUTES, EMOM_REPS_PER_MINUTE, getEmomWeight } from '@/lib/emom';
 import { buildExerciseBlocks } from '@/lib/superset';
 import RestTimer, { RestTimerHandle } from './RestTimer';
+import EmomTimer from './EmomTimer';
 import ExerciseHistory from './ExerciseHistory';
 import SessionSummary from './SessionSummary';
 import SettingsPanel from './SettingsPanel';
@@ -157,6 +159,21 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
               exerciseName: ex.name,
               setNumber: i + 1,
               reps: CLUSTER_REPS_PER_MINI_SERIES,
+              weight,
+              completed: false,
+            });
+          }
+          return;
+        }
+        // EMOM exercises get one set per minute at 90% TM for the fixed duration
+        if (ex.method?.type === 'emom') {
+          const weight = getEmomWeight(ex.method.trainingMax);
+          for (let i = 0; i < EMOM_DURATION_MINUTES; i++) {
+            initialSets.push({
+              exerciseId: ex.id,
+              exerciseName: ex.name,
+              setNumber: i + 1,
+              reps: EMOM_REPS_PER_MINUTE,
               weight,
               completed: false,
             });
@@ -375,6 +392,11 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
         .filter(ex => ex.method?.type === 'cluster')
         .map(ex => ({ type, exercise: ex, method: ex.method as ClusterMethod }))
     );
+    const emomExercises = activeTypes.flatMap(type =>
+      type.exercises
+        .filter(ex => ex.method?.type === 'emom')
+        .map(ex => ({ type, exercise: ex, method: ex.method as EMOMMethod }))
+    );
 
     return (
       <div className="px-4 pt-12 pb-24 animate-slide-up">
@@ -427,6 +449,20 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
           </div>
         ))}
 
+        {/* EMOM Block — one card per exercise using the method, if any */}
+        {emomExercises.map(({ exercise, method }) => (
+          <div key={exercise.id} className="glass-card p-4 mb-6">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-bold text-primary">{exercise.name}</span>
+              <span className="text-xs text-muted-foreground">EMOM</span>
+            </div>
+            <p className="text-sm text-foreground font-medium">
+              {EMOM_DURATION_MINUTES} min × {EMOM_REPS_PER_MINUTE} reps/min à {getEmomWeight(method.trainingMax)} kg
+            </p>
+            <p className="text-xs text-muted-foreground mt-2">TM: {method.trainingMax} kg</p>
+          </div>
+        ))}
+
         {/* Session Selection */}
         <p className="text-sm text-muted-foreground mb-3">Choisis une séance</p>
         <div className="space-y-2">
@@ -440,6 +476,9 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                 )}
                 {type.exercises.some(e => e.method?.type === 'cluster') && (
                   <span className="text-[10px] font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-full">Cluster</span>
+                )}
+                {type.exercises.some(e => e.method?.type === 'emom') && (
+                  <span className="text-[10px] font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-full">EMOM</span>
                 )}
               </div>
               <p className="text-xs text-muted-foreground mb-3">
@@ -465,9 +504,12 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
   const clusterExerciseIds = new Set(
     (selectedType?.exercises || []).filter(ex => ex.method?.type === 'cluster').map(ex => ex.id)
   );
+  const emomExerciseIds = new Set(
+    (selectedType?.exercises || []).filter(ex => ex.method?.type === 'emom').map(ex => ex.id)
+  );
   const regularSets = sets
     .map((s, i) => ({ ...s, globalIdx: i }))
-    .filter(s => !fiveThreeOneExerciseIds.has(s.exerciseId) && !clusterExerciseIds.has(s.exerciseId));
+    .filter(s => !fiveThreeOneExerciseIds.has(s.exerciseId) && !clusterExerciseIds.has(s.exerciseId) && !emomExerciseIds.has(s.exerciseId));
 
   // Build ordered blocks (single exercise or superset pair)
   type SingleBlock = { kind: 'single'; exerciseId: string; name: string; entries: { globalIdx: number; set: SetLog }[] };
@@ -726,6 +768,43 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
         );
       })}
 
+      {/* EMOM Block(s) in session — continuous auto-beeping countdown, one card per exercise using the method */}
+      {selectedType && selectedType.exercises.filter(ex => ex.method?.type === 'emom').map(ex => {
+        const method = ex.method as EMOMMethod;
+        const weight = getEmomWeight(method.trainingMax);
+        const liveSets = sets
+          .map((s, i) => ({ ...s, globalIdx: i }))
+          .filter(s => s.exerciseId === ex.id);
+        if (liveSets.length === 0) return null;
+
+        return (
+          <div key={ex.id} className="glass-card p-4 mb-4 border-primary/30">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-bold text-primary">{ex.name}</h3>
+              <span className="text-xs text-muted-foreground">EMOM · TM {method.trainingMax} kg</span>
+            </div>
+            <div className="mb-3">
+              <EmomTimer totalMinutes={EMOM_DURATION_MINUTES} />
+            </div>
+            <div className="grid grid-cols-5 gap-1.5">
+              {liveSets.map((s, minuteIdx) => (
+                <button
+                  key={s.globalIdx}
+                  onClick={() => toggleSet(s.globalIdx)}
+                  className={`rounded-lg py-2 text-[11px] font-mono font-medium transition-colors ${
+                    sets[s.globalIdx].completed ? 'bg-primary text-primary-foreground' : 'bg-secondary/50 text-foreground'
+                  }`}
+                >
+                  Min {minuteIdx + 1}
+                  <br />
+                  {weight}kg×{EMOM_REPS_PER_MINUTE}
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+
       {/* Regular exercises + Supersets */}
       <div className="space-y-4 mb-4">
         {(() => {
@@ -735,7 +814,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
           }));
           const reorderBlocks = (newOrder: typeof sortableBlocks) => {
             const pinnedIdxs = sets.map((_, i) => i).filter(i =>
-              fiveThreeOneExerciseIds.has(sets[i].exerciseId) || clusterExerciseIds.has(sets[i].exerciseId)
+              fiveThreeOneExerciseIds.has(sets[i].exerciseId) || clusterExerciseIds.has(sets[i].exerciseId) || emomExerciseIds.has(sets[i].exerciseId)
             );
             const idxsByKey = new Map<string, number[]>();
             blocks.forEach(b => {

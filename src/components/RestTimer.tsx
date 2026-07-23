@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, forwardRef, useImperativeHandle } from 'react';
 import { Pause, Play, RotateCcw, X, Timer } from 'lucide-react';
+import { getSharedAudioContext, scheduleBeep, cancelBeep } from '@/lib/beep';
 
 interface RestTimerProps {
   defaultSeconds?: number;
@@ -11,85 +12,6 @@ interface RestTimerProps {
 export interface RestTimerHandle {
   startWithDuration: (seconds: number) => void;
 }
-
-// Persistent AudioContext — created once on first user gesture.
-// Web Audio API by default mixes with background media (Spotify/Apple Music on iOS)
-// as long as we never touch an HTMLAudioElement.
-let sharedCtx: AudioContext | null = null;
-const getCtx = (): AudioContext | null => {
-  try {
-    if (!sharedCtx) {
-      const AC = (window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext);
-      if (!AC) return null;
-      sharedCtx = new AC({ latencyHint: 'interactive' });
-    }
-    if (sharedCtx.state === 'suspended') sharedCtx.resume().catch(() => {});
-    return sharedCtx;
-  } catch {
-    return null;
-  }
-};
-
-// Schedules 2 sharp, loud beeps in a row starting at the given AudioContext time.
-// Scheduled ahead of time (rather than played from a setInterval tick) so it still
-// fires on the audio clock even if iOS throttles the page's JS timers in the background.
-// Square wave + high pitch for cut-through; each pulse stacks the fundamental with its
-// octave (extra perceived loudness/brightness) through a shared limiter so the stack
-// doesn't harshly clip. A web page can't detect or duck another app's volume (Spotify/
-// Apple Music), so this is the loudest tone we can generate on our own end — the
-// ceiling of what's possible without a native app.
-//
-// NOTE: this used to play a real recorded "censor beep" (public/sounds/rest-timer-beep.mp3)
-// decoded via fetch + decodeAudioData. Reverted temporarily to this synthesized version
-// to test whether that binary asset was the reason Lovable's build stopped picking up new
-// commits (its Preview stayed stuck on an older build after that commit landed). Revisit
-// once confirmed one way or the other.
-// Returns the oscillators so a caller can cancel them (pause/reset/duration change).
-const scheduleBeep = (when: number): OscillatorNode[] => {
-  const ctx = getCtx();
-  if (!ctx) return [];
-  const limiter = ctx.createDynamicsCompressor();
-  limiter.threshold.value = -24;
-  limiter.knee.value = 10;
-  limiter.ratio.value = 12;
-  limiter.attack.value = 0.001;
-  limiter.release.value = 0.1;
-  limiter.connect(ctx.destination);
-
-  const pulses = [
-    { offset: 0, freq: 1400 },
-    { offset: 0.22, freq: 1400 },
-  ];
-  const oscillators: OscillatorNode[] = [];
-  pulses.forEach(({ offset, freq }) => {
-    const start = when + offset;
-    // Fundamental + octave stacked for extra loudness, tamed by the shared limiter
-    [{ f: freq, peak: 1 }, { f: freq * 2, peak: 0.6 }].forEach(({ f, peak }) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'square';
-      osc.frequency.value = f;
-      // Near-instant attack, short hold, quick decay — hits hard and sharp
-      gain.gain.setValueAtTime(0, start);
-      gain.gain.linearRampToValueAtTime(peak, start + 0.002);
-      gain.gain.setValueAtTime(peak, start + 0.12);
-      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.2);
-      osc.connect(gain);
-      gain.connect(limiter);
-      osc.start(start);
-      osc.stop(start + 0.22);
-      oscillators.push(osc);
-    });
-  });
-  return oscillators;
-};
-
-// Cancels oscillators scheduled via scheduleBeep, whether or not they've started yet.
-const cancelBeep = (oscillators: OscillatorNode[]) => {
-  oscillators.forEach(osc => {
-    try { osc.stop(); } catch { /* already stopped/ended */ }
-  });
-};
 
 const RestTimer = forwardRef<RestTimerHandle, RestTimerProps>(({ defaultSeconds = 90 }, ref) => {
   const [seconds, setSeconds] = useState(defaultSeconds);
@@ -139,7 +61,7 @@ const RestTimer = forwardRef<RestTimerHandle, RestTimerProps>(({ defaultSeconds 
     const interval = setInterval(syncFromWallClock, 1000);
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        getCtx(); // try to resume the audio context now that we're back in the foreground
+        getSharedAudioContext(); // try to resume the audio context now that we're back in the foreground
         syncFromWallClock();
       }
     };
@@ -180,7 +102,7 @@ const RestTimer = forwardRef<RestTimerHandle, RestTimerProps>(({ defaultSeconds 
   // Primes/resumes the audio context and schedules the end-of-rest beep. Must be called
   // synchronously from a user gesture (click handler) for iOS to allow the audio context.
   const beginCountdown = useCallback((duration: number) => {
-    const ctx = getCtx();
+    const ctx = getSharedAudioContext();
     endAtRef.current = Date.now() + duration * 1000;
     cancelBeep(scheduledBeepRef.current);
     scheduledBeepRef.current = ctx ? scheduleBeep(ctx.currentTime + duration) : [];
