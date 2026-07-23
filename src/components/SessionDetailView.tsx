@@ -531,7 +531,7 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
           <button onClick={cancelEdit} className="flex-1 bg-secondary text-secondary-foreground font-semibold py-4 rounded-2xl text-sm transition-transform active:scale-95">
             Annuler
           </button>
-          <button onClick={saveEdit} className="flex-1 bg-primary text-primary-foreground font-semibold py-4 rounded-2xl text-sm flex items-center justify-center gap-2 transition-transform active:scale-95">
+          <button onClick={saveEdit} className="flex-1 btn-neon font-semibold py-4 rounded-2xl text-sm flex items-center justify-center gap-2 transition-transform active:scale-95">
             Enregistrer <Check size={18} />
           </button>
         </div>
@@ -713,7 +713,7 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
       {/* Bottom: Edit button */}
       <button
         onClick={enterEditMode}
-        className="w-full bg-primary text-primary-foreground font-semibold py-4 rounded-2xl text-sm flex items-center justify-center gap-2 transition-transform active:scale-95"
+        className="w-full btn-neon font-semibold py-4 rounded-2xl text-sm flex items-center justify-center gap-2 transition-transform active:scale-95"
       >
         <Pencil size={16} /> Modifier la séance
       </button>

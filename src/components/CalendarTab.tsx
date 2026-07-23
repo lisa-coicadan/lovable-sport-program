@@ -180,7 +180,7 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession }: Ca
           onClick={() => {
             onDaySelect(selectedDate);
           }}
-          className="w-full bg-primary text-primary-foreground font-semibold py-4 rounded-2xl text-sm flex items-center justify-center gap-2 transition-transform active:scale-95"
+          className="w-full btn-neon font-semibold py-4 rounded-2xl text-sm flex items-center justify-center gap-2 transition-transform active:scale-95"
         >
           <Plus size={18} /> Ajouter une séance
         </button>

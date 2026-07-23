@@ -76,6 +76,13 @@ const buildSetsForExercise = (ex: Exercise, method: ExerciseMethod | undefined, 
   return result;
 };
 
+// Cluster = purple, EMOM = blue, Normal = pink — same hue mapping as the onboarding wizard.
+const METHOD_OPT_HUE: Record<'cluster' | 'emom' | 'none', string> = {
+  cluster: 'bg-accent-purple text-primary-foreground',
+  emom: 'bg-accent-blue text-primary-foreground',
+  none: 'bg-primary text-primary-foreground',
+};
+
 // Cluster/EMOM/Normal picker shown once the session is live, on the exercise's own card.
 const MethodPickerRow = ({ active, onSelect }: { active: 'cluster' | 'emom' | 'none'; onSelect: (opt: 'cluster' | 'emom' | 'none') => void }) => (
   <div className="flex gap-1.5 mb-3">
@@ -84,7 +91,7 @@ const MethodPickerRow = ({ active, onSelect }: { active: 'cluster' | 'emom' | 'n
         key={opt}
         onClick={() => onSelect(opt)}
         className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-all ${
-          active === opt ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
+          active === opt ? METHOD_OPT_HUE[opt] : 'bg-secondary text-muted-foreground'
         }`}
       >
         {opt === 'cluster' ? 'Cluster' : opt === 'emom' ? 'EMOM' : 'Normal'}
@@ -496,10 +503,10 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                   <span className="text-[10px] font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-full">5/3/1</span>
                 )}
                 {type.exercises.some(e => e.method?.type === 'cluster') && (
-                  <span className="text-[10px] font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-full">Cluster</span>
+                  <span className="text-[10px] font-medium text-accent-purple bg-accent-purple/10 px-2 py-0.5 rounded-full">Cluster</span>
                 )}
                 {type.exercises.some(e => e.method?.type === 'emom') && (
-                  <span className="text-[10px] font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-full">EMOM</span>
+                  <span className="text-[10px] font-medium text-accent-blue bg-accent-blue/10 px-2 py-0.5 rounded-full">EMOM</span>
                 )}
               </div>
               <p className="text-xs text-muted-foreground mb-3">
@@ -507,7 +514,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
               </p>
               <button
                 onClick={() => startWorkout(type)}
-                className="w-full bg-primary text-primary-foreground font-medium py-2.5 rounded-xl text-sm flex items-center justify-center gap-1.5 touch-target transition-transform active:scale-95"
+                className="w-full btn-neon font-medium py-2.5 rounded-xl text-sm flex items-center justify-center gap-1.5 touch-target transition-transform active:scale-95"
               >
                 <Check size={14} /> Démarrer la séance
               </button>
@@ -751,9 +758,9 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
         };
 
         return (
-          <div key={ex.id} className="glass-card p-4 mb-4 border-primary/30">
+          <div key={ex.id} className="glass-card p-4 mb-4 border-accent-purple/30">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-bold text-primary">{ex.name}</h3>
+              <h3 className="text-sm font-bold text-accent-purple">{ex.name}</h3>
               <span className="text-xs text-muted-foreground">TM {method.trainingMax} kg</span>
             </div>
             <MethodPickerRow active="cluster" onSelect={opt => applyMethodOverride(ex, opt)} />
@@ -831,9 +838,9 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
         if (liveSets.length === 0) return null;
 
         return (
-          <div key={ex.id} className="glass-card p-4 mb-4 border-primary/30">
+          <div key={ex.id} className="glass-card p-4 mb-4 border-accent-blue/30">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-bold text-primary">{ex.name}</h3>
+              <h3 className="text-sm font-bold text-accent-blue">{ex.name}</h3>
               <span className="text-xs text-muted-foreground">TM {method.trainingMax} kg</span>
             </div>
             <MethodPickerRow active="emom" onSelect={opt => applyMethodOverride(ex, opt)} />
@@ -1082,7 +1089,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
 
       <button
         onClick={finishWorkout}
-        className="w-full bg-primary text-primary-foreground font-semibold py-4 rounded-2xl touch-target text-lg flex items-center justify-center gap-2 transition-transform active:scale-95"
+        className="w-full btn-neon font-semibold py-4 rounded-2xl touch-target text-lg flex items-center justify-center gap-2 transition-transform active:scale-95"
       >
         Terminer la séance <ChevronRight size={20} />
       </button>

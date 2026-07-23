@@ -248,7 +248,7 @@ const SessionSummary = ({ session, previousSessions = [], onSave, onBack, readOn
 
           <button
             onClick={handleSave}
-            className="w-full bg-primary text-primary-foreground font-semibold py-4 rounded-2xl touch-target text-lg flex items-center justify-center gap-2 transition-transform active:scale-95"
+            className="w-full btn-neon font-semibold py-4 rounded-2xl touch-target text-lg flex items-center justify-center gap-2 transition-transform active:scale-95"
           >
             Enregistrer la séance <ChevronRight size={20} />
           </button>

@@ -537,11 +537,11 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                   </div>
                                 </div>
                               ) : methodCluster ? (
-                                <div className="rounded-xl p-3 bg-primary/10 border border-primary/30 space-y-2.5">
+                                <div className="rounded-xl p-3 bg-accent-purple/10 border border-accent-purple/30 space-y-2.5">
                                   <div className="flex items-center justify-between">
-                                    <span className="text-xs font-bold text-primary flex items-center gap-1">
+                                    <span className="text-xs font-bold text-accent-purple flex items-center gap-1">
                                       <span className="relative inline-flex w-3 h-3 items-center justify-center">
-                                        <span className="absolute inset-0 bg-primary/50 rounded-full blur-sm animate-pulse-glow" />
+                                        <span className="absolute inset-0 bg-accent-purple/50 rounded-full blur-sm animate-pulse-glow" />
                                         <Timer size={12} className="relative" />
                                       </span> Cluster actif
                                     </span>
@@ -682,11 +682,11 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                   })()}
                                 </div>
                               ) : methodEmom ? (
-                                <div className="rounded-xl p-3 bg-primary/10 border border-primary/30 space-y-2.5">
+                                <div className="rounded-xl p-3 bg-accent-blue/10 border border-accent-blue/30 space-y-2.5">
                                   <div className="flex items-center justify-between">
-                                    <span className="text-xs font-bold text-primary flex items-center gap-1">
+                                    <span className="text-xs font-bold text-accent-blue flex items-center gap-1">
                                       <span className="relative inline-flex w-3 h-3 items-center justify-center">
-                                        <span className="absolute inset-0 bg-primary/50 rounded-full blur-sm animate-pulse-glow" />
+                                        <span className="absolute inset-0 bg-accent-blue/50 rounded-full blur-sm animate-pulse-glow" />
                                         <Clock size={12} className="relative" />
                                       </span> EMOM actif
                                     </span>
@@ -925,7 +925,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
 
       <button
         onClick={save}
-        className="w-full bg-primary text-primary-foreground font-semibold py-4 rounded-2xl touch-target text-lg transition-transform active:scale-95"
+        className="w-full btn-neon font-semibold py-4 rounded-2xl touch-target text-lg transition-transform active:scale-95"
       >
         Save Settings
       </button>

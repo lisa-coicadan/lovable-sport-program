@@ -225,7 +225,7 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
 
         <button
           onClick={() => setStep('list')}
-          className="relative w-full max-w-xs bg-primary text-primary-foreground font-semibold py-4 rounded-2xl touch-target text-lg shadow-lg shadow-primary/20 transition-transform active:scale-95"
+          className="relative w-full max-w-xs btn-neon font-semibold py-4 rounded-2xl touch-target text-lg transition-transform active:scale-95"
         >
           Commencer
         </button>
@@ -296,7 +296,7 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
         <button
           onClick={() => setStep('goal')}
           disabled={workoutTypes.length === 0}
-          className="w-full bg-primary text-primary-foreground font-semibold py-4 rounded-2xl touch-target text-lg flex items-center justify-center gap-2 transition-transform active:scale-95 disabled:opacity-40"
+          className="w-full btn-neon font-semibold py-4 rounded-2xl touch-target text-lg flex items-center justify-center gap-2 transition-transform active:scale-95 disabled:opacity-40"
         >
           Suivant <ChevronRight size={20} />
         </button>
@@ -330,7 +330,7 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
         <button
           onClick={parseNotes}
           disabled={notesText.trim() === ''}
-          className="w-full bg-primary text-primary-foreground font-semibold py-4 rounded-2xl touch-target text-lg flex items-center justify-center gap-2 transition-transform active:scale-95 disabled:opacity-40"
+          className="w-full btn-neon font-semibold py-4 rounded-2xl touch-target text-lg flex items-center justify-center gap-2 transition-transform active:scale-95 disabled:opacity-40"
         >
           Générer la séance <ChevronRight size={20} />
         </button>
@@ -368,7 +368,7 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
               const methodType = ex.method?.type as MethodType | undefined;
               const isExpanded = expandedMethodFor === ex.id;
               return (
-                <div key={ex.id}>
+                <div key={ex.id} className="bg-secondary/40 rounded-xl p-2">
                   <div className="flex items-center gap-2">
                     <input
                       value={ex.name}
@@ -391,19 +391,23 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
                       className="w-14 bg-secondary text-foreground rounded-lg px-2 py-2 text-sm text-center outline-none"
                       placeholder="Reps"
                     />
-                    <button
-                      onClick={() => setExpandedMethodFor(isExpanded ? null : ex.id)}
-                      className={`shrink-0 rounded-lg p-2 transition-colors ${methodType ? METHOD_HUES[methodType] : 'text-muted-foreground bg-secondary'}`}
-                      title="Méthode d'entraînement"
-                    >
-                      {methodType ? (() => { const Icon = METHOD_ICONS[methodType]; return <Icon size={14} />; })() : <Plus size={14} />}
-                    </button>
-                    <button onClick={() => removeExercise(ei)} className="text-muted-foreground p-1">
+                    <button onClick={() => removeExercise(ei)} className="text-muted-foreground p-1 shrink-0">
                       <Trash2 size={14} />
                     </button>
                   </div>
+
+                  <button
+                    onClick={() => setExpandedMethodFor(isExpanded ? null : ex.id)}
+                    className={`mt-1.5 w-full flex items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-semibold border transition-all ${
+                      methodType ? METHOD_HUES[methodType] : 'text-muted-foreground bg-secondary border-dashed border-border'
+                    }`}
+                  >
+                    {methodType ? (() => { const Icon = METHOD_ICONS[methodType]; return <Icon size={13} />; })() : <Plus size={13} />}
+                    {methodType ? `Méthode : ${METHOD_LABELS[methodType]}` : 'Ajouter une méthode d\'entraînement (5/3/1, Cluster, EMOM)'}
+                  </button>
+
                   {isExpanded && (
-                    <div className="flex gap-1.5 mt-1.5 ml-0.5">
+                    <div className="flex gap-1.5 mt-1.5">
                       {(['531', 'cluster', 'emom'] as const).map(mt => (
                         <button
                           key={mt}
@@ -436,7 +440,7 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
 
         <button
           onClick={finishBuild}
-          className="w-full bg-primary text-primary-foreground font-semibold py-4 rounded-2xl touch-target text-lg flex items-center justify-center gap-2 transition-transform active:scale-95"
+          className="w-full btn-neon font-semibold py-4 rounded-2xl touch-target text-lg flex items-center justify-center gap-2 transition-transform active:scale-95"
         >
           Terminé <Check size={20} />
         </button>
@@ -475,7 +479,7 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
 
         <button
           onClick={() => setStep(taggedExercises.length > 0 ? 'methodParams' : 'recap')}
-          className="w-full bg-primary text-primary-foreground font-semibold py-4 rounded-2xl touch-target text-lg flex items-center justify-center gap-2 transition-transform active:scale-95"
+          className="w-full btn-neon font-semibold py-4 rounded-2xl touch-target text-lg flex items-center justify-center gap-2 transition-transform active:scale-95"
         >
           Suivant <ChevronRight size={20} />
         </button>
@@ -628,7 +632,7 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
 
         <button
           onClick={() => setStep('recap')}
-          className="w-full bg-primary text-primary-foreground font-semibold py-4 rounded-2xl touch-target text-lg flex items-center justify-center gap-2 transition-transform active:scale-95"
+          className="w-full btn-neon font-semibold py-4 rounded-2xl touch-target text-lg flex items-center justify-center gap-2 transition-transform active:scale-95"
         >
           Suivant <ChevronRight size={20} />
         </button>
@@ -689,7 +693,7 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
 
       <button
         onClick={handleFinish}
-        className="w-full bg-primary text-primary-foreground font-semibold py-4 rounded-2xl touch-target text-lg flex items-center justify-center gap-2 transition-transform active:scale-95"
+        className="w-full btn-neon font-semibold py-4 rounded-2xl touch-target text-lg flex items-center justify-center gap-2 transition-transform active:scale-95"
       >
         <Check size={20} /> Commencer
       </button>
