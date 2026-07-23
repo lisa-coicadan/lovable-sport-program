@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { AppData, WorkoutType, SetLog, SessionLog, FiveThreeOneMethod, ClusterMethod, EMOMMethod, calculate1RM } from '@/lib/types';
+import { AppData, WorkoutType, SetLog, SessionLog, FiveThreeOneMethod, ClusterMethod, EMOMMethod, ExerciseMethod, Exercise, calculate1RM } from '@/lib/types';
 import { getWeekSets, getWeekLabel } from '@/lib/531';
 import { getClusterConfig, getMiniSeriesWeight } from '@/lib/cluster';
 import { getEmomConfig, getEmomWeight } from '@/lib/emom';
@@ -22,6 +22,12 @@ interface WorkoutTabProps {
 
 type Mode = 'select' | 'recap' | 'summary' | 'settings' | 'history';
 
+// Cluster/EMOM are session-level techniques, not a standing program like 5/3/1: the
+// exercise's configured method (from Settings) is just the default for a new session,
+// swappable here without touching that default. Never persisted — resets each time the
+// select screen is (re)entered.
+type MethodOverride = 'default' | 'none' | 'cluster' | 'emom';
+
 const formatRestLabel = (seconds: number): string => {
   if (seconds < 60) return `${seconds}s`;
   const mins = Math.floor(seconds / 60);
@@ -42,7 +48,20 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
   const [nowTick, setNowTick] = useState(Date.now());
   const [previewOpen, setPreviewOpen] = useState(true);
   const [clusterAutoTimer, setClusterAutoTimer] = useState(false);
+  const [methodOverrides, setMethodOverrides] = useState<Record<string, MethodOverride>>({});
   const restTimerRef = useRef<RestTimerHandle>(null);
+
+  // Resolves what method actually applies to this exercise for the session about to
+  // start: the per-session override if she picked one, otherwise the exercise's
+  // configured default. Only cluster/emom exercises get an override control — 5/3/1
+  // stays a standing program, always following its configured state.
+  const getEffectiveMethod = useCallback((ex: Exercise): ExerciseMethod | undefined => {
+    const override = methodOverrides[ex.id];
+    if (!override || override === 'default') return ex.method;
+    if (override === 'none') return undefined;
+    const trainingMax = ex.method?.trainingMax ?? 60;
+    return override === 'cluster' ? { type: 'cluster', trainingMax } : { type: 'emom', trainingMax };
+  }, [methodOverrides]);
 
   useEffect(() => {
     if (mode !== 'recap') return;
@@ -139,9 +158,10 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
         }
       } else {
         const ex = exerciseMap.get(block.exerciseIds[0])!;
+        const method = getEffectiveMethod(ex);
         // 5/3/1 exercises get their weekly-percentage sets instead of the flat sets×reps
-        if (ex.method?.type === '531') {
-          const weekSets = getWeekSets(ex.method.trainingMax, ex.method.currentWeek);
+        if (method?.type === '531') {
+          const weekSets = getWeekSets(method.trainingMax, method.currentWeek);
           weekSets.forEach((s, i) => {
             initialSets.push({
               exerciseId: ex.id,
@@ -156,8 +176,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
         }
         // Cluster exercises: numSeries repeats of the configured mini-series scheme
         // (own rep count + %TM each), so wave/pyramid schemes carry through as-is.
-        if (ex.method?.type === 'cluster') {
-          const method = ex.method;
+        if (method?.type === 'cluster') {
           const { numSeries, miniSeries } = getClusterConfig(method);
           let i = 0;
           for (let s = 0; s < numSeries; s++) {
@@ -175,9 +194,9 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
           return;
         }
         // EMOM exercises get one set per minute at the configured %TM for the configured duration
-        if (ex.method?.type === 'emom') {
-          const { durationMinutes, repsPerMinute, percentage } = getEmomConfig(ex.method);
-          const weight = getEmomWeight(ex.method.trainingMax, percentage);
+        if (method?.type === 'emom') {
+          const { durationMinutes, repsPerMinute, percentage } = getEmomConfig(method);
+          const weight = getEmomWeight(method.trainingMax, percentage);
           for (let i = 0; i < durationMinutes; i++) {
             initialSets.push({
               exerciseId: ex.id,
@@ -358,6 +377,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
     setSelectedType(null);
     setSets([]);
     setPendingSession(null);
+    setMethodOverrides({});
   };
 
   if (mode === 'summary' && pendingSession) {
@@ -397,15 +417,11 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
         .filter(ex => ex.method?.type === '531')
         .map(ex => ({ type, exercise: ex, method: ex.method as FiveThreeOneMethod }))
     );
-    const clusterExercises = activeTypes.flatMap(type =>
+    // Cluster/EMOM exercises: switchable per session (picker below), unlike 5/3/1.
+    const methodExercises = activeTypes.flatMap(type =>
       type.exercises
-        .filter(ex => ex.method?.type === 'cluster')
-        .map(ex => ({ type, exercise: ex, method: ex.method as ClusterMethod }))
-    );
-    const emomExercises = activeTypes.flatMap(type =>
-      type.exercises
-        .filter(ex => ex.method?.type === 'emom')
-        .map(ex => ({ type, exercise: ex, method: ex.method as EMOMMethod }))
+        .filter(ex => ex.method?.type === 'cluster' || ex.method?.type === 'emom')
+        .map(ex => ({ type, exercise: ex }))
     );
 
     return (
@@ -445,39 +461,67 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
           );
         })}
 
-        {/* Cluster Block — one card per exercise using the method, if any */}
-        {clusterExercises.map(({ exercise, method }) => {
-          const { numSeries, miniSeries } = getClusterConfig(method);
+        {/* Cluster/EMOM Block — one card per exercise, with a per-session technique picker */}
+        {methodExercises.map(({ exercise }) => {
+          const effective = getEffectiveMethod(exercise);
           return (
             <div key={exercise.id} className="glass-card p-4 mb-6">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-bold text-primary">{exercise.name}</span>
-                <span className="text-xs text-muted-foreground">Cluster</span>
+                <span className="text-xs text-muted-foreground">
+                  {effective?.type === 'cluster' ? 'Cluster' : effective?.type === 'emom' ? 'EMOM' : 'Normal'}
+                </span>
               </div>
-              <p className="text-sm text-foreground font-medium">
-                {numSeries} séries × {miniSeries.map(m => `${m.reps}×${Math.round(m.percentage * 100)}%`).join(' · ')}
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">
-                {miniSeries.map(m => `${getMiniSeriesWeight(method.trainingMax, m.percentage)}kg`).join(' · ')}
-              </p>
-              <p className="text-xs text-muted-foreground mt-2">TM: {method.trainingMax} kg</p>
-            </div>
-          );
-        })}
 
-        {/* EMOM Block — one card per exercise using the method, if any */}
-        {emomExercises.map(({ exercise, method }) => {
-          const { durationMinutes, repsPerMinute, percentage } = getEmomConfig(method);
-          return (
-            <div key={exercise.id} className="glass-card p-4 mb-6">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-bold text-primary">{exercise.name}</span>
-                <span className="text-xs text-muted-foreground">EMOM</span>
+              <div className="flex gap-1.5 mb-3">
+                {(['cluster', 'emom', 'none'] as const).map(opt => {
+                  const active = (effective?.type ?? 'none') === opt;
+                  return (
+                    <button
+                      key={opt}
+                      onClick={() => setMethodOverrides(prev => ({ ...prev, [exercise.id]: opt }))}
+                      className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                        active ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
+                      }`}
+                    >
+                      {opt === 'cluster' ? 'Cluster' : opt === 'emom' ? 'EMOM' : 'Normal'}
+                    </button>
+                  );
+                })}
               </div>
-              <p className="text-sm text-foreground font-medium">
-                {durationMinutes} min × {repsPerMinute} reps/min à <span className="text-primary font-bold">{getEmomWeight(method.trainingMax, percentage)} kg</span> ({Math.round(percentage * 100)}%)
-              </p>
-              <p className="text-xs text-muted-foreground mt-2">TM: {method.trainingMax} kg</p>
+
+              {effective?.type === 'cluster' && (() => {
+                const { numSeries, miniSeries } = getClusterConfig(effective);
+                return (
+                  <>
+                    <p className="text-sm text-foreground font-medium">
+                      {numSeries} séries × {miniSeries.map(m => `${m.reps}×${Math.round(m.percentage * 100)}%`).join(' · ')}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {miniSeries.map(m => `${getMiniSeriesWeight(effective.trainingMax, m.percentage)}kg`).join(' · ')}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-2">TM: {effective.trainingMax} kg</p>
+                  </>
+                );
+              })()}
+
+              {effective?.type === 'emom' && (() => {
+                const { durationMinutes, repsPerMinute, percentage } = getEmomConfig(effective);
+                return (
+                  <>
+                    <p className="text-sm text-foreground font-medium">
+                      {durationMinutes} min × {repsPerMinute} reps/min à <span className="text-primary font-bold">{getEmomWeight(effective.trainingMax, percentage)} kg</span> ({Math.round(percentage * 100)}%)
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-2">TM: {effective.trainingMax} kg</p>
+                  </>
+                );
+              })()}
+
+              {!effective && (
+                <p className="text-xs text-muted-foreground">
+                  Sets normaux pour cette séance — {exercise.sets} × {exercise.reps}
+                </p>
+              )}
             </div>
           );
         })}
@@ -521,10 +565,10 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
     (selectedType?.exercises || []).filter(ex => ex.method?.type === '531').map(ex => ex.id)
   );
   const clusterExerciseIds = new Set(
-    (selectedType?.exercises || []).filter(ex => ex.method?.type === 'cluster').map(ex => ex.id)
+    (selectedType?.exercises || []).filter(ex => getEffectiveMethod(ex)?.type === 'cluster').map(ex => ex.id)
   );
   const emomExerciseIds = new Set(
-    (selectedType?.exercises || []).filter(ex => ex.method?.type === 'emom').map(ex => ex.id)
+    (selectedType?.exercises || []).filter(ex => getEffectiveMethod(ex)?.type === 'emom').map(ex => ex.id)
   );
   const regularSets = sets
     .map((s, i) => ({ ...s, globalIdx: i }))
@@ -573,7 +617,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
   return (
     <div className="px-4 pt-12 pb-24 animate-slide-up">
       <div className="flex items-center gap-3 mb-6">
-        <button onClick={() => { setMode('select'); setSelectedType(null); setSets([]); }} className="text-muted-foreground touch-target p-1">
+        <button onClick={() => { setMode('select'); setSelectedType(null); setSets([]); setMethodOverrides({}); }} className="text-muted-foreground touch-target p-1">
           <ArrowLeft size={20} />
         </button>
         <h1 className="text-xl font-bold text-foreground">{selectedType?.name}</h1>
@@ -720,8 +764,8 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
       })}
 
       {/* Cluster Block(s) in session — rest timers (manual, or auto via the per-block toggle) */}
-      {selectedType && selectedType.exercises.filter(ex => ex.method?.type === 'cluster').map(ex => {
-        const method = ex.method as ClusterMethod;
+      {selectedType && selectedType.exercises.filter(ex => getEffectiveMethod(ex)?.type === 'cluster').map(ex => {
+        const method = getEffectiveMethod(ex) as ClusterMethod;
         const { numSeries, miniSeries, restMiniSeries, restSeries } = getClusterConfig(method);
         const liveSets = sets
           .map((s, i) => ({ ...s, globalIdx: i }))
@@ -813,8 +857,8 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
       })}
 
       {/* EMOM Block(s) in session — continuous auto-beeping countdown, one card per exercise using the method */}
-      {selectedType && selectedType.exercises.filter(ex => ex.method?.type === 'emom').map(ex => {
-        const method = ex.method as EMOMMethod;
+      {selectedType && selectedType.exercises.filter(ex => getEffectiveMethod(ex)?.type === 'emom').map(ex => {
+        const method = getEffectiveMethod(ex) as EMOMMethod;
         const { durationMinutes } = getEmomConfig(method);
         const liveSets = sets
           .map((s, i) => ({ ...s, globalIdx: i }))
