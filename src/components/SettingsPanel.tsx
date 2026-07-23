@@ -182,10 +182,10 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
     setWorkoutTypes(updated);
   };
 
-  const updateExercise = (typeIndex: number, exIndex: number, field: keyof Exercise, value: string | number) => {
+  const updateExercise = <K extends keyof Exercise>(typeIndex: number, exIndex: number, field: K, value: Exercise[K]) => {
     const updated = [...workoutTypes];
     const ex = updated[typeIndex].exercises[exIndex];
-    (ex as any)[field] = value;
+    ex[field] = value;
     // Keep sets synced between superset partners
     if (field === 'sets' && ex.supersetGroupId) {
       updated[typeIndex].exercises = updated[typeIndex].exercises.map(e =>
@@ -330,32 +330,40 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                             }`}
                             placeholder="Exercise"
                           />
-                          {opts?.hideSets ? (
-                            <span className="text-[10px] text-muted-foreground w-10 text-center">shared</span>
+                          {hasMethod ? (
+                            <span className="text-[10px] text-muted-foreground px-1 flex-shrink-0" title="Séries, reps et poids sont calculés automatiquement à partir du Training Max">
+                              auto (5/3/1)
+                            </span>
                           ) : (
-                            <input
-                              type="number"
-                              value={ex.sets || ''}
-                              onChange={e => updateExercise(ti, ei, 'sets', e.target.value === '' ? '' as any : parseInt(e.target.value) || 0)}
-                              className="w-10 bg-secondary text-foreground rounded-lg px-1 py-1.5 text-sm text-center outline-none"
-                              placeholder="S"
-                            />
+                            <>
+                              {opts?.hideSets ? (
+                                <span className="text-[10px] text-muted-foreground w-10 text-center">shared</span>
+                              ) : (
+                                <input
+                                  type="number"
+                                  value={ex.sets || ''}
+                                  onChange={e => updateExercise(ti, ei, 'sets', e.target.value === '' ? '' as any : parseInt(e.target.value) || 0)}
+                                  className="w-10 bg-secondary text-foreground rounded-lg px-1 py-1.5 text-sm text-center outline-none"
+                                  placeholder="S"
+                                />
+                              )}
+                              <span className="text-muted-foreground text-xs">×</span>
+                              <input
+                                type="number"
+                                value={ex.reps || ''}
+                                onChange={e => updateExercise(ti, ei, 'reps', e.target.value === '' ? '' as any : parseInt(e.target.value) || 0)}
+                                className="w-10 bg-secondary text-foreground rounded-lg px-1 py-1.5 text-sm text-center outline-none"
+                                placeholder="R"
+                              />
+                              <input
+                                type="number"
+                                value={ex.weight || ''}
+                                onChange={e => updateExercise(ti, ei, 'weight', e.target.value === '' ? 0 : parseFloat(e.target.value) || 0)}
+                                className="w-12 bg-secondary text-foreground rounded-lg px-1 py-1.5 text-sm text-center outline-none"
+                                placeholder="kg"
+                              />
+                            </>
                           )}
-                          <span className="text-muted-foreground text-xs">×</span>
-                          <input
-                            type="number"
-                            value={ex.reps || ''}
-                            onChange={e => updateExercise(ti, ei, 'reps', e.target.value === '' ? '' as any : parseInt(e.target.value) || 0)}
-                            className="w-10 bg-secondary text-foreground rounded-lg px-1 py-1.5 text-sm text-center outline-none"
-                            placeholder="R"
-                          />
-                          <input
-                            type="number"
-                            value={ex.weight || ''}
-                            onChange={e => updateExercise(ti, ei, 'weight', e.target.value === '' ? 0 : parseFloat(e.target.value) || 0)}
-                            className="w-12 bg-secondary text-foreground rounded-lg px-1 py-1.5 text-sm text-center outline-none"
-                            placeholder="kg"
-                          />
                           <button onClick={() => removeExercise(ti, ei)} className="text-muted-foreground p-1">
                             <Trash2 size={12} />
                           </button>
@@ -385,15 +393,17 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                     <span className="text-[10px] font-bold text-primary tracking-wider">SUPERSET</span>
                                   </div>
                                   <div className="flex items-center gap-2">
-                                    <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                                      <span>Series</span>
-                                      <input
-                                        type="number"
-                                        value={a.sets || ''}
-                                        onChange={e => updateExercise(ti, aIdx, 'sets', e.target.value === '' ? '' as any : parseInt(e.target.value) || 0)}
-                                        className="w-10 bg-secondary text-foreground rounded-md px-1 py-0.5 text-xs text-center outline-none"
-                                      />
-                                    </div>
+                                    {!a.method && (
+                                      <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                                        <span>Series</span>
+                                        <input
+                                          type="number"
+                                          value={a.sets || ''}
+                                          onChange={e => updateExercise(ti, aIdx, 'sets', e.target.value === '' ? '' as any : parseInt(e.target.value) || 0)}
+                                          className="w-10 bg-secondary text-foreground rounded-md px-1 py-0.5 text-xs text-center outline-none"
+                                        />
+                                      </div>
+                                    )}
                                     <button
                                       onClick={() => unlinkExerciseSuperset(ti, block.key)}
                                       className="text-muted-foreground p-1 active:text-destructive"
