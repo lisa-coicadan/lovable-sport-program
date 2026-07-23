@@ -39,10 +39,76 @@ const formatHM = (mins: number) => {
   return `${h}h${String(m).padStart(2, '0')}`;
 };
 
+// 1 mois = 4 semaines pile (pas de semaine coupée) ; 3 mois ≈ 13 semaines.
+type RangeFilter = '1m' | '3m' | 'all';
+const RANGE_OPTIONS: { value: RangeFilter; label: string }[] = [
+  { value: '1m', label: '1 mois' },
+  { value: '3m', label: '3 mois' },
+  { value: 'all', label: 'Tout' },
+];
+const rangeWeeks = (range: RangeFilter): number | null => (range === '1m' ? 4 : range === '3m' ? 13 : null);
+const rangeMonths = (range: RangeFilter): number | null => (range === '1m' ? 1 : range === '3m' ? 3 : null);
+const rangeCutoffDate = (range: RangeFilter): Date | null => {
+  const weeks = rangeWeeks(range);
+  if (weeks === null) return null;
+  const d = new Date();
+  d.setDate(d.getDate() - weeks * 7);
+  d.setHours(0, 0, 0, 0);
+  return d;
+};
+
+// Builds the list of Mondays to display for a given range: exactly `rangeWeeks` weeks
+// ending on the current week for '1m'/'3m', or every week since the earliest reference
+// date for 'all' (so charts show real zero-filled weeks, not just weeks with data).
+const weekRangeMondays = (range: RangeFilter, referenceDates: string[]): Date[] => {
+  const nowMonday = mondayOf(new Date());
+  const n = rangeWeeks(range);
+  let firstMonday: Date;
+  if (n === null) {
+    if (referenceDates.length === 0) {
+      firstMonday = new Date(nowMonday);
+      firstMonday.setDate(firstMonday.getDate() - 7 * 3);
+    } else {
+      const earliest = [...referenceDates].sort()[0];
+      firstMonday = mondayOf(new Date(earliest + 'T00:00:00'));
+    }
+  } else {
+    firstMonday = new Date(nowMonday);
+    firstMonday.setDate(firstMonday.getDate() - 7 * (n - 1));
+  }
+  const out: Date[] = [];
+  const cursor = new Date(firstMonday);
+  while (cursor <= nowMonday) {
+    out.push(new Date(cursor));
+    cursor.setDate(cursor.getDate() + 7);
+  }
+  return out;
+};
+
+const RangeButtons = ({ value, onChange }: { value: RangeFilter; onChange: (v: RangeFilter) => void }) => (
+  <div className="flex gap-1">
+    {RANGE_OPTIONS.map(opt => (
+      <button
+        key={opt.value}
+        onClick={() => onChange(opt.value)}
+        className={`px-2 py-1 rounded-lg text-[10px] font-medium transition-colors ${
+          value === opt.value ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
+        }`}
+      >
+        {opt.label}
+      </button>
+    ))}
+  </div>
+);
+
 const StatsTab = ({ data }: StatsTabProps) => {
   const [difficultyFilter, setDifficultyFilter] = useState<string | null>(null);
   const [volumeFilter, setVolumeFilter] = useState<string | null>(null);
-  const [weeklyRange, setWeeklyRange] = useState<'4' | '16' | 'all'>('16');
+  const [weeklyRange, setWeeklyRange] = useState<RangeFilter>('all');
+  const [volumeRange, setVolumeRange] = useState<RangeFilter>('all');
+  const [difficultyRange, setDifficultyRange] = useState<RangeFilter>('all');
+  const [weeklyTimeRange, setWeeklyTimeRange] = useState<RangeFilter>('all');
+  const [monthlyTimeRange, setMonthlyTimeRange] = useState<RangeFilter>('all');
 
   // All PRs, grouped by normalized name -> best e1rm ever
   const prByName = useMemo(() => {
@@ -71,46 +137,26 @@ const StatsTab = ({ data }: StatsTabProps) => {
   const weeklyData = useMemo(() => {
     const countByWeek = new Map<string, number>();
     data.sessions.forEach(s => {
-      const m = mondayOf(new Date(s.date + 'T00:00:00'));
-      const key = m.toISOString().split('T')[0];
+      const key = mondayOf(new Date(s.date + 'T00:00:00')).toISOString().split('T')[0];
       countByWeek.set(key, (countByWeek.get(key) || 0) + 1);
     });
-
-    const nowMonday = mondayOf(new Date());
-    let firstMonday: Date;
-    if (weeklyRange === 'all') {
-      if (data.sessions.length === 0) {
-        firstMonday = new Date(nowMonday);
-        firstMonday.setDate(firstMonday.getDate() - 7 * 3);
-      } else {
-        const earliest = data.sessions.map(s => s.date).sort()[0];
-        firstMonday = mondayOf(new Date(earliest + 'T00:00:00'));
-      }
-    } else {
-      const n = weeklyRange === '4' ? 4 : 16;
-      firstMonday = new Date(nowMonday);
-      firstMonday.setDate(firstMonday.getDate() - 7 * (n - 1));
-    }
-
-    const out: { week: string; sessions: number; goal: number }[] = [];
-    const cursor = new Date(firstMonday);
-    while (cursor <= nowMonday) {
-      const key = cursor.toISOString().split('T')[0];
-      out.push({
-        week: cursor.toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' }),
+    return weekRangeMondays(weeklyRange, data.sessions.map(s => s.date)).map(m => {
+      const key = m.toISOString().split('T')[0];
+      return {
+        week: m.toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' }),
         sessions: countByWeek.get(key) || 0,
         goal: data.weeklyGoal,
-      });
-      cursor.setDate(cursor.getDate() + 7);
-    }
-    return out;
+      };
+    });
   }, [data.sessions, data.weeklyGoal, weeklyRange]);
 
-  // Volume per session (filterable by workout type)
+  // Tonnage per session (filterable by workout type + time range)
   const volumeData = useMemo(() => {
+    const cutoff = rangeCutoffDate(volumeRange);
     return data.sessions
       .filter(s => !volumeFilter || s.workoutTypeId === volumeFilter)
-      .slice(-10)
+      .filter(s => !cutoff || new Date(s.date + 'T00:00:00') >= cutoff)
+      .sort((a, b) => a.date.localeCompare(b.date))
       .map(s => {
         const volume = s.sets.reduce((acc, set) => acc + set.reps * set.weight, 0);
         return {
@@ -119,39 +165,40 @@ const StatsTab = ({ data }: StatsTabProps) => {
           type: s.workoutTypeName,
         };
       });
-  }, [data.sessions, volumeFilter]);
+  }, [data.sessions, volumeFilter, volumeRange]);
 
   // Difficulty over time — only sessions from June 2026 onward (RPE /5 scale)
   const difficultyData = useMemo(() => {
+    const cutoff = rangeCutoffDate(difficultyRange);
     return data.sessions
       .filter(s => s.date >= RPE_CUTOFF)
       .filter(s => s.difficulty && s.difficulty > 0)
       .filter(s => !difficultyFilter || s.workoutTypeId === difficultyFilter)
+      .filter(s => !cutoff || new Date(s.date + 'T00:00:00') >= cutoff)
       .sort((a, b) => a.date.localeCompare(b.date))
-      .slice(-20)
       .map(s => ({
         date: new Date(s.date).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' }),
         difficulty: s.difficulty || 0,
         type: s.workoutTypeName,
       }));
-  }, [data.sessions, difficultyFilter]);
+  }, [data.sessions, difficultyFilter, difficultyRange]);
 
-  // Weekly training time
+  // Weekly training time — include empty weeks
   const weeklyTimeData = useMemo(() => {
-    const weeks: Record<string, number> = {};
-    data.sessions.filter(s => s.duration).forEach(s => {
-      const monday = mondayOf(new Date(s.date + 'T00:00:00'));
-      const key = monday.toISOString().split('T')[0];
-      weeks[key] = (weeks[key] || 0) + (s.duration || 0);
+    const withDuration = data.sessions.filter(s => s.duration);
+    const minutesByWeek = new Map<string, number>();
+    withDuration.forEach(s => {
+      const key = mondayOf(new Date(s.date + 'T00:00:00')).toISOString().split('T')[0];
+      minutesByWeek.set(key, (minutesByWeek.get(key) || 0) + (s.duration || 0));
     });
-    return Object.entries(weeks)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .slice(-8)
-      .map(([week, minutes]) => ({
-        week: new Date(week).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' }),
-        minutes,
-      }));
-  }, [data.sessions]);
+    return weekRangeMondays(weeklyTimeRange, withDuration.map(s => s.date)).map(m => {
+      const key = m.toISOString().split('T')[0];
+      return {
+        week: m.toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' }),
+        minutes: minutesByWeek.get(key) || 0,
+      };
+    });
+  }, [data.sessions, weeklyTimeRange]);
 
   // Monthly training time
   const monthlyTimeData = useMemo(() => {
@@ -161,14 +208,14 @@ const StatsTab = ({ data }: StatsTabProps) => {
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       months[key] = (months[key] || 0) + (s.duration || 0);
     });
-    return Object.entries(months)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .slice(-6)
-      .map(([month, minutes]) => ({
-        month: new Date(month + '-01').toLocaleDateString('fr-FR', { month: 'short' }),
-        minutes,
-      }));
-  }, [data.sessions]);
+    const entries = Object.entries(months).sort(([a], [b]) => a.localeCompare(b));
+    const n = rangeMonths(monthlyTimeRange);
+    const sliced = n === null ? entries : entries.slice(-n);
+    return sliced.map(([month, minutes]) => ({
+      month: new Date(month + '-01').toLocaleDateString('fr-FR', { month: 'short' }),
+      minutes,
+    }));
+  }, [data.sessions, monthlyTimeRange]);
 
   const currentWeekTime = weeklyTimeData.length > 0 ? weeklyTimeData[weeklyTimeData.length - 1]?.minutes || 0 : 0;
   const prevWeekTime = weeklyTimeData.length > 1 ? weeklyTimeData[weeklyTimeData.length - 2]?.minutes || 0 : 0;
@@ -251,19 +298,7 @@ const StatsTab = ({ data }: StatsTabProps) => {
         <div className="glass-card p-4 mb-4">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-foreground">Séances par semaine</h3>
-            <div className="flex gap-1">
-              {([['4', '4 sem.'], ['16', '16 sem.'], ['all', 'Tout']] as const).map(([v, label]) => (
-                <button
-                  key={v}
-                  onClick={() => setWeeklyRange(v)}
-                  className={`px-2 py-1 rounded-lg text-[10px] font-medium transition-colors ${
-                    weeklyRange === v ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+            <RangeButtons value={weeklyRange} onChange={setWeeklyRange} />
           </div>
           <ResponsiveContainer width="100%" height={180}>
             <BarChart data={weeklyData}>
@@ -281,7 +316,10 @@ const StatsTab = ({ data }: StatsTabProps) => {
       {/* Volume */}
       {(volumeData.length > 0 || volumeFilter) && (
         <div className="glass-card p-4 mb-4">
-          <h3 className="text-sm font-semibold text-foreground mb-3">Volume par séance (kg)</h3>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-foreground">Tonnage par séance (kg)</h3>
+            <RangeButtons value={volumeRange} onChange={setVolumeRange} />
+          </div>
           <div className="flex gap-1 mb-3 flex-wrap">
             <button
               onClick={() => setVolumeFilter(null)}
@@ -324,6 +362,7 @@ const StatsTab = ({ data }: StatsTabProps) => {
         <div className="glass-card p-4 mb-4">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-foreground">Effort perçu (RPE /5)</h3>
+            <RangeButtons value={difficultyRange} onChange={setDifficultyRange} />
           </div>
           <div className="flex gap-1 mb-3 flex-wrap">
             <button
@@ -361,7 +400,10 @@ const StatsTab = ({ data }: StatsTabProps) => {
       {/* Weekly Training Time */}
       {weeklyTimeData.length > 0 && (
         <div className="glass-card p-4 mb-4">
-          <h3 className="text-sm font-semibold text-foreground mb-2">Temps d'entraînement hebdo</h3>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-semibold text-foreground">Temps d'entraînement hebdo</h3>
+            <RangeButtons value={weeklyTimeRange} onChange={setWeeklyTimeRange} />
+          </div>
           <div className="flex gap-4 mb-3">
             <div className="text-center">
               <p className="text-lg font-bold text-foreground">{formatHM(currentWeekTime)}</p>
@@ -387,7 +429,10 @@ const StatsTab = ({ data }: StatsTabProps) => {
       {/* Monthly Training Time */}
       {monthlyTimeData.length > 0 && (
         <div className="glass-card p-4 mb-4">
-          <h3 className="text-sm font-semibold text-foreground mb-3">Temps d'entraînement mensuel</h3>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-foreground">Temps d'entraînement mensuel</h3>
+            <RangeButtons value={monthlyTimeRange} onChange={setMonthlyTimeRange} />
+          </div>
           <ResponsiveContainer width="100%" height={160}>
             <BarChart data={monthlyTimeData}>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 4% 20%)" />

@@ -9,10 +9,10 @@ interface SetupWizardProps {
 const SetupWizard = ({ onComplete }: SetupWizardProps) => {
   const [step, setStep] = useState(0);
   const [workoutTypes, setWorkoutTypes] = useState<WorkoutType[]>([
-    { id: '1', name: 'Poussée', color: WORKOUT_COLORS[0], exercises: [{ id: 'e1', name: 'Développé couché', sets: 4, reps: 8 }] },
-    { id: '2', name: 'Tirage', color: WORKOUT_COLORS[1], exercises: [{ id: 'e2', name: 'Rowing barre', sets: 4, reps: 8 }] },
-    { id: '3', name: 'Jambes', color: WORKOUT_COLORS[2], exercises: [{ id: 'e3', name: 'Squat', sets: 4, reps: 8 }] },
-    { id: '4', name: 'Corps entier', color: WORKOUT_COLORS[3], exercises: [{ id: 'e4', name: 'Soulevé de terre', sets: 3, reps: 5 }] },
+    { id: '1', name: 'Push', color: WORKOUT_COLORS[0], exercises: [{ id: 'e1', name: 'Développé couché', sets: 4, reps: 8 }] },
+    { id: '2', name: 'Pull', color: WORKOUT_COLORS[1], exercises: [{ id: 'e2', name: 'Rowing barre', sets: 4, reps: 8 }] },
+    { id: '3', name: 'Legs', color: WORKOUT_COLORS[2], exercises: [{ id: 'e3', name: 'Squat', sets: 4, reps: 8 }] },
+    { id: '4', name: 'Full Body', color: WORKOUT_COLORS[3], exercises: [{ id: 'e4', name: 'Soulevé de terre', sets: 3, reps: 5 }] },
   ]);
 
   const addExercise = (typeIndex: number) => {
