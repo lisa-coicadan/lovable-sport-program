@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AppData, WorkoutType, Exercise, WORKOUT_COLORS } from '@/lib/types';
+import { AppData, WorkoutType, Exercise, ExerciseMethod, FiveThreeOneMethod, WORKOUT_COLORS } from '@/lib/types';
 import { Plus, Trash2, ChevronRight, ChevronLeft, Check } from 'lucide-react';
 
 interface SetupWizardProps {
@@ -14,10 +14,6 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
     { id: '3', name: 'Legs', color: WORKOUT_COLORS[2], exercises: [{ id: 'e3', name: 'Squat', sets: 4, reps: 8 }] },
     { id: '4', name: 'Full Body', color: WORKOUT_COLORS[3], exercises: [{ id: 'e4', name: 'Deadlift', sets: 3, reps: 5 }] },
   ]);
-  const [trainingMax, setTrainingMax] = useState(100);
-  const [squatSessionId, setSquatSessionId] = useState<string | null>('3');
-  const [currentCycle, setCurrentCycle] = useState(1);
-  const [currentWeek, setCurrentWeek] = useState(1);
 
   const addExercise = (typeIndex: number) => {
     const updated = [...workoutTypes];
@@ -37,6 +33,12 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
     setWorkoutTypes(updated);
   };
 
+  const updateExerciseMethod = (typeIndex: number, exIndex: number, method: ExerciseMethod | undefined) => {
+    const updated = [...workoutTypes];
+    updated[typeIndex].exercises[exIndex] = { ...updated[typeIndex].exercises[exIndex], method };
+    setWorkoutTypes(updated);
+  };
+
   const updateTypeName = (index: number, name: string) => {
     const updated = [...workoutTypes];
     updated[index].name = name;
@@ -44,17 +46,7 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
   };
 
   const handleFinish = () => {
-    onComplete({
-      workoutTypes,
-      fiveThreeOne: {
-        trainingMax,
-        currentCycle,
-        currentWeek,
-        startDate: new Date().toISOString().split('T')[0],
-      },
-      squatSessionId,
-      setupComplete: true,
-    });
+    onComplete({ workoutTypes, setupComplete: true });
   };
 
   // Step 0 — Welcome
@@ -147,80 +139,66 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
     );
   }
 
-  // Step 2 — 5/3/1 Setup
+  // Step 2 — Training methods (optional, per exercise)
   if (step === 2) {
     return (
       <div className="min-h-screen bg-background px-4 pt-12 pb-8 animate-slide-up">
         <div className="flex items-center gap-3 mb-1">
           <button onClick={() => setStep(1)} className="text-muted-foreground p-1"><ChevronLeft size={20} /></button>
-          <h2 className="text-2xl font-bold text-foreground">5/3/1 Squat Setup</h2>
+          <h2 className="text-2xl font-bold text-foreground">Méthodes d'entraînement</h2>
         </div>
-        <p className="text-muted-foreground text-sm mb-6 ml-8">Configure your squat program</p>
+        <p className="text-muted-foreground text-sm mb-6 ml-8">
+          Optionnel — active un programme 5/3/1 pour les exercices que tu veux muscler en force. Aucun choix n'est obligatoire.
+        </p>
 
-        <div className="glass-card p-6 mb-4">
-          <label className="text-sm text-muted-foreground mb-3 block">Which session includes squats?</label>
-          <div className="grid grid-cols-2 gap-2">
-            {workoutTypes.map(type => (
-              <button
-                key={type.id}
-                onClick={() => setSquatSessionId(type.id)}
-                className={`py-3 rounded-xl text-sm font-medium transition-all ${
-                  squatSessionId === type.id ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground'
-                }`}
-              >
-                {type.name}
-              </button>
-            ))}
-            <button
-              onClick={() => setSquatSessionId(null)}
-              className={`py-3 rounded-xl text-sm font-medium transition-all ${
-                squatSessionId === null ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground'
-              }`}
-            >
-              None — skip 5/3/1
-            </button>
-          </div>
-        </div>
-
-        {squatSessionId && (
-          <>
-            <div className="glass-card p-6 mb-4">
-              <label className="text-sm text-muted-foreground mb-2 block">Training Max (kg)</label>
-              <input
-                type="number"
-                value={trainingMax || ''}
-                onChange={e => setTrainingMax(e.target.value === '' ? 0 : parseFloat(e.target.value))}
-                className="w-full bg-secondary text-foreground text-3xl font-bold rounded-xl px-4 py-4 text-center outline-none"
-              />
-            </div>
-
-            <div className="glass-card p-6 mb-4">
-              <label className="text-sm text-muted-foreground mb-3 block">Current cycle number</label>
-              <div className="flex items-center gap-4">
-                <button onClick={() => setCurrentCycle(Math.max(1, currentCycle - 1))} className="bg-secondary text-foreground rounded-xl w-12 h-12 text-xl font-bold touch-target">-</button>
-                <span className="text-foreground text-2xl font-bold flex-1 text-center">{currentCycle}</span>
-                <button onClick={() => setCurrentCycle(currentCycle + 1)} className="bg-secondary text-foreground rounded-xl w-12 h-12 text-xl font-bold touch-target">+</button>
+        <div className="space-y-4 mb-8">
+          {workoutTypes.filter(t => t.exercises.length > 0).map((type, ti) => (
+            <div key={type.id} className="glass-card p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: `hsl(${type.color})` }} />
+                <span className="text-foreground font-semibold">{type.name || 'Untitled'}</span>
+              </div>
+              <div className="space-y-2">
+                {type.exercises.map((ex, ei) => {
+                  const method531 = ex.method?.type === '531' ? ex.method : null;
+                  return (
+                    <div key={ex.id} className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm text-foreground flex-1 min-w-0 truncate">{ex.name || 'Untitled'}</span>
+                      <button
+                        onClick={() => updateExerciseMethod(ti, ei, undefined)}
+                        className={`text-xs px-2.5 py-1.5 rounded-lg font-medium transition-all ${
+                          !ex.method ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground'
+                        }`}
+                      >
+                        Aucune
+                      </button>
+                      <button
+                        onClick={() => updateExerciseMethod(ti, ei, method531 ?? { type: '531', trainingMax: 60, currentCycle: 1, currentWeek: 1 })}
+                        className={`text-xs px-2.5 py-1.5 rounded-lg font-medium transition-all ${
+                          method531 ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground'
+                        }`}
+                      >
+                        5/3/1
+                      </button>
+                      {method531 && (
+                        <input
+                          type="number"
+                          value={method531.trainingMax || ''}
+                          onChange={e => updateExerciseMethod(ti, ei, {
+                            ...method531,
+                            trainingMax: e.target.value === '' ? 0 : parseFloat(e.target.value),
+                          })}
+                          className="w-20 bg-secondary text-foreground rounded-lg px-2 py-1.5 text-xs text-center outline-none"
+                          placeholder="TM kg"
+                        />
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
-
-            <div className="glass-card p-6 mb-8">
-              <label className="text-sm text-muted-foreground mb-3 block">Current week</label>
-              <div className="flex gap-2">
-                {[1, 2, 3, 4].map(w => (
-                  <button
-                    key={w}
-                    onClick={() => setCurrentWeek(w)}
-                    className={`flex-1 py-3 rounded-xl text-sm font-medium transition-all ${
-                      currentWeek === w ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground'
-                    }`}
-                  >
-                    {w === 4 ? 'Deload' : `W${w}`}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </>
-        )}
+          ))}
+        </div>
 
         <button
           onClick={() => setStep(3)}
@@ -247,7 +225,7 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
             <div className="flex items-center gap-3 mb-1">
               <div className="w-3 h-3 rounded-full" style={{ backgroundColor: `hsl(${type.color})` }} />
               <span className="text-foreground font-semibold">{type.name}</span>
-              {type.id === squatSessionId && (
+              {type.exercises.some(e => e.method?.type === '531') && (
                 <span className="text-[10px] font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-full">5/3/1</span>
               )}
             </div>
@@ -258,26 +236,23 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
         ))}
       </div>
 
-      {squatSessionId ? (
-        <div className="glass-card p-4 mb-8">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-sm text-muted-foreground">Squat TM</span>
-            <span className="text-foreground font-bold">{trainingMax} kg</span>
+      {(() => {
+        const fiveThreeOneExercises = workoutTypes.flatMap(t => t.exercises.filter(e => e.method?.type === '531'));
+        return fiveThreeOneExercises.length > 0 ? (
+          <div className="glass-card p-4 mb-8">
+            {fiveThreeOneExercises.map(ex => (
+              <div key={ex.id} className="flex items-center justify-between mb-1 last:mb-0">
+                <span className="text-sm text-muted-foreground">{ex.name} — TM</span>
+                <span className="text-foreground font-bold">{(ex.method as FiveThreeOneMethod).trainingMax} kg</span>
+              </div>
+            ))}
           </div>
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-sm text-muted-foreground">Cycle</span>
-            <span className="text-foreground font-bold">{currentCycle}</span>
+        ) : (
+          <div className="glass-card p-4 mb-8">
+            <p className="text-sm text-muted-foreground">Aucune méthode d'entraînement — tu pourras en activer plus tard dans Réglages.</p>
           </div>
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-muted-foreground">Week</span>
-            <span className="text-foreground font-bold">{currentWeek === 4 ? 'Deload' : `Week ${currentWeek}`}</span>
-          </div>
-        </div>
-      ) : (
-        <div className="glass-card p-4 mb-8">
-          <p className="text-sm text-muted-foreground">No 5/3/1 program — you can turn it on later in Settings.</p>
-        </div>
-      )}
+        );
+      })()}
 
       <button
         onClick={handleFinish}

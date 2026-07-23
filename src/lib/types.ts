@@ -1,3 +1,13 @@
+export interface FiveThreeOneMethod {
+  type: '531';
+  trainingMax: number;
+  currentCycle: number;
+  currentWeek: number; // 1-4
+}
+
+// Extensible union — only '531' implemented so far; cluster/EMOM will extend this later.
+export type ExerciseMethod = FiveThreeOneMethod;
+
 export interface Exercise {
   id: string;
   name: string;
@@ -6,6 +16,7 @@ export interface Exercise {
   weight?: number;
   supersetGroupId?: string; // shared id between the 2 partners
   supersetRole?: 'A' | 'B';
+  method?: ExerciseMethod; // optional per-exercise training method (5/3/1, later cluster/EMOM)
 }
 
 export interface WorkoutType {
@@ -40,6 +51,8 @@ export interface SessionLog {
   notes?: string;
 }
 
+// @deprecated legacy global 5/3/1 config, replaced by Exercise.method. Kept only so
+// storage.ts can migrate old data on load — nothing else reads this anymore.
 export interface FiveThreeOneConfig {
   trainingMax: number;
   currentCycle: number;
@@ -55,12 +68,14 @@ export interface BodyWeightLog {
 export interface AppData {
   workoutTypes: WorkoutType[];
   sessions: SessionLog[];
-  fiveThreeOne: FiveThreeOneConfig;
-  squatSessionId: string | null; // null = no session runs the 5/3/1 program
   weeklyGoal: number;
   setupComplete: boolean;
   restDuration: number; // seconds
   bodyWeightLogs: BodyWeightLog[];
+  // @deprecated legacy fields — migrated into a per-exercise `method` on load (see
+  // src/lib/storage.ts). New AppData never sets these; only present on old stored JSON.
+  fiveThreeOne?: FiveThreeOneConfig;
+  squatSessionId?: string | null;
 }
 
 export const WORKOUT_COLORS = [
@@ -77,13 +92,6 @@ export const WORKOUT_COLORS = [
 export const DEFAULT_APP_DATA: AppData = {
   workoutTypes: [],
   sessions: [],
-  fiveThreeOne: {
-    trainingMax: 100,
-    currentCycle: 1,
-    currentWeek: 1,
-    startDate: new Date().toISOString().split('T')[0],
-  },
-  squatSessionId: null,
   weeklyGoal: 4,
   setupComplete: false,
   restDuration: 90,

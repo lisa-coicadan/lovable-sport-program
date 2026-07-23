@@ -1,8 +1,8 @@
 import { useState, useRef } from 'react';
-import { AppData, WorkoutType, Exercise, WORKOUT_COLORS, BodyWeightLog, DEFAULT_APP_DATA } from '@/lib/types';
+import { AppData, WorkoutType, Exercise, ExerciseMethod, WORKOUT_COLORS, BodyWeightLog, DEFAULT_APP_DATA } from '@/lib/types';
 import { linkSuperset, unlinkSuperset, buildExerciseBlocks, flattenBlocks, ExerciseBlock } from '@/lib/superset';
 import { parseSessionNotes, NOTES_SYNTAX_HELP } from '@/lib/notesParser';
-import { ArrowLeft, Plus, Trash2, EyeOff, RotateCcw, Scale, Link2, Link2Off, Download, Upload, Database, AlertTriangle, FileText } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, EyeOff, RotateCcw, Scale, Link2, Link2Off, Download, Upload, Database, AlertTriangle, FileText, Zap } from 'lucide-react';
 import { SortableList, DragHandle } from './SortableBlock';
 import { loadData, saveData } from '@/lib/storage';
 import { toast } from '@/hooks/use-toast';
@@ -12,16 +12,11 @@ import { toast } from '@/hooks/use-toast';
 interface SettingsPanelProps {
   data: AppData;
   onUpdateData: (partial: Partial<AppData>) => void;
-  onUpdate531: (cycle: number, week: number, tm: number) => void;
   onClose: () => void;
 }
 
-const SettingsPanel = ({ data, onUpdateData, onUpdate531, onClose }: SettingsPanelProps) => {
+const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
   const [workoutTypes, setWorkoutTypes] = useState<WorkoutType[]>([...data.workoutTypes]);
-  const [tm, setTm] = useState(data.fiveThreeOne.trainingMax);
-  const [cycle, setCycle] = useState(data.fiveThreeOne.currentCycle);
-  const [week, setWeek] = useState(data.fiveThreeOne.currentWeek);
-  const [squatSessionId, setSquatSessionId] = useState(data.squatSessionId);
   const [bodyWeight, setBodyWeight] = useState('');
   const [weeklyGoal, setWeeklyGoal] = useState(data.weeklyGoal);
   const [notesOpen, setNotesOpen] = useState(false);
@@ -135,8 +130,8 @@ const SettingsPanel = ({ data, onUpdateData, onUpdate531, onClose }: SettingsPan
 
 
   const save = () => {
-    const partial: Partial<AppData> = { workoutTypes, squatSessionId, weeklyGoal };
-    
+    const partial: Partial<AppData> = { workoutTypes, weeklyGoal };
+
     // Add body weight log if entered
     if (bodyWeight) {
       const newLog: BodyWeightLog = {
@@ -145,9 +140,8 @@ const SettingsPanel = ({ data, onUpdateData, onUpdate531, onClose }: SettingsPan
       };
       partial.bodyWeightLogs = [...(data.bodyWeightLogs || []), newLog];
     }
-    
+
     onUpdateData(partial);
-    onUpdate531(cycle, week, tm);
     onClose();
   };
 
@@ -198,6 +192,12 @@ const SettingsPanel = ({ data, onUpdateData, onUpdate531, onClose }: SettingsPan
         e.supersetGroupId === ex.supersetGroupId ? { ...e, sets: ex.sets } : e
       );
     }
+    setWorkoutTypes(updated);
+  };
+
+  const updateExerciseMethod = (typeIndex: number, exIndex: number, method: ExerciseMethod | undefined) => {
+    const updated = [...workoutTypes];
+    updated[typeIndex].exercises[exIndex] = { ...updated[typeIndex].exercises[exIndex], method };
     setWorkoutTypes(updated);
   };
 
@@ -275,75 +275,6 @@ const SettingsPanel = ({ data, onUpdateData, onUpdate531, onClose }: SettingsPan
         />
       </div>
 
-      {/* 5/3/1 Settings */}
-      <div className="glass-card p-4 mb-6">
-        <h3 className="text-sm font-bold text-primary mb-4">5/3/1 Squat Program</h3>
-        
-        <div className="mb-4">
-          <label className="text-xs text-muted-foreground mb-1.5 block">Training Max (kg)</label>
-          <input
-            type="number"
-            value={tm || ''}
-            onChange={e => setTm(e.target.value === '' ? 0 : parseFloat(e.target.value))}
-            className="w-full bg-secondary text-foreground text-2xl font-bold rounded-xl px-4 py-3 text-center outline-none"
-          />
-          <p className="text-[10px] text-muted-foreground mt-1 text-center">
-            Next cycle TM: {tm + 2.5} kg
-          </p>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3 mb-4">
-          <div>
-            <label className="text-xs text-muted-foreground mb-1.5 block">Cycle</label>
-            <div className="flex items-center gap-2">
-              <button onClick={() => setCycle(Math.max(1, cycle - 1))} className="bg-secondary text-foreground rounded-lg w-10 h-10 text-lg font-bold touch-target">-</button>
-              <span className="text-foreground text-lg font-bold flex-1 text-center">{cycle}</span>
-              <button onClick={() => setCycle(cycle + 1)} className="bg-secondary text-foreground rounded-lg w-10 h-10 text-lg font-bold touch-target">+</button>
-            </div>
-          </div>
-          <div>
-            <label className="text-xs text-muted-foreground mb-1.5 block">Week</label>
-            <div className="flex gap-1">
-              {[1, 2, 3, 4].map(w => (
-                <button
-                  key={w}
-                  onClick={() => setWeek(w)}
-                  className={`flex-1 py-2 rounded-lg text-xs font-medium transition-all ${
-                    week === w ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
-                  }`}
-                >
-                  {w === 4 ? 'D' : `W${w}`}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div>
-          <label className="text-xs text-muted-foreground mb-2 block">Squat session</label>
-          <div className="grid grid-cols-2 gap-1.5">
-            {workoutTypes.filter(t => !t.hidden).map(type => (
-              <button
-                key={type.id}
-                onClick={() => setSquatSessionId(type.id)}
-                className={`py-2 rounded-lg text-xs font-medium transition-all ${
-                  squatSessionId === type.id ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground'
-                }`}
-              >
-                {type.name || 'Unnamed'}
-              </button>
-            ))}
-            <button
-              onClick={() => setSquatSessionId(null)}
-              className={`py-2 rounded-lg text-xs font-medium transition-all ${
-                squatSessionId === null ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground'
-              }`}
-            >
-              None
-            </button>
-          </div>
-        </div>
-      </div>
 
       {/* Active Sessions */}
       <div className="mb-4">
@@ -481,7 +412,9 @@ const SettingsPanel = ({ data, onUpdateData, onUpdate531, onClose }: SettingsPan
                             );
                           }
                           const ex = type.exercises.find(e => e.id === block.exerciseIds[0])!;
+                          const exIdx = type.exercises.findIndex(e => e.id === ex.id);
                           const freePartners = type.exercises.filter(e => e.id !== ex.id && !e.supersetGroupId);
+                          const method531 = ex.method?.type === '531' ? ex.method : null;
                           return (
                             <div className="space-y-1 mb-1.5">
                               <div className="flex items-center gap-1">
@@ -506,6 +439,37 @@ const SettingsPanel = ({ data, onUpdateData, onUpdate531, onClose }: SettingsPan
                                   </div>
                                 </details>
                               )}
+                              <details className="pl-6">
+                                <summary className="text-[10px] text-muted-foreground cursor-pointer flex items-center gap-1 py-0.5">
+                                  <Zap size={10} /> Méthode : {method531 ? '5/3/1' : 'Aucune'}
+                                </summary>
+                                <div className="flex items-center gap-1.5 pt-1">
+                                  <button
+                                    onClick={() => updateExerciseMethod(ti, exIdx, undefined)}
+                                    className={`text-[10px] px-2 py-1 rounded-md ${!ex.method ? 'bg-primary text-primary-foreground' : 'bg-secondary text-foreground'}`}
+                                  >
+                                    Aucune
+                                  </button>
+                                  <button
+                                    onClick={() => updateExerciseMethod(ti, exIdx, method531 ?? { type: '531', trainingMax: 60, currentCycle: 1, currentWeek: 1 })}
+                                    className={`text-[10px] px-2 py-1 rounded-md ${method531 ? 'bg-primary text-primary-foreground' : 'bg-secondary text-foreground'}`}
+                                  >
+                                    5/3/1
+                                  </button>
+                                  {method531 && (
+                                    <input
+                                      type="number"
+                                      value={method531.trainingMax || ''}
+                                      onChange={e => updateExerciseMethod(ti, exIdx, {
+                                        ...method531,
+                                        trainingMax: e.target.value === '' ? 0 : parseFloat(e.target.value),
+                                      })}
+                                      className="w-16 bg-secondary text-foreground rounded-md px-1.5 py-1 text-[10px] text-center outline-none"
+                                      placeholder="TM kg"
+                                    />
+                                  )}
+                                </div>
+                              </details>
                             </div>
                           );
                         }}

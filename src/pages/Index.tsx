@@ -27,13 +27,6 @@ const Index = () => {
     }));
   }, []);
 
-  const handleUpdate531 = useCallback((cycle: number, week: number, tm: number) => {
-    setData(prev => ({
-      ...prev,
-      fiveThreeOne: { ...prev.fiveThreeOne, currentCycle: cycle, currentWeek: week, trainingMax: tm },
-    }));
-  }, []);
-
   const handleDaySelect = useCallback((date: string) => {
     setSelectedDate(date);
     setActiveTab(1);
@@ -71,7 +64,6 @@ const Index = () => {
         <WorkoutTab
           data={data}
           onSaveSession={handleSaveSession}
-          onUpdate531={handleUpdate531}
           onUpdateData={handleUpdateData}
           selectedDate={selectedDate}
         />

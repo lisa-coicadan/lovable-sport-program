@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { AppData, WorkoutType, SetLog, SessionLog, calculate1RM } from '@/lib/types';
+import { AppData, WorkoutType, SetLog, SessionLog, FiveThreeOneMethod, calculate1RM } from '@/lib/types';
 import { getWeekSets, getWeekLabel } from '@/lib/531';
 import { buildExerciseBlocks } from '@/lib/superset';
 import RestTimer from './RestTimer';
@@ -13,19 +13,18 @@ import { SortableList, DragHandle } from './SortableBlock';
 interface WorkoutTabProps {
   data: AppData;
   onSaveSession: (session: SessionLog) => void;
-  onUpdate531: (cycle: number, week: number, tm: number) => void;
   onUpdateData: (partial: Partial<AppData>) => void;
   selectedDate?: string | null;
 }
 
 type Mode = 'select' | 'recap' | 'summary' | 'settings' | 'history';
 
-const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDate }: WorkoutTabProps) => {
+const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: WorkoutTabProps) => {
   const [mode, setMode] = useState<Mode>('select');
   const [selectedType, setSelectedType] = useState<WorkoutType | null>(null);
   const [sets, setSets] = useState<SetLog[]>([]);
   const [startTime, setStartTime] = useState(Date.now());
-  const [selectedWeek, setSelectedWeek] = useState(data.fiveThreeOne.currentWeek);
+  const [selectedWeeks, setSelectedWeeks] = useState<Record<string, number>>({});
   const [amrapReps, setAmrapReps] = useState<Record<number, number>>({});
   const [pendingSession, setPendingSession] = useState<SessionLog | null>(null);
   const [historyExercise, setHistoryExercise] = useState<string | null>(null);
@@ -39,7 +38,6 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
     return () => clearInterval(id);
   }, [mode]);
 
-  const isSquatSession = (type: WorkoutType) => type.id === data.squatSessionId;
   const activeTypes = data.workoutTypes.filter(t => !t.hidden);
 
   // Get last performance for an exercise (most recent session containing it)
@@ -89,25 +87,16 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
     setSelectedType(type);
     setMode('recap');
     setStartTime(Date.now());
-    setSelectedWeek(data.fiveThreeOne.currentWeek);
     setAmrapReps({});
+
+    const initialWeeks: Record<string, number> = {};
+    type.exercises.forEach(ex => {
+      if (ex.method?.type === '531') initialWeeks[ex.id] = ex.method.currentWeek;
+    });
+    setSelectedWeeks(initialWeeks);
 
     const lastWeights = getLastSessionWeights(type.id);
     const initialSets: SetLog[] = [];
-
-    if (isSquatSession(type)) {
-      const fiveThreeOneSets = getWeekSets(data.fiveThreeOne.trainingMax, data.fiveThreeOne.currentWeek);
-      fiveThreeOneSets.forEach((s, i) => {
-        initialSets.push({
-          exerciseId: '531-squat',
-          exerciseName: '5/3/1 Squat',
-          setNumber: i + 1,
-          reps: parseInt(s.reps) || 1,
-          weight: s.weight,
-          completed: false,
-        });
-      });
-    }
 
     const exerciseMap = new Map(type.exercises.map(e => [e.id, e]));
     buildExerciseBlocks(type.exercises).forEach(block => {
@@ -138,6 +127,21 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
         }
       } else {
         const ex = exerciseMap.get(block.exerciseIds[0])!;
+        // 5/3/1 exercises get their weekly-percentage sets instead of the flat sets×reps
+        if (ex.method?.type === '531') {
+          const weekSets = getWeekSets(ex.method.trainingMax, ex.method.currentWeek);
+          weekSets.forEach((s, i) => {
+            initialSets.push({
+              exerciseId: ex.id,
+              exerciseName: ex.name,
+              setNumber: i + 1,
+              reps: parseInt(s.reps) || 1,
+              weight: s.weight,
+              completed: false,
+            });
+          });
+          return;
+        }
         const lastWeight = lastWeights[ex.id] || 0;
         for (let i = 0; i < ex.sets; i++) {
           initialSets.push({
@@ -229,17 +233,18 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
     setSets(prev => prev.map(s => s.exerciseId === exerciseId ? { ...s, exerciseName: name } : s));
   };
 
-  const updateWeekSelection = (week: number) => {
-    setSelectedWeek(week);
-    if (!selectedType || !isSquatSession(selectedType)) return;
-    const fiveThreeOneSets = getWeekSets(data.fiveThreeOne.trainingMax, week);
+  const updateWeekSelection = (exerciseId: string, week: number) => {
+    setSelectedWeeks(prev => ({ ...prev, [exerciseId]: week }));
+    const ex = selectedType?.exercises.find(e => e.id === exerciseId);
+    if (ex?.method?.type !== '531') return;
+    const weekSets = getWeekSets(ex.method.trainingMax, week);
     const updated = [...sets];
     let idx = 0;
     for (let i = 0; i < updated.length; i++) {
-      if (updated[i].exerciseId === '531-squat') {
-        if (idx < fiveThreeOneSets.length) {
-          updated[i].weight = fiveThreeOneSets[idx].weight;
-          updated[i].reps = parseInt(fiveThreeOneSets[idx].reps) || 1;
+      if (updated[i].exerciseId === exerciseId) {
+        if (idx < weekSets.length) {
+          updated[i].weight = weekSets[idx].weight;
+          updated[i].reps = parseInt(weekSets[idx].reps) || 1;
         }
         idx++;
       }
@@ -278,12 +283,26 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
   const handleSummaryComplete = (session: SessionLog) => {
     onSaveSession(session);
 
-    if (selectedType && isSquatSession(selectedType)) {
-      const { currentWeek, currentCycle, trainingMax } = data.fiveThreeOne;
-      if (currentWeek < 4) {
-        onUpdate531(currentCycle, currentWeek + 1, trainingMax);
-      } else {
-        onUpdate531(currentCycle + 1, 1, trainingMax + 2.5);
+    if (selectedType) {
+      const progressed = selectedType.exercises.filter(
+        ex => ex.method?.type === '531' && session.sets.some(s => s.exerciseId === ex.id)
+      );
+      if (progressed.length > 0) {
+        const workoutTypes = data.workoutTypes.map(t => {
+          if (t.id !== selectedType.id) return t;
+          return {
+            ...t,
+            exercises: t.exercises.map(ex => {
+              if (ex.method?.type !== '531' || !progressed.some(p => p.id === ex.id)) return ex;
+              const m = ex.method;
+              const next: FiveThreeOneMethod = m.currentWeek < 4
+                ? { ...m, currentWeek: m.currentWeek + 1 }
+                : { ...m, currentCycle: m.currentCycle + 1, currentWeek: 1, trainingMax: m.trainingMax + 2.5 };
+              return { ...ex, method: next };
+            }),
+          };
+        });
+        onUpdateData({ workoutTypes });
       }
     }
 
@@ -309,7 +328,6 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
       <SettingsPanel
         data={data}
         onUpdateData={onUpdateData}
-        onUpdate531={onUpdate531}
         onClose={() => setMode('select')}
       />
     );
@@ -325,10 +343,13 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
     );
   }
 
-  const fiveThreeOneSets = getWeekSets(data.fiveThreeOne.trainingMax, data.fiveThreeOne.currentWeek);
-  const weekLabel = getWeekLabel(data.fiveThreeOne.currentWeek);
-
   if (mode === 'select') {
+    const fiveThreeOneExercises = activeTypes.flatMap(type =>
+      type.exercises
+        .filter(ex => ex.method?.type === '531')
+        .map(ex => ({ type, exercise: ex, method: ex.method as FiveThreeOneMethod }))
+    );
+
     return (
       <div className="px-4 pt-12 pb-24 animate-slide-up">
         <div className="flex items-center justify-between mb-6">
@@ -341,26 +362,30 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
           </button>
         </div>
 
-        {/* 5/3/1 Block — only shown when a session is actually configured for it */}
-        {data.squatSessionId && (
-          <div className="glass-card p-4 mb-6">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-bold text-primary">5/3/1 Squat</span>
-              <span className="text-xs text-muted-foreground">Cycle {data.fiveThreeOne.currentCycle}</span>
+        {/* 5/3/1 Block — one card per exercise using the method, if any */}
+        {fiveThreeOneExercises.map(({ exercise, method }) => {
+          const weekSets = getWeekSets(method.trainingMax, method.currentWeek);
+          const weekLabel = getWeekLabel(method.currentWeek);
+          return (
+            <div key={exercise.id} className="glass-card p-4 mb-6">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-bold text-primary">{exercise.name}</span>
+                <span className="text-xs text-muted-foreground">Cycle {method.currentCycle}</span>
+              </div>
+              <p className="text-sm text-foreground font-medium mb-3">{weekLabel}</p>
+              <div className="space-y-1.5">
+                {weekSets.map((s, i) => (
+                  <div key={i} className="flex items-center justify-between bg-secondary rounded-lg px-3 py-2">
+                    <span className="text-sm text-foreground">{s.weight} kg</span>
+                    <span className="text-sm text-muted-foreground">× {s.reps}</span>
+                    <span className="text-xs text-muted-foreground">{Math.round(s.percentage * 100)}%</span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">TM: {method.trainingMax} kg</p>
             </div>
-            <p className="text-sm text-foreground font-medium mb-3">{weekLabel}</p>
-            <div className="space-y-1.5">
-              {fiveThreeOneSets.map((s, i) => (
-                <div key={i} className="flex items-center justify-between bg-secondary rounded-lg px-3 py-2">
-                  <span className="text-sm text-foreground">{s.weight} kg</span>
-                  <span className="text-sm text-muted-foreground">× {s.reps}</span>
-                  <span className="text-xs text-muted-foreground">{Math.round(s.percentage * 100)}%</span>
-                </div>
-              ))}
-            </div>
-            <p className="text-xs text-muted-foreground mt-2">TM: {data.fiveThreeOne.trainingMax} kg</p>
-          </div>
-        )}
+          );
+        })}
 
         {/* Session Selection */}
         <p className="text-sm text-muted-foreground mb-3">Choose a session</p>
@@ -370,7 +395,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
               <div className="flex items-center gap-3 mb-3">
                 <div className="w-3 h-3 rounded-full" style={{ backgroundColor: `hsl(${type.color})` }} />
                 <span className="text-foreground font-semibold flex-1">{type.name}</span>
-                {isSquatSession(type) && (
+                {type.exercises.some(e => e.method?.type === '531') && (
                   <span className="text-[10px] font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-full">5/3/1</span>
                 )}
               </div>
@@ -391,12 +416,12 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
   }
 
   // Live or Recap Mode
-  const fiveThreeOneLiveSets = sets
-    .map((s, i) => ({ ...s, globalIdx: i }))
-    .filter(s => s.exerciseId === '531-squat');
+  const fiveThreeOneExerciseIds = new Set(
+    (selectedType?.exercises || []).filter(ex => ex.method?.type === '531').map(ex => ex.id)
+  );
   const regularSets = sets
     .map((s, i) => ({ ...s, globalIdx: i }))
-    .filter(s => s.exerciseId !== '531-squat');
+    .filter(s => !fiveThreeOneExerciseIds.has(s.exerciseId));
 
   // Build ordered blocks (single exercise or superset pair)
   type SingleBlock = { kind: 'single'; exerciseId: string; name: string; entries: { globalIdx: number; set: SetLog }[] };
@@ -437,9 +462,6 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
       blocks.push({ kind: 'single', exerciseId: s.exerciseId, name: s.exerciseName, entries });
     }
   });
-
-  const currentFiveThreeOneSets = getWeekSets(data.fiveThreeOne.trainingMax, selectedWeek);
-  const isAmrap = (setIdx: number) => currentFiveThreeOneSets[setIdx]?.reps?.includes('+');
 
   return (
     <div className="px-4 pt-12 pb-24 animate-slide-up">
@@ -498,86 +520,97 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
         </div>
       )}
 
-      {/* 5/3/1 Block in session — editable weights */}
-      {selectedType && isSquatSession(selectedType) && fiveThreeOneLiveSets.length > 0 && (
-        <div className="glass-card p-4 mb-4 border-primary/30">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-bold text-primary">5/3/1 Squat</h3>
-            <span className="text-xs text-muted-foreground">Cycle {data.fiveThreeOne.currentCycle}</span>
-          </div>
-          <div className="flex gap-1.5 mb-4">
-            {[1, 2, 3, 4].map(w => (
-              <button
-                key={w}
-                onClick={() => updateWeekSelection(w)}
-                className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                  selectedWeek === w ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
-                }`}
-              >
-                {w === 4 ? 'Deload' : `W${w}`}
-              </button>
-            ))}
-          </div>
-          <div className="space-y-2">
-            {fiveThreeOneLiveSets.map((s, localIdx) => {
-              const globalIdx = s.globalIdx;
-              const amrap = isAmrap(localIdx);
-              const actualWeight = sets[globalIdx].weight;
-              const actualReps = amrapReps[globalIdx] !== undefined ? amrapReps[globalIdx] : sets[globalIdx].reps;
-              const realE1rm = actualWeight > 0 && actualReps > 0 ? calculate1RM(actualWeight, actualReps) : 0;
-              
-              return (
-                <div
-                  key={globalIdx}
-                  className={`flex items-center gap-2 rounded-xl px-3 py-2.5 transition-all ${
-                    sets[globalIdx].completed ? 'bg-primary/10' : 'bg-secondary/50'
+      {/* 5/3/1 Block(s) in session — editable weights, one card per exercise using the method */}
+      {selectedType && selectedType.exercises.filter(ex => ex.method?.type === '531').map(ex => {
+        const method = ex.method as FiveThreeOneMethod;
+        const liveSets = sets
+          .map((s, i) => ({ ...s, globalIdx: i }))
+          .filter(s => s.exerciseId === ex.id);
+        if (liveSets.length === 0) return null;
+        const week = selectedWeeks[ex.id] ?? method.currentWeek;
+        const weekSetsForDisplay = getWeekSets(method.trainingMax, week);
+        const isAmrap = (setIdx: number) => weekSetsForDisplay[setIdx]?.reps?.includes('+');
+
+        return (
+          <div key={ex.id} className="glass-card p-4 mb-4 border-primary/30">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-bold text-primary">{ex.name}</h3>
+              <span className="text-xs text-muted-foreground">Cycle {method.currentCycle}</span>
+            </div>
+            <div className="flex gap-1.5 mb-4">
+              {[1, 2, 3, 4].map(w => (
+                <button
+                  key={w}
+                  onClick={() => updateWeekSelection(ex.id, w)}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                    week === w ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
                   }`}
                 >
-                  <span className="text-xs text-muted-foreground w-6">S{localIdx + 1}</span>
-                  <input
-                    type="number"
-                    value={sets[globalIdx].weight || ''}
-                    onChange={e => updateSet(globalIdx, 'weight', e.target.value)}
-                    className="w-14 bg-transparent text-foreground text-sm text-center outline-none font-mono"
-                    placeholder="kg"
-                  />
-                  <span className="text-muted-foreground text-xs">×</span>
-                  {amrap ? (
-                    <div className="flex items-center gap-1">
-                      <input
-                        type="number"
-                        value={amrapReps[globalIdx] !== undefined ? (amrapReps[globalIdx] || '') : (sets[globalIdx].reps || '')}
-                        onChange={e => setAmrapReps(prev => ({ ...prev, [globalIdx]: e.target.value === '' ? 0 : parseInt(e.target.value) || 0 }))}
-                        className="w-12 bg-primary/10 text-primary text-sm text-center outline-none font-mono rounded-lg py-1 border border-primary/30"
-                        placeholder="reps"
-                      />
-                      <span className="text-[10px] text-primary font-bold">AMRAP</span>
-                    </div>
-                  ) : (
-                    <span className="text-sm text-foreground font-mono w-12 text-center">
-                      {currentFiveThreeOneSets[localIdx]?.reps}
-                    </span>
-                  )}
-                  {realE1rm > 0 && sets[globalIdx].completed && (
-                    <span className="text-[10px] text-warning ml-1">{realE1rm}kg</span>
-                  )}
-                  <span className="text-[10px] text-muted-foreground ml-auto">
-                    {Math.round((currentFiveThreeOneSets[localIdx]?.percentage || 0) * 100)}%
-                  </span>
-                  <button
-                    onClick={() => toggleSet(globalIdx)}
-                    className={`touch-target rounded-lg p-2 transition-colors ${
-                      sets[globalIdx].completed ? 'text-primary' : 'text-muted-foreground active:text-primary'
+                  {w === 4 ? 'Deload' : `W${w}`}
+                </button>
+              ))}
+            </div>
+            <div className="space-y-2">
+              {liveSets.map((s, localIdx) => {
+                const globalIdx = s.globalIdx;
+                const amrap = isAmrap(localIdx);
+                const actualWeight = sets[globalIdx].weight;
+                const actualReps = amrapReps[globalIdx] !== undefined ? amrapReps[globalIdx] : sets[globalIdx].reps;
+                const realE1rm = actualWeight > 0 && actualReps > 0 ? calculate1RM(actualWeight, actualReps) : 0;
+
+                return (
+                  <div
+                    key={globalIdx}
+                    className={`flex items-center gap-2 rounded-xl px-3 py-2.5 transition-all ${
+                      sets[globalIdx].completed ? 'bg-primary/10' : 'bg-secondary/50'
                     }`}
                   >
-                    <Check size={18} />
-                  </button>
-                </div>
-              );
-            })}
+                    <span className="text-xs text-muted-foreground w-6">S{localIdx + 1}</span>
+                    <input
+                      type="number"
+                      value={sets[globalIdx].weight || ''}
+                      onChange={e => updateSet(globalIdx, 'weight', e.target.value)}
+                      className="w-14 bg-transparent text-foreground text-sm text-center outline-none font-mono"
+                      placeholder="kg"
+                    />
+                    <span className="text-muted-foreground text-xs">×</span>
+                    {amrap ? (
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="number"
+                          value={amrapReps[globalIdx] !== undefined ? (amrapReps[globalIdx] || '') : (sets[globalIdx].reps || '')}
+                          onChange={e => setAmrapReps(prev => ({ ...prev, [globalIdx]: e.target.value === '' ? 0 : parseInt(e.target.value) || 0 }))}
+                          className="w-12 bg-primary/10 text-primary text-sm text-center outline-none font-mono rounded-lg py-1 border border-primary/30"
+                          placeholder="reps"
+                        />
+                        <span className="text-[10px] text-primary font-bold">AMRAP</span>
+                      </div>
+                    ) : (
+                      <span className="text-sm text-foreground font-mono w-12 text-center">
+                        {weekSetsForDisplay[localIdx]?.reps}
+                      </span>
+                    )}
+                    {realE1rm > 0 && sets[globalIdx].completed && (
+                      <span className="text-[10px] text-warning ml-1">{realE1rm}kg</span>
+                    )}
+                    <span className="text-[10px] text-muted-foreground ml-auto">
+                      {Math.round((weekSetsForDisplay[localIdx]?.percentage || 0) * 100)}%
+                    </span>
+                    <button
+                      onClick={() => toggleSet(globalIdx)}
+                      className={`touch-target rounded-lg p-2 transition-colors ${
+                        sets[globalIdx].completed ? 'text-primary' : 'text-muted-foreground active:text-primary'
+                      }`}
+                    >
+                      <Check size={18} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })}
 
       {/* Regular exercises + Supersets */}
       <div className="space-y-4 mb-4">
@@ -587,7 +620,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdate531, onUpdateData, selectedDa
             block: b,
           }));
           const reorderBlocks = (newOrder: typeof sortableBlocks) => {
-            const fiveIdxs = sets.map((_, i) => i).filter(i => sets[i].exerciseId === '531-squat');
+            const fiveIdxs = sets.map((_, i) => i).filter(i => fiveThreeOneExerciseIds.has(sets[i].exerciseId));
             const idxsByKey = new Map<string, number[]>();
             blocks.forEach(b => {
               const key = b.kind === 'superset' ? b.groupId : b.exerciseId;
