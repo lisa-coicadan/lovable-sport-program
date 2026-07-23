@@ -51,6 +51,8 @@ export default {
         },
         success: "hsl(var(--success))",
         warning: "hsl(var(--warning))",
+        "accent-purple": "hsl(var(--accent-purple))",
+        "accent-blue": "hsl(var(--accent-blue))",
         tab: {
           active: "hsl(var(--tab-active))",
           inactive: "hsl(var(--tab-inactive))",

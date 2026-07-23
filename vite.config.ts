@@ -20,8 +20,8 @@ export default defineConfig(({ mode }) => ({
         navigateFallbackDenylist: [/^\/~oauth/],
       },
       manifest: {
-        name: "FitTrack",
-        short_name: "FitTrack",
+        name: "Lisa Muscu",
+        short_name: "Lisa Muscu",
         description: "Personal fitness tracker with 5/3/1 programming",
         theme_color: "#111114",
         background_color: "#111114",
