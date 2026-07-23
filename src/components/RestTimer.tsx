@@ -145,18 +145,21 @@ const RestTimer = forwardRef<RestTimerHandle, RestTimerProps>(({ defaultSeconds 
   // Floating button when collapsed
   if (!expanded) {
     return (
-      <button
-        onClick={() => setExpanded(true)}
-        className={`fixed bottom-24 right-4 z-40 w-14 h-14 rounded-full flex items-center justify-center shadow-lg transition-all active:scale-90 ${
-          isRunning ? 'bg-primary text-primary-foreground' : 'bg-card border border-border text-foreground'
-        }`}
-      >
-        {isRunning ? (
-          <span className="font-mono text-xs font-bold">{mins}:{secs.toString().padStart(2, '0')}</span>
-        ) : (
-          <Timer size={20} />
-        )}
-      </button>
+      <div className="fixed bottom-24 right-4 z-40">
+        {isRunning && <div className="absolute inset-0 bg-primary/40 rounded-full blur-xl animate-pulse-glow" />}
+        <button
+          onClick={() => setExpanded(true)}
+          className={`relative w-14 h-14 rounded-full flex items-center justify-center shadow-lg transition-all active:scale-90 ${
+            isRunning ? 'bg-primary text-primary-foreground' : 'bg-card border border-border text-foreground'
+          }`}
+        >
+          {isRunning ? (
+            <span className="font-mono text-xs font-bold">{mins}:{secs.toString().padStart(2, '0')}</span>
+          ) : (
+            <Timer size={20} />
+          )}
+        </button>
+      </div>
     );
   }
 

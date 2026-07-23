@@ -269,7 +269,10 @@ const StatsTab = ({ data }: StatsTabProps) => {
       {methodPRs.map(pr => (
         <div key={pr.name} className="glass-card p-4 mb-4 border border-warning/40 bg-warning/5">
           <div className="flex items-center gap-2 mb-2">
-            <Crown size={16} className="text-warning" />
+            <span className="relative inline-flex w-4 h-4 items-center justify-center">
+              <span className="absolute inset-0 bg-warning/50 rounded-full blur-sm animate-pulse-glow" />
+              <Crown size={16} className="relative text-warning" />
+            </span>
             <h3 className="text-sm font-semibold text-foreground">Record — {pr.name}</h3>
           </div>
           <div className="flex items-baseline gap-2">

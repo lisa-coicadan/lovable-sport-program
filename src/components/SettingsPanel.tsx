@@ -462,7 +462,10 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                 <div className="rounded-xl p-3 bg-primary/10 border border-primary/30 space-y-2.5">
                                   <div className="flex items-center justify-between">
                                     <span className="text-xs font-bold text-primary flex items-center gap-1">
-                                      <Zap size={12} /> 5/3/1 actif
+                                      <span className="relative inline-flex w-3 h-3 items-center justify-center">
+                                        <span className="absolute inset-0 bg-primary/50 rounded-full blur-sm animate-pulse-glow" />
+                                        <Zap size={12} className="relative" />
+                                      </span> 5/3/1 actif
                                     </span>
                                     <button
                                       onClick={() => updateExerciseMethod(ti, exIdx, undefined)}
@@ -537,7 +540,10 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                 <div className="rounded-xl p-3 bg-primary/10 border border-primary/30 space-y-2.5">
                                   <div className="flex items-center justify-between">
                                     <span className="text-xs font-bold text-primary flex items-center gap-1">
-                                      <Timer size={12} /> Cluster actif
+                                      <span className="relative inline-flex w-3 h-3 items-center justify-center">
+                                        <span className="absolute inset-0 bg-primary/50 rounded-full blur-sm animate-pulse-glow" />
+                                        <Timer size={12} className="relative" />
+                                      </span> Cluster actif
                                     </span>
                                     <button
                                       onClick={() => updateExerciseMethod(ti, exIdx, undefined)}
@@ -679,7 +685,10 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                 <div className="rounded-xl p-3 bg-primary/10 border border-primary/30 space-y-2.5">
                                   <div className="flex items-center justify-between">
                                     <span className="text-xs font-bold text-primary flex items-center gap-1">
-                                      <Clock size={12} /> EMOM actif
+                                      <span className="relative inline-flex w-3 h-3 items-center justify-center">
+                                        <span className="absolute inset-0 bg-primary/50 rounded-full blur-sm animate-pulse-glow" />
+                                        <Clock size={12} className="relative" />
+                                      </span> EMOM actif
                                     </span>
                                     <button
                                       onClick={() => updateExerciseMethod(ti, exIdx, undefined)}
