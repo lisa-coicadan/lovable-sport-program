@@ -6,6 +6,8 @@ import {
   useSensors,
   closestCenter,
   DragEndEvent,
+  DraggableAttributes,
+  DraggableSyntheticListeners,
 } from '@dnd-kit/core';
 import {
   SortableContext,
@@ -19,7 +21,7 @@ import { createContext, useContext, ReactNode, CSSProperties } from 'react';
 
 type Item = { key: string };
 
-const HandleCtx = createContext<{ attributes: any; listeners: any } | null>(null);
+const HandleCtx = createContext<{ attributes: DraggableAttributes; listeners: DraggableSyntheticListeners } | null>(null);
 
 interface SortableListProps<T extends Item> {
   items: T[];

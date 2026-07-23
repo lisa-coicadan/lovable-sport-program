@@ -27,9 +27,9 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
     setWorkoutTypes(updated);
   };
 
-  const updateExercise = (typeIndex: number, exIndex: number, field: keyof Exercise, value: string | number) => {
+  const updateExercise = <K extends keyof Exercise>(typeIndex: number, exIndex: number, field: K, value: Exercise[K]) => {
     const updated = [...workoutTypes];
-    (updated[typeIndex].exercises[exIndex] as any)[field] = value;
+    updated[typeIndex].exercises[exIndex][field] = value;
     setWorkoutTypes(updated);
   };
 

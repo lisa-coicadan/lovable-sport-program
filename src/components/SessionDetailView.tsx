@@ -379,7 +379,9 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
       if (navigator.share && navigator.canShare?.({ files: [file] })) {
         try {
           await navigator.share({ files: [file] });
-        } catch {}
+        } catch {
+          // user cancelled the share sheet, nothing to do
+        }
       } else {
         // Fallback: download
         const url = URL.createObjectURL(blob);
