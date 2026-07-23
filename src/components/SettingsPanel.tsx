@@ -2,7 +2,8 @@ import { useState, useRef } from 'react';
 import { AppData, WorkoutType, Exercise, ExerciseMethod, WORKOUT_COLORS, BodyWeightLog, DEFAULT_APP_DATA } from '@/lib/types';
 import { linkSuperset, unlinkSuperset, buildExerciseBlocks, flattenBlocks, ExerciseBlock } from '@/lib/superset';
 import { parseSessionNotes, NOTES_SYNTAX_HELP } from '@/lib/notesParser';
-import { EMOM_DURATION_MINUTES, EMOM_REPS_PER_MINUTE } from '@/lib/emom';
+import { getEmomConfig, getEmomWeight, getDefaultEmomPercentage } from '@/lib/emom';
+import { getClusterConfig, getMiniSeriesWeight, CLUSTER_PRESETS } from '@/lib/cluster';
 import { ArrowLeft, Plus, Trash2, EyeOff, RotateCcw, Scale, Link2, Link2Off, Download, Upload, Database, AlertTriangle, FileText, Zap, Timer, Clock } from 'lucide-react';
 import { SortableList, DragHandle } from './SortableBlock';
 import { loadData, saveData } from '@/lib/storage';
@@ -557,9 +558,122 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                       className="w-full bg-background/60 text-foreground text-lg font-bold rounded-lg px-2 py-2 text-center outline-none"
                                     />
                                   </div>
-                                  <p className="text-[10px] text-muted-foreground">
-                                    4 séries × 3 mini-séries de 2 reps à 90% du TM · repos 20s / 3min
-                                  </p>
+                                  {(() => {
+                                    const config = getClusterConfig(methodCluster);
+                                    const updateMiniSeries = (next: typeof config.miniSeries) =>
+                                      updateExerciseMethod(ti, exIdx, { ...methodCluster, miniSeries: next });
+                                    return (
+                                      <>
+                                        <div>
+                                          <label className="text-[10px] text-muted-foreground block mb-1">Formats de référence</label>
+                                          <div className="flex flex-wrap gap-1">
+                                            {CLUSTER_PRESETS.map(preset => (
+                                              <button
+                                                key={preset.key}
+                                                onClick={() => updateMiniSeries(preset.miniSeries)}
+                                                className="text-[10px] bg-background/60 hover:bg-primary/20 text-foreground px-2 py-1 rounded-md"
+                                              >
+                                                {preset.label}
+                                              </button>
+                                            ))}
+                                          </div>
+                                        </div>
+                                        <div>
+                                          <label className="text-[10px] text-muted-foreground block mb-1">Nombre de séries</label>
+                                          <div className="flex items-center gap-2">
+                                            <button
+                                              onClick={() => updateExerciseMethod(ti, exIdx, { ...methodCluster, numSeries: Math.max(1, config.numSeries - 1) })}
+                                              className="bg-background/60 text-foreground rounded-lg w-8 h-8 text-sm font-bold touch-target"
+                                            >
+                                              -
+                                            </button>
+                                            <span className="text-foreground text-sm font-bold flex-1 text-center">{config.numSeries}</span>
+                                            <button
+                                              onClick={() => updateExerciseMethod(ti, exIdx, { ...methodCluster, numSeries: config.numSeries + 1 })}
+                                              className="bg-background/60 text-foreground rounded-lg w-8 h-8 text-sm font-bold touch-target"
+                                            >
+                                              +
+                                            </button>
+                                          </div>
+                                        </div>
+                                        <div>
+                                          <label className="text-[10px] text-muted-foreground block mb-1">Mini-séries (répétées à chaque série)</label>
+                                          <div className="space-y-1">
+                                            {config.miniSeries.map((m, mi) => (
+                                              <div key={mi} className="flex items-center gap-1.5">
+                                                <input
+                                                  type="number"
+                                                  value={m.reps || ''}
+                                                  onChange={e => {
+                                                    const reps = e.target.value === '' ? 0 : parseInt(e.target.value) || 0;
+                                                    updateMiniSeries(config.miniSeries.map((row, i) => i === mi ? { ...row, reps } : row));
+                                                  }}
+                                                  className="w-12 bg-background/60 text-foreground rounded-md px-1.5 py-1.5 text-xs text-center outline-none"
+                                                  placeholder="reps"
+                                                />
+                                                <span className="text-muted-foreground text-[10px]">reps ×</span>
+                                                <input
+                                                  type="number"
+                                                  step="0.5"
+                                                  value={m.percentage ? Math.round(m.percentage * 1000) / 10 : ''}
+                                                  onChange={e => {
+                                                    const pct = e.target.value === '' ? 0 : parseFloat(e.target.value) || 0;
+                                                    updateMiniSeries(config.miniSeries.map((row, i) => i === mi ? { ...row, percentage: pct / 100 } : row));
+                                                  }}
+                                                  className="w-14 bg-background/60 text-foreground rounded-md px-1.5 py-1.5 text-xs text-center outline-none"
+                                                  placeholder="%TM"
+                                                />
+                                                <span className="text-muted-foreground text-[10px]">%TM</span>
+                                                <span className="text-[10px] text-primary font-mono ml-auto">
+                                                  {getMiniSeriesWeight(methodCluster.trainingMax, m.percentage)}kg
+                                                </span>
+                                                {config.miniSeries.length > 1 && (
+                                                  <button
+                                                    onClick={() => updateMiniSeries(config.miniSeries.filter((_, i) => i !== mi))}
+                                                    className="text-muted-foreground p-1 active:text-destructive"
+                                                  >
+                                                    <Trash2 size={12} />
+                                                  </button>
+                                                )}
+                                              </div>
+                                            ))}
+                                          </div>
+                                          <button
+                                            onClick={() => updateMiniSeries([...config.miniSeries, { reps: 2, percentage: 0.85 }])}
+                                            className="flex items-center gap-1 text-primary text-[10px] font-medium py-1 mt-1"
+                                          >
+                                            <Plus size={10} /> Ajouter une mini-série
+                                          </button>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-2">
+                                          <div>
+                                            <label className="text-[10px] text-muted-foreground block mb-1">Repos mini-séries (s)</label>
+                                            <input
+                                              type="number"
+                                              value={config.restMiniSeries || ''}
+                                              onChange={e => updateExerciseMethod(ti, exIdx, {
+                                                ...methodCluster,
+                                                restMiniSeries: e.target.value === '' ? 0 : parseInt(e.target.value) || 0,
+                                              })}
+                                              className="w-full bg-background/60 text-foreground rounded-lg px-2 py-1.5 text-sm text-center outline-none"
+                                            />
+                                          </div>
+                                          <div>
+                                            <label className="text-[10px] text-muted-foreground block mb-1">Repos séries (s)</label>
+                                            <input
+                                              type="number"
+                                              value={config.restSeries || ''}
+                                              onChange={e => updateExerciseMethod(ti, exIdx, {
+                                                ...methodCluster,
+                                                restSeries: e.target.value === '' ? 0 : parseInt(e.target.value) || 0,
+                                              })}
+                                              className="w-full bg-background/60 text-foreground rounded-lg px-2 py-1.5 text-sm text-center outline-none"
+                                            />
+                                          </div>
+                                        </div>
+                                      </>
+                                    );
+                                  })()}
                                 </div>
                               ) : methodEmom ? (
                                 <div className="rounded-xl p-3 bg-primary/10 border border-primary/30 space-y-2.5">
@@ -586,9 +700,63 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                       className="w-full bg-background/60 text-foreground text-lg font-bold rounded-lg px-2 py-2 text-center outline-none"
                                     />
                                   </div>
-                                  <p className="text-[10px] text-muted-foreground">
-                                    {EMOM_DURATION_MINUTES} min · {EMOM_REPS_PER_MINUTE} reps chaque minute à 90% du TM
-                                  </p>
+                                  {(() => {
+                                    const config = getEmomConfig(methodEmom);
+                                    return (
+                                      <>
+                                        <div className="grid grid-cols-2 gap-2">
+                                          <div>
+                                            <label className="text-[10px] text-muted-foreground block mb-1">Durée (min)</label>
+                                            <input
+                                              type="number"
+                                              value={config.durationMinutes || ''}
+                                              onChange={e => {
+                                                const durationMinutes = e.target.value === '' ? 0 : parseInt(e.target.value) || 0;
+                                                updateExerciseMethod(ti, exIdx, {
+                                                  ...methodEmom,
+                                                  durationMinutes,
+                                                  percentage: getDefaultEmomPercentage(durationMinutes, config.repsPerMinute),
+                                                });
+                                              }}
+                                              className="w-full bg-background/60 text-foreground rounded-lg px-2 py-1.5 text-sm text-center outline-none"
+                                            />
+                                          </div>
+                                          <div>
+                                            <label className="text-[10px] text-muted-foreground block mb-1">Reps / minute</label>
+                                            <input
+                                              type="number"
+                                              value={config.repsPerMinute || ''}
+                                              onChange={e => {
+                                                const repsPerMinute = e.target.value === '' ? 0 : parseInt(e.target.value) || 0;
+                                                updateExerciseMethod(ti, exIdx, {
+                                                  ...methodEmom,
+                                                  repsPerMinute,
+                                                  percentage: getDefaultEmomPercentage(config.durationMinutes, repsPerMinute),
+                                                });
+                                              }}
+                                              className="w-full bg-background/60 text-foreground rounded-lg px-2 py-1.5 text-sm text-center outline-none"
+                                            />
+                                          </div>
+                                        </div>
+                                        <div>
+                                          <label className="text-[10px] text-muted-foreground block mb-1">% du TM (suggéré automatiquement, modifiable)</label>
+                                          <input
+                                            type="number"
+                                            step="0.5"
+                                            value={config.percentage ? Math.round(config.percentage * 1000) / 10 : ''}
+                                            onChange={e => {
+                                              const pct = e.target.value === '' ? 0 : parseFloat(e.target.value) || 0;
+                                              updateExerciseMethod(ti, exIdx, { ...methodEmom, percentage: pct / 100 });
+                                            }}
+                                            className="w-full bg-background/60 text-foreground rounded-lg px-2 py-1.5 text-sm text-center outline-none"
+                                          />
+                                        </div>
+                                        <p className="text-[10px] text-muted-foreground">
+                                          {getEmomWeight(methodEmom.trainingMax, config.percentage)}kg × {config.repsPerMinute} chaque minute pendant {config.durationMinutes} min
+                                        </p>
+                                      </>
+                                    );
+                                  })()}
                                 </div>
                               ) : (
                                 <div className="flex items-center gap-3 pl-1 flex-wrap">

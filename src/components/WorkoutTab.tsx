@@ -1,11 +1,8 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { AppData, WorkoutType, SetLog, SessionLog, FiveThreeOneMethod, ClusterMethod, EMOMMethod, calculate1RM } from '@/lib/types';
 import { getWeekSets, getWeekLabel } from '@/lib/531';
-import {
-  CLUSTER_SERIES, CLUSTER_MINI_SERIES, CLUSTER_REPS_PER_MINI_SERIES,
-  CLUSTER_REST_MINI_SERIES, CLUSTER_REST_SERIES, getClusterWeight,
-} from '@/lib/cluster';
-import { EMOM_DURATION_MINUTES, EMOM_REPS_PER_MINUTE, getEmomWeight } from '@/lib/emom';
+import { getClusterConfig, getMiniSeriesWeight } from '@/lib/cluster';
+import { getEmomConfig, getEmomWeight } from '@/lib/emom';
 import { buildExerciseBlocks } from '@/lib/superset';
 import RestTimer, { RestTimerHandle } from './RestTimer';
 import EmomTimer from './EmomTimer';
@@ -25,6 +22,13 @@ interface WorkoutTabProps {
 
 type Mode = 'select' | 'recap' | 'summary' | 'settings' | 'history';
 
+const formatRestLabel = (seconds: number): string => {
+  if (seconds < 60) return `${seconds}s`;
+  const mins = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return rest === 0 ? `${mins}min` : `${mins}min${rest}`;
+};
+
 const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: WorkoutTabProps) => {
   const [mode, setMode] = useState<Mode>('select');
   const [selectedType, setSelectedType] = useState<WorkoutType | null>(null);
@@ -37,6 +41,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
   const [restDuration, setRestDuration] = useState(data.restDuration || 90);
   const [nowTick, setNowTick] = useState(Date.now());
   const [previewOpen, setPreviewOpen] = useState(true);
+  const [clusterAutoTimer, setClusterAutoTimer] = useState(false);
   const restTimerRef = useRef<RestTimerHandle>(null);
 
   useEffect(() => {
@@ -149,31 +154,36 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
           });
           return;
         }
-        // Cluster exercises get their fixed series x mini-series scheme at 90% TM
+        // Cluster exercises: numSeries repeats of the configured mini-series scheme
+        // (own rep count + %TM each), so wave/pyramid schemes carry through as-is.
         if (ex.method?.type === 'cluster') {
-          const weight = getClusterWeight(ex.method.trainingMax);
-          const total = CLUSTER_SERIES * CLUSTER_MINI_SERIES;
-          for (let i = 0; i < total; i++) {
-            initialSets.push({
-              exerciseId: ex.id,
-              exerciseName: ex.name,
-              setNumber: i + 1,
-              reps: CLUSTER_REPS_PER_MINI_SERIES,
-              weight,
-              completed: false,
+          const method = ex.method;
+          const { numSeries, miniSeries } = getClusterConfig(method);
+          let i = 0;
+          for (let s = 0; s < numSeries; s++) {
+            miniSeries.forEach(m => {
+              initialSets.push({
+                exerciseId: ex.id,
+                exerciseName: ex.name,
+                setNumber: ++i,
+                reps: m.reps,
+                weight: getMiniSeriesWeight(method.trainingMax, m.percentage),
+                completed: false,
+              });
             });
           }
           return;
         }
-        // EMOM exercises get one set per minute at 90% TM for the fixed duration
+        // EMOM exercises get one set per minute at the configured %TM for the configured duration
         if (ex.method?.type === 'emom') {
-          const weight = getEmomWeight(ex.method.trainingMax);
-          for (let i = 0; i < EMOM_DURATION_MINUTES; i++) {
+          const { durationMinutes, repsPerMinute, percentage } = getEmomConfig(ex.method);
+          const weight = getEmomWeight(ex.method.trainingMax, percentage);
+          for (let i = 0; i < durationMinutes; i++) {
             initialSets.push({
               exerciseId: ex.id,
               exerciseName: ex.name,
               setNumber: i + 1,
-              reps: EMOM_REPS_PER_MINUTE,
+              reps: repsPerMinute,
               weight,
               completed: false,
             });
@@ -436,32 +446,41 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
         })}
 
         {/* Cluster Block — one card per exercise using the method, if any */}
-        {clusterExercises.map(({ exercise, method }) => (
-          <div key={exercise.id} className="glass-card p-4 mb-6">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-bold text-primary">{exercise.name}</span>
-              <span className="text-xs text-muted-foreground">Cluster</span>
+        {clusterExercises.map(({ exercise, method }) => {
+          const { numSeries, miniSeries } = getClusterConfig(method);
+          return (
+            <div key={exercise.id} className="glass-card p-4 mb-6">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-bold text-primary">{exercise.name}</span>
+                <span className="text-xs text-muted-foreground">Cluster</span>
+              </div>
+              <p className="text-sm text-foreground font-medium">
+                {numSeries} séries × {miniSeries.map(m => `${m.reps}@${Math.round(m.percentage * 100)}%`).join(' · ')}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                {miniSeries.map(m => `${getMiniSeriesWeight(method.trainingMax, m.percentage)}kg`).join(' · ')}
+              </p>
+              <p className="text-xs text-muted-foreground mt-2">TM: {method.trainingMax} kg</p>
             </div>
-            <p className="text-sm text-foreground font-medium">
-              {CLUSTER_SERIES} × {CLUSTER_MINI_SERIES}×{CLUSTER_REPS_PER_MINI_SERIES} à {getClusterWeight(method.trainingMax)} kg
-            </p>
-            <p className="text-xs text-muted-foreground mt-2">TM: {method.trainingMax} kg</p>
-          </div>
-        ))}
+          );
+        })}
 
         {/* EMOM Block — one card per exercise using the method, if any */}
-        {emomExercises.map(({ exercise, method }) => (
-          <div key={exercise.id} className="glass-card p-4 mb-6">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-bold text-primary">{exercise.name}</span>
-              <span className="text-xs text-muted-foreground">EMOM</span>
+        {emomExercises.map(({ exercise, method }) => {
+          const { durationMinutes, repsPerMinute, percentage } = getEmomConfig(method);
+          return (
+            <div key={exercise.id} className="glass-card p-4 mb-6">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-bold text-primary">{exercise.name}</span>
+                <span className="text-xs text-muted-foreground">EMOM</span>
+              </div>
+              <p className="text-sm text-foreground font-medium">
+                {durationMinutes} min × {repsPerMinute} reps/min à {getEmomWeight(method.trainingMax, percentage)} kg ({Math.round(percentage * 100)}%)
+              </p>
+              <p className="text-xs text-muted-foreground mt-2">TM: {method.trainingMax} kg</p>
             </div>
-            <p className="text-sm text-foreground font-medium">
-              {EMOM_DURATION_MINUTES} min × {EMOM_REPS_PER_MINUTE} reps/min à {getEmomWeight(method.trainingMax)} kg
-            </p>
-            <p className="text-xs text-muted-foreground mt-2">TM: {method.trainingMax} kg</p>
-          </div>
-        ))}
+          );
+        })}
 
         {/* Session Selection */}
         <p className="text-sm text-muted-foreground mb-3">Choisis une séance</p>
@@ -700,14 +719,43 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
         );
       })}
 
-      {/* Cluster Block(s) in session — manual rest timers, one card per exercise using the method */}
+      {/* Cluster auto-timer toggle — shown once if any Cluster exercise is in this session */}
+      {selectedType && selectedType.exercises.some(ex => ex.method?.type === 'cluster') && (
+        <label className="glass-card p-3 mb-4 flex items-center justify-between cursor-pointer">
+          <span className="text-xs text-foreground flex items-center gap-1.5">
+            <Timer size={12} className="text-primary" /> Chrono automatique (Cluster)
+          </span>
+          <input
+            type="checkbox"
+            checked={clusterAutoTimer}
+            onChange={e => setClusterAutoTimer(e.target.checked)}
+            className="w-4 h-4 accent-primary"
+          />
+        </label>
+      )}
+
+      {/* Cluster Block(s) in session — rest timers (manual, or auto if the toggle above is on) */}
       {selectedType && selectedType.exercises.filter(ex => ex.method?.type === 'cluster').map(ex => {
         const method = ex.method as ClusterMethod;
-        const weight = getClusterWeight(method.trainingMax);
+        const { numSeries, miniSeries, restMiniSeries, restSeries } = getClusterConfig(method);
         const liveSets = sets
           .map((s, i) => ({ ...s, globalIdx: i }))
           .filter(s => s.exerciseId === ex.id);
         if (liveSets.length === 0) return null;
+        const miniPerSeries = miniSeries.length;
+
+        const onTapMiniSeries = (globalIdx: number, seriesIdx: number, miniIdx: number) => {
+          const wasCompleted = sets[globalIdx].completed;
+          toggleSet(globalIdx);
+          if (wasCompleted || !clusterAutoTimer) return;
+          const isLastMiniInSeries = miniIdx === miniPerSeries - 1;
+          const isLastSeries = seriesIdx === numSeries - 1;
+          if (!isLastMiniInSeries) {
+            restTimerRef.current?.startWithDuration(restMiniSeries);
+          } else if (!isLastSeries) {
+            restTimerRef.current?.startWithDuration(restSeries);
+          }
+        };
 
         return (
           <div key={ex.id} className="glass-card p-4 mb-4 border-primary/30">
@@ -716,8 +764,8 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
               <span className="text-xs text-muted-foreground">Cluster · TM {method.trainingMax} kg</span>
             </div>
             <div className="space-y-2">
-              {Array.from({ length: CLUSTER_SERIES }).map((_, seriesIdx) => {
-                const seriesSets = liveSets.slice(seriesIdx * CLUSTER_MINI_SERIES, (seriesIdx + 1) * CLUSTER_MINI_SERIES);
+              {Array.from({ length: numSeries }).map((_, seriesIdx) => {
+                const seriesSets = liveSets.slice(seriesIdx * miniPerSeries, (seriesIdx + 1) * miniPerSeries);
                 const allDone = seriesSets.every(s => sets[s.globalIdx].completed);
                 return (
                   <div
@@ -728,12 +776,12 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                   >
                     <div className="flex items-center justify-between mb-1.5">
                       <span className="text-[11px] font-semibold text-muted-foreground">Série {seriesIdx + 1}</span>
-                      {seriesIdx < CLUSTER_SERIES - 1 && (
+                      {seriesIdx < numSeries - 1 && (
                         <button
-                          onClick={() => restTimerRef.current?.startWithDuration(CLUSTER_REST_SERIES)}
+                          onClick={() => restTimerRef.current?.startWithDuration(restSeries)}
                           className="text-[10px] text-primary font-medium flex items-center gap-1"
                         >
-                          <Timer size={10} /> Repos 3min
+                          <Timer size={10} /> Repos {formatRestLabel(restSeries)}
                         </button>
                       )}
                     </div>
@@ -741,18 +789,18 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                       {seriesSets.map((s, miniIdx) => (
                         <div key={s.globalIdx} className="flex items-center gap-1.5 flex-1">
                           <button
-                            onClick={() => toggleSet(s.globalIdx)}
+                            onClick={() => onTapMiniSeries(s.globalIdx, seriesIdx, miniIdx)}
                             className={`flex-1 rounded-lg py-2 text-xs font-mono font-medium transition-colors ${
                               sets[s.globalIdx].completed ? 'bg-primary text-primary-foreground' : 'bg-background/60 text-foreground'
                             }`}
                           >
-                            {weight}kg × {CLUSTER_REPS_PER_MINI_SERIES}
+                            {sets[s.globalIdx].weight}kg × {sets[s.globalIdx].reps}
                           </button>
                           {miniIdx < seriesSets.length - 1 && (
                             <button
-                              onClick={() => restTimerRef.current?.startWithDuration(CLUSTER_REST_MINI_SERIES)}
+                              onClick={() => restTimerRef.current?.startWithDuration(restMiniSeries)}
                               className="text-muted-foreground p-1.5 active:text-primary shrink-0"
-                              title="Repos 20s"
+                              title={`Repos ${formatRestLabel(restMiniSeries)}`}
                             >
                               <Timer size={12} />
                             </button>
@@ -771,7 +819,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
       {/* EMOM Block(s) in session — continuous auto-beeping countdown, one card per exercise using the method */}
       {selectedType && selectedType.exercises.filter(ex => ex.method?.type === 'emom').map(ex => {
         const method = ex.method as EMOMMethod;
-        const weight = getEmomWeight(method.trainingMax);
+        const { durationMinutes } = getEmomConfig(method);
         const liveSets = sets
           .map((s, i) => ({ ...s, globalIdx: i }))
           .filter(s => s.exerciseId === ex.id);
@@ -784,7 +832,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
               <span className="text-xs text-muted-foreground">EMOM · TM {method.trainingMax} kg</span>
             </div>
             <div className="mb-3">
-              <EmomTimer totalMinutes={EMOM_DURATION_MINUTES} />
+              <EmomTimer totalMinutes={durationMinutes} />
             </div>
             <div className="grid grid-cols-5 gap-1.5">
               {liveSets.map((s, minuteIdx) => (
@@ -797,7 +845,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                 >
                   Min {minuteIdx + 1}
                   <br />
-                  {weight}kg×{EMOM_REPS_PER_MINUTE}
+                  {sets[s.globalIdx].weight}kg×{sets[s.globalIdx].reps}
                 </button>
               ))}
             </div>

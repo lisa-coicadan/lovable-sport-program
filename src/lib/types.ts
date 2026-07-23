@@ -6,18 +6,33 @@ export interface FiveThreeOneMethod {
   increment?: number; // kg added to the TM at the end of each 4-week cycle (default 2.5)
 }
 
-// Fixed scheme (4 series x 3 mini-series of 2 reps, 90% TM, 20s/3min rest) — see
-// src/lib/cluster.ts. Only the Training Max is per-exercise for now.
+// One mini-series within a cluster series: its own rep count and its own %TM,
+// so wave-loading / pyramid schemes (varying reps and intensity per mini-series)
+// are representable, not just a flat uniform scheme.
+export interface ClusterMiniSeries {
+  reps: number;
+  percentage: number; // fraction of TM, e.g. 0.85
+}
+
+// Defaults (4 series x [2,2,2 reps @ 90%], 20s/3min rest) live in src/lib/cluster.ts
+// and apply whenever a field below is missing — keeps old saved data (TM-only) working.
 export interface ClusterMethod {
   type: 'cluster';
   trainingMax: number;
+  numSeries?: number;
+  miniSeries?: ClusterMiniSeries[]; // structure of one series, repeated numSeries times
+  restMiniSeries?: number; // seconds, between mini-series within a series
+  restSeries?: number; // seconds, between series
 }
 
-// Fixed scheme (10min, 2 reps every minute, 90% TM) — see src/lib/emom.ts.
-// Only the Training Max is per-exercise for now.
+// Defaults (10min, 2 reps/min, %TM from a duration/reps formula) live in src/lib/emom.ts
+// and apply whenever a field below is missing — keeps old saved data (TM-only) working.
 export interface EMOMMethod {
   type: 'emom';
   trainingMax: number;
+  durationMinutes?: number;
+  repsPerMinute?: number;
+  percentage?: number; // fraction of TM
 }
 
 export type ExerciseMethod = FiveThreeOneMethod | ClusterMethod | EMOMMethod;
