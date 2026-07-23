@@ -752,7 +752,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                           />
                                         </div>
                                         <p className="text-[10px] text-muted-foreground">
-                                          {getEmomWeight(methodEmom.trainingMax, config.percentage)}kg × {config.repsPerMinute} chaque minute pendant {config.durationMinutes} min
+                                          <span className="text-primary font-bold">{getEmomWeight(methodEmom.trainingMax, config.percentage)}kg</span> × {config.repsPerMinute} chaque minute pendant {config.durationMinutes} min
                                         </p>
                                       </>
                                     );

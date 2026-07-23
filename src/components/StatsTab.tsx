@@ -125,13 +125,29 @@ const StatsTab = ({ data }: StatsTabProps) => {
     return map;
   }, [data.sessions]);
 
-  const squatPR = prByName['Squat'];
+  // Exercises with an active training method (5/3/1, Cluster, EMOM) get their own
+  // isolated PR card up top, same treatment the Squat card used to get alone.
+  const methodExerciseNames = useMemo(() => {
+    const names = new Set<string>();
+    data.workoutTypes.forEach(t => t.exercises.forEach(e => {
+      if (e.method) names.add(normalizeExerciseName(e.name));
+    }));
+    return names;
+  }, [data.workoutTypes]);
+
+  const methodPRs = useMemo(() => {
+    return Array.from(methodExerciseNames)
+      .map(name => prByName[name])
+      .filter((p): p is PR => !!p)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [methodExerciseNames, prByName]);
+
   const otherPRs = useMemo(() => {
     return Object.values(prByName)
-      .filter(p => p.name !== 'Squat')
+      .filter(p => !methodExerciseNames.has(p.name))
       .sort((a, b) => b.date.localeCompare(a.date))
       .slice(0, 5);
-  }, [prByName]);
+  }, [prByName, methodExerciseNames]);
 
   // Weekly frequency — include empty weeks
   const weeklyData = useMemo(() => {
@@ -249,22 +265,22 @@ const StatsTab = ({ data }: StatsTabProps) => {
         </div>
       )}
 
-      {/* Squat PR — isolated */}
-      {squatPR && (
-        <div className="glass-card p-4 mb-4 border border-warning/40 bg-warning/5">
+      {/* PRs for exercises with an active training method — isolated, one card each */}
+      {methodPRs.map(pr => (
+        <div key={pr.name} className="glass-card p-4 mb-4 border border-warning/40 bg-warning/5">
           <div className="flex items-center gap-2 mb-2">
             <Crown size={16} className="text-warning" />
-            <h3 className="text-sm font-semibold text-foreground">Record au Squat</h3>
+            <h3 className="text-sm font-semibold text-foreground">Record — {pr.name}</h3>
           </div>
           <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-bold text-warning">{squatPR.e1rm} kg</span>
+            <span className="text-3xl font-bold text-warning">{pr.e1rm} kg</span>
             <span className="text-sm text-muted-foreground">1RM théorique</span>
           </div>
           <p className="text-xs text-muted-foreground mt-1">
-            {squatPR.reps} × {squatPR.weight} kg — il y a {daysAgo(squatPR.date)} jour{daysAgo(squatPR.date) > 1 ? 's' : ''}
+            {pr.reps} × {pr.weight} kg — il y a {daysAgo(pr.date)} jour{daysAgo(pr.date) > 1 ? 's' : ''}
           </p>
         </div>
-      )}
+      ))}
 
       {/* Top 5 other PRs */}
       {otherPRs.length > 0 && (

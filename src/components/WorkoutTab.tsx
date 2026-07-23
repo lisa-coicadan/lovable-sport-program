@@ -475,7 +475,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                 <span className="text-xs text-muted-foreground">EMOM</span>
               </div>
               <p className="text-sm text-foreground font-medium">
-                {durationMinutes} min × {repsPerMinute} reps/min à {getEmomWeight(method.trainingMax, percentage)} kg ({Math.round(percentage * 100)}%)
+                {durationMinutes} min × {repsPerMinute} reps/min à <span className="text-primary font-bold">{getEmomWeight(method.trainingMax, percentage)} kg</span> ({Math.round(percentage * 100)}%)
               </p>
               <p className="text-xs text-muted-foreground mt-2">TM: {method.trainingMax} kg</p>
             </div>

@@ -13,14 +13,14 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-// Empirical formula: Intensity (%TM) = 82% - (1% per 5min of duration) - (2% per rep
-// above 2/min), then clamped to the validated bounds for that rep range. Only used to
-// suggest a starting %TM when duration/reps change — always manually overridable.
+// Empirical formula: Intensity (%TM) = 92% - 2%/min above 6min - 7%/rep above 1/min,
+// clamped to [40%, 90%]. Only used to suggest a starting %TM when duration/reps
+// change — always manually overridable.
 export function getDefaultEmomPercentage(durationMinutes: number, repsPerMinute: number): number {
-  const tranches5min = durationMinutes / 5;
-  const raw = 82 - 1 * tranches5min - 2 * Math.max(0, repsPerMinute - 2);
-  const [min, max] = repsPerMinute <= 2 ? [78, 85] : [72, 78];
-  return clamp(raw, min, max) / 100;
+  const durationPenalty = 2 * (durationMinutes - 6);
+  const repsPenalty = 7 * (repsPerMinute - 1);
+  const intensity = 92 - durationPenalty - repsPenalty;
+  return clamp(intensity, 40, 90) / 100;
 }
 
 export interface EmomConfig {

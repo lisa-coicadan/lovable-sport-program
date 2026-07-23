@@ -17,24 +17,21 @@ describe('getEmomWeight', () => {
 });
 
 describe('getDefaultEmomPercentage', () => {
-  it('applies the formula and clamps to the 1-2 reps/min bounds', () => {
-    // 82 - 1*(10/5) - 0 = 80, within [78, 85]
-    expect(getDefaultEmomPercentage(10, 2)).toBeCloseTo(0.8);
+  it('applies the formula: 92% - 2%/min above 6min - 7%/rep above 1/min', () => {
+    // 92 - 2*(10-6) - 7*(2-1) = 92 - 8 - 7 = 77
+    expect(getDefaultEmomPercentage(10, 2)).toBeCloseTo(0.77);
+    // 92 - 2*(10-6) - 7*(4-1) = 92 - 8 - 21 = 63
+    expect(getDefaultEmomPercentage(10, 4)).toBeCloseTo(0.63);
   });
 
-  it('clamps to the 3-4 reps/min bounds', () => {
-    // 82 - 1*(10/5) - 2*(4-2) = 76, within [72, 78]
-    expect(getDefaultEmomPercentage(10, 4)).toBeCloseTo(0.76);
+  it('clamps to the 90% upper bound for short/low-rep sessions', () => {
+    // 92 - 2*(5-6) - 0 = 94, clamps to 90
+    expect(getDefaultEmomPercentage(5, 1)).toBeCloseTo(0.9);
   });
 
-  it('never exceeds the upper bound for very short/low-rep sessions', () => {
-    // 82 - 1*(5/5) - 0 = 81, within [78, 85]
-    expect(getDefaultEmomPercentage(5, 1)).toBeCloseTo(0.81);
-  });
-
-  it('never drops below the lower bound for long/high-rep sessions', () => {
-    // 82 - 1*(30/5) - 2*(4-2) = 72, clamps to 72
-    expect(getDefaultEmomPercentage(30, 4)).toBeCloseTo(0.72);
+  it('clamps to the 40% lower bound for long/high-rep sessions', () => {
+    // 92 - 2*(30-6) - 7*(4-1) = 92 - 48 - 21 = 23, clamps to 40
+    expect(getDefaultEmomPercentage(30, 4)).toBeCloseTo(0.4);
   });
 });
 
