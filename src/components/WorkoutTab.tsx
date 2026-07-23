@@ -297,7 +297,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
               const m = ex.method;
               const next: FiveThreeOneMethod = m.currentWeek < 4
                 ? { ...m, currentWeek: m.currentWeek + 1 }
-                : { ...m, currentCycle: m.currentCycle + 1, currentWeek: 1, trainingMax: m.trainingMax + 2.5 };
+                : { ...m, currentCycle: m.currentCycle + 1, currentWeek: 1, trainingMax: m.trainingMax + (m.increment ?? 2.5) };
               return { ...ex, method: next };
             }),
           };

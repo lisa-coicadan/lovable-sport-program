@@ -27,6 +27,7 @@ function migrateLegacyFiveThreeOne(data: AppData): AppData {
       trainingMax: fiveThreeOne.trainingMax,
       currentCycle: fiveThreeOne.currentCycle,
       currentWeek: fiveThreeOne.currentWeek,
+      increment: 2.5,
     },
   };
 

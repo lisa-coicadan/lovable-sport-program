@@ -39,7 +39,7 @@ describe('loadData — legacy 5/3/1 migration', () => {
     const type = data.workoutTypes.find(t => t.id === '3')!;
     const migrated = type.exercises.find(e => e.method?.type === '531');
     expect(migrated).toBeDefined();
-    expect(migrated!.method).toEqual({ type: '531', trainingMax: 90, currentCycle: 2, currentWeek: 3 });
+    expect(migrated!.method).toEqual({ type: '531', trainingMax: 90, currentCycle: 2, currentWeek: 3, increment: 2.5 });
     expect(migrated!.name).toBe('5/3/1 Squat');
 
     // The pre-existing exercise in that session must be untouched

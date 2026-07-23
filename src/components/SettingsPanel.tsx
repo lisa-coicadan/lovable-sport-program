@@ -317,12 +317,17 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
 
                     const renderRow = (ex: Exercise, opts?: { hideSets?: boolean }) => {
                       const ei = type.exercises.findIndex(e => e.id === ex.id);
+                      const hasMethod = !!ex.method;
                       return (
                         <div className="flex items-center gap-1.5 flex-1">
                           <input
                             value={ex.name}
                             onChange={e => updateExercise(ti, ei, 'name', e.target.value)}
-                            className="flex-1 min-w-0 bg-secondary text-foreground rounded-lg px-2.5 py-1.5 text-sm outline-none"
+                            className={`flex-1 min-w-0 rounded-lg px-2.5 py-1.5 text-sm outline-none ${
+                              hasMethod
+                                ? 'bg-primary/15 text-primary font-medium border border-primary/40'
+                                : 'bg-secondary text-foreground'
+                            }`}
                             placeholder="Exercise"
                           />
                           {opts?.hideSets ? (
@@ -439,37 +444,89 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                   </div>
                                 </details>
                               )}
-                              <details className="pl-6">
-                                <summary className="text-[10px] text-muted-foreground cursor-pointer flex items-center gap-1 py-0.5">
-                                  <Zap size={10} /> Méthode : {method531 ? '5/3/1' : 'Aucune'}
-                                </summary>
-                                <div className="flex items-center gap-1.5 pt-1">
-                                  <button
-                                    onClick={() => updateExerciseMethod(ti, exIdx, undefined)}
-                                    className={`text-[10px] px-2 py-1 rounded-md ${!ex.method ? 'bg-primary text-primary-foreground' : 'bg-secondary text-foreground'}`}
-                                  >
-                                    Aucune
-                                  </button>
-                                  <button
-                                    onClick={() => updateExerciseMethod(ti, exIdx, method531 ?? { type: '531', trainingMax: 60, currentCycle: 1, currentWeek: 1 })}
-                                    className={`text-[10px] px-2 py-1 rounded-md ${method531 ? 'bg-primary text-primary-foreground' : 'bg-secondary text-foreground'}`}
-                                  >
-                                    5/3/1
-                                  </button>
-                                  {method531 && (
-                                    <input
-                                      type="number"
-                                      value={method531.trainingMax || ''}
-                                      onChange={e => updateExerciseMethod(ti, exIdx, {
-                                        ...method531,
-                                        trainingMax: e.target.value === '' ? 0 : parseFloat(e.target.value),
-                                      })}
-                                      className="w-16 bg-secondary text-foreground rounded-md px-1.5 py-1 text-[10px] text-center outline-none"
-                                      placeholder="TM kg"
-                                    />
-                                  )}
+                              {method531 ? (
+                                <div className="rounded-xl p-3 bg-primary/10 border border-primary/30 space-y-2.5">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-xs font-bold text-primary flex items-center gap-1">
+                                      <Zap size={12} /> 5/3/1 actif
+                                    </span>
+                                    <button
+                                      onClick={() => updateExerciseMethod(ti, exIdx, undefined)}
+                                      className="text-[10px] text-muted-foreground underline"
+                                    >
+                                      Retirer
+                                    </button>
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <div>
+                                      <label className="text-[10px] text-muted-foreground block mb-1">Training Max (kg)</label>
+                                      <input
+                                        type="number"
+                                        value={method531.trainingMax || ''}
+                                        onChange={e => updateExerciseMethod(ti, exIdx, {
+                                          ...method531,
+                                          trainingMax: e.target.value === '' ? 0 : parseFloat(e.target.value),
+                                        })}
+                                        className="w-full bg-background/60 text-foreground text-lg font-bold rounded-lg px-2 py-2 text-center outline-none"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="text-[10px] text-muted-foreground block mb-1">Incrément / cycle (kg)</label>
+                                      <input
+                                        type="number"
+                                        step="0.5"
+                                        value={method531.increment ?? 2.5}
+                                        onChange={e => updateExerciseMethod(ti, exIdx, {
+                                          ...method531,
+                                          increment: e.target.value === '' ? 0 : parseFloat(e.target.value),
+                                        })}
+                                        className="w-full bg-background/60 text-foreground text-lg font-bold rounded-lg px-2 py-2 text-center outline-none"
+                                      />
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <label className="text-[10px] text-muted-foreground block mb-1">Cycle actuel</label>
+                                    <div className="flex items-center gap-2">
+                                      <button
+                                        onClick={() => updateExerciseMethod(ti, exIdx, { ...method531, currentCycle: Math.max(1, method531.currentCycle - 1) })}
+                                        className="bg-background/60 text-foreground rounded-lg w-9 h-9 text-base font-bold touch-target"
+                                      >
+                                        -
+                                      </button>
+                                      <span className="text-foreground text-base font-bold flex-1 text-center">{method531.currentCycle}</span>
+                                      <button
+                                        onClick={() => updateExerciseMethod(ti, exIdx, { ...method531, currentCycle: method531.currentCycle + 1 })}
+                                        className="bg-background/60 text-foreground rounded-lg w-9 h-9 text-base font-bold touch-target"
+                                      >
+                                        +
+                                      </button>
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <label className="text-[10px] text-muted-foreground block mb-1">Semaine</label>
+                                    <div className="flex gap-1">
+                                      {[1, 2, 3, 4].map(w => (
+                                        <button
+                                          key={w}
+                                          onClick={() => updateExerciseMethod(ti, exIdx, { ...method531, currentWeek: w })}
+                                          className={`flex-1 py-2 rounded-lg text-xs font-medium transition-all ${
+                                            method531.currentWeek === w ? 'bg-primary text-primary-foreground' : 'bg-background/60 text-muted-foreground'
+                                          }`}
+                                        >
+                                          {w === 4 ? 'D' : `W${w}`}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  </div>
                                 </div>
-                              </details>
+                              ) : (
+                                <button
+                                  onClick={() => updateExerciseMethod(ti, exIdx, { type: '531', trainingMax: 60, currentCycle: 1, currentWeek: 1, increment: 2.5 })}
+                                  className="text-[10px] text-muted-foreground flex items-center gap-1 pl-1"
+                                >
+                                  <Zap size={10} /> Ajouter une méthode 5/3/1
+                                </button>
+                              )}
                             </div>
                           );
                         }}

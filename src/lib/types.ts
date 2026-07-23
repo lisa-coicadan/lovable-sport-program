@@ -3,6 +3,7 @@ export interface FiveThreeOneMethod {
   trainingMax: number;
   currentCycle: number;
   currentWeek: number; // 1-4
+  increment?: number; // kg added to the TM at the end of each 4-week cycle (default 2.5)
 }
 
 // Extensible union — only '531' implemented so far; cluster/EMOM will extend this later.

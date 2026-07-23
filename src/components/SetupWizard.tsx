@@ -173,7 +173,7 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
                         Aucune
                       </button>
                       <button
-                        onClick={() => updateExerciseMethod(ti, ei, method531 ?? { type: '531', trainingMax: 60, currentCycle: 1, currentWeek: 1 })}
+                        onClick={() => updateExerciseMethod(ti, ei, method531 ?? { type: '531', trainingMax: 60, currentCycle: 1, currentWeek: 1, increment: 2.5 })}
                         className={`text-xs px-2.5 py-1.5 rounded-lg font-medium transition-all ${
                           method531 ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground'
                         }`}
