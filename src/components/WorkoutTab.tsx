@@ -434,7 +434,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
               <div className="space-y-1.5">
                 {weekSets.map((s, i) => (
                   <div key={i} className="flex items-center justify-between bg-secondary rounded-lg px-3 py-2">
-                    <span className="text-sm text-foreground">{s.weight} kg</span>
+                    <span className="text-sm text-primary font-bold">{s.weight} kg</span>
                     <span className="text-sm text-muted-foreground">× {s.reps}</span>
                     <span className="text-xs text-muted-foreground">{Math.round(s.percentage * 100)}%</span>
                   </div>
@@ -841,7 +841,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                 >
                   Min {minuteIdx + 1}
                   <br />
-                  {sets[s.globalIdx].weight}kg×{sets[s.globalIdx].reps}
+                  <span className={sets[s.globalIdx].completed ? '' : 'text-primary font-bold'}>{sets[s.globalIdx].weight}kg</span>×{sets[s.globalIdx].reps}
                 </button>
               ))}
             </div>
