@@ -35,6 +35,64 @@ const formatRestLabel = (seconds: number): string => {
   return rest === 0 ? `${mins}min` : `${mins}min${rest}`;
 };
 
+// Generates the SetLog rows for one exercise given whichever method actually applies
+// (its configured default, or a live session override) — shared by the initial session
+// build and by the in-session method switch, so both stay in sync.
+const buildSetsForExercise = (ex: Exercise, method: ExerciseMethod | undefined, lastWeight: number): SetLog[] => {
+  if (method?.type === '531') {
+    const weekSets = getWeekSets(method.trainingMax, method.currentWeek);
+    return weekSets.map((s, i) => ({
+      exerciseId: ex.id, exerciseName: ex.name, setNumber: i + 1,
+      reps: parseInt(s.reps) || 1, weight: s.weight, completed: false,
+    }));
+  }
+  if (method?.type === 'cluster') {
+    const { numSeries, miniSeries } = getClusterConfig(method);
+    const result: SetLog[] = [];
+    let i = 0;
+    for (let s = 0; s < numSeries; s++) {
+      miniSeries.forEach(m => {
+        result.push({
+          exerciseId: ex.id, exerciseName: ex.name, setNumber: ++i,
+          reps: m.reps, weight: getMiniSeriesWeight(method.trainingMax, m.percentage), completed: false,
+        });
+      });
+    }
+    return result;
+  }
+  if (method?.type === 'emom') {
+    const { durationMinutes, repsPerMinute, percentage } = getEmomConfig(method);
+    const weight = getEmomWeight(method.trainingMax, percentage);
+    const result: SetLog[] = [];
+    for (let i = 0; i < durationMinutes; i++) {
+      result.push({ exerciseId: ex.id, exerciseName: ex.name, setNumber: i + 1, reps: repsPerMinute, weight, completed: false });
+    }
+    return result;
+  }
+  const result: SetLog[] = [];
+  for (let i = 0; i < ex.sets; i++) {
+    result.push({ exerciseId: ex.id, exerciseName: ex.name, setNumber: i + 1, reps: ex.reps, weight: lastWeight, completed: false });
+  }
+  return result;
+};
+
+// Cluster/EMOM/Normal picker shown once the session is live, on the exercise's own card.
+const MethodPickerRow = ({ active, onSelect }: { active: 'cluster' | 'emom' | 'none'; onSelect: (opt: 'cluster' | 'emom' | 'none') => void }) => (
+  <div className="flex gap-1.5 mb-3">
+    {(['cluster', 'emom', 'none'] as const).map(opt => (
+      <button
+        key={opt}
+        onClick={() => onSelect(opt)}
+        className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-all ${
+          active === opt ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
+        }`}
+      >
+        {opt === 'cluster' ? 'Cluster' : opt === 'emom' ? 'EMOM' : 'Normal'}
+      </button>
+    ))}
+  </div>
+);
+
 const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: WorkoutTabProps) => {
   const [mode, setMode] = useState<Mode>('select');
   const [selectedType, setSelectedType] = useState<WorkoutType | null>(null);
@@ -51,6 +109,17 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
   const [methodOverrides, setMethodOverrides] = useState<Record<string, MethodOverride>>({});
   const restTimerRef = useRef<RestTimerHandle>(null);
 
+  // Resolves the full method (preset/rest times/duration included, not just TM) that
+  // applies for a given override choice — reusing the exercise's own configured method
+  // whenever its type already matches, so toggling away and back restores it exactly,
+  // and only synthesizing a bare-defaults method when switching to a technique the
+  // exercise wasn't already configured for.
+  const resolveOverrideMethod = (ex: Exercise, opt: 'cluster' | 'emom' | 'none'): ExerciseMethod | undefined => {
+    if (opt === 'none') return undefined;
+    if (ex.method?.type === opt) return ex.method;
+    return { type: opt, trainingMax: ex.method?.trainingMax ?? 60 };
+  };
+
   // Resolves what method actually applies to this exercise for the session about to
   // start: the per-session override if she picked one, otherwise the exercise's
   // configured default. Only cluster/emom exercises get an override control — 5/3/1
@@ -58,10 +127,28 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
   const getEffectiveMethod = useCallback((ex: Exercise): ExerciseMethod | undefined => {
     const override = methodOverrides[ex.id];
     if (!override || override === 'default') return ex.method;
-    if (override === 'none') return undefined;
-    const trainingMax = ex.method?.trainingMax ?? 60;
-    return override === 'cluster' ? { type: 'cluster', trainingMax } : { type: 'emom', trainingMax };
+    return resolveOverrideMethod(ex, override as 'cluster' | 'emom' | 'none');
   }, [methodOverrides]);
+
+  // Switches an exercise's technique for the current session only (never touches its
+  // configured default) and regenerates its live sets in place, at the same position
+  // in the flat `sets` array, so ordering and other exercises are undisturbed.
+  const applyMethodOverride = (ex: Exercise, opt: 'cluster' | 'emom' | 'none') => {
+    const currentType = getEffectiveMethod(ex)?.type ?? 'none';
+    if (currentType === opt) return;
+    setMethodOverrides(prev => ({ ...prev, [ex.id]: opt }));
+    const effectiveMethod = resolveOverrideMethod(ex, opt);
+    setSets(prev => {
+      const idx = prev.findIndex(s => s.exerciseId === ex.id);
+      if (idx === -1) return prev;
+      const insertAt = prev.slice(0, idx).filter(s => s.exerciseId !== ex.id).length;
+      const filtered = prev.filter(s => s.exerciseId !== ex.id);
+      const fresh = buildSetsForExercise(ex, effectiveMethod, 0);
+      const result = [...filtered];
+      result.splice(insertAt, 0, ...fresh);
+      return result;
+    });
+  };
 
   useEffect(() => {
     if (mode !== 'recap') return;
@@ -119,6 +206,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
     setMode('recap');
     setStartTime(Date.now());
     setAmrapReps({});
+    setMethodOverrides({});
 
     const initialWeeks: Record<string, number> = {};
     type.exercises.forEach(ex => {
@@ -157,69 +245,11 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
           });
         }
       } else {
+        // Session always starts from each exercise's configured default method — the
+        // live picker to switch Cluster/EMOM/Normal only appears once inside the session.
         const ex = exerciseMap.get(block.exerciseIds[0])!;
-        const method = getEffectiveMethod(ex);
-        // 5/3/1 exercises get their weekly-percentage sets instead of the flat sets×reps
-        if (method?.type === '531') {
-          const weekSets = getWeekSets(method.trainingMax, method.currentWeek);
-          weekSets.forEach((s, i) => {
-            initialSets.push({
-              exerciseId: ex.id,
-              exerciseName: ex.name,
-              setNumber: i + 1,
-              reps: parseInt(s.reps) || 1,
-              weight: s.weight,
-              completed: false,
-            });
-          });
-          return;
-        }
-        // Cluster exercises: numSeries repeats of the configured mini-series scheme
-        // (own rep count + %TM each), so wave/pyramid schemes carry through as-is.
-        if (method?.type === 'cluster') {
-          const { numSeries, miniSeries } = getClusterConfig(method);
-          let i = 0;
-          for (let s = 0; s < numSeries; s++) {
-            miniSeries.forEach(m => {
-              initialSets.push({
-                exerciseId: ex.id,
-                exerciseName: ex.name,
-                setNumber: ++i,
-                reps: m.reps,
-                weight: getMiniSeriesWeight(method.trainingMax, m.percentage),
-                completed: false,
-              });
-            });
-          }
-          return;
-        }
-        // EMOM exercises get one set per minute at the configured %TM for the configured duration
-        if (method?.type === 'emom') {
-          const { durationMinutes, repsPerMinute, percentage } = getEmomConfig(method);
-          const weight = getEmomWeight(method.trainingMax, percentage);
-          for (let i = 0; i < durationMinutes; i++) {
-            initialSets.push({
-              exerciseId: ex.id,
-              exerciseName: ex.name,
-              setNumber: i + 1,
-              reps: repsPerMinute,
-              weight,
-              completed: false,
-            });
-          }
-          return;
-        }
         const lastWeight = lastWeights[ex.id] || 0;
-        for (let i = 0; i < ex.sets; i++) {
-          initialSets.push({
-            exerciseId: ex.id,
-            exerciseName: ex.name,
-            setNumber: i + 1,
-            reps: ex.reps,
-            weight: lastWeight,
-            completed: false,
-          });
-        }
+        initialSets.push(...buildSetsForExercise(ex, ex.method, lastWeight));
       }
     });
     setSets(initialSets);
@@ -417,13 +447,6 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
         .filter(ex => ex.method?.type === '531')
         .map(ex => ({ type, exercise: ex, method: ex.method as FiveThreeOneMethod }))
     );
-    // Cluster/EMOM exercises: switchable per session (picker below), unlike 5/3/1.
-    const methodExercises = activeTypes.flatMap(type =>
-      type.exercises
-        .filter(ex => ex.method?.type === 'cluster' || ex.method?.type === 'emom')
-        .map(ex => ({ type, exercise: ex }))
-    );
-
     return (
       <div className="px-4 pt-12 pb-24 animate-slide-up">
         <div className="flex items-center justify-between mb-6">
@@ -457,71 +480,6 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                 ))}
               </div>
               <p className="text-xs text-muted-foreground mt-2">TM: {method.trainingMax} kg</p>
-            </div>
-          );
-        })}
-
-        {/* Cluster/EMOM Block — one card per exercise, with a per-session technique picker */}
-        {methodExercises.map(({ exercise }) => {
-          const effective = getEffectiveMethod(exercise);
-          return (
-            <div key={exercise.id} className="glass-card p-4 mb-6">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-bold text-primary">{exercise.name}</span>
-                <span className="text-xs text-muted-foreground">
-                  {effective?.type === 'cluster' ? 'Cluster' : effective?.type === 'emom' ? 'EMOM' : 'Normal'}
-                </span>
-              </div>
-
-              <div className="flex gap-1.5 mb-3">
-                {(['cluster', 'emom', 'none'] as const).map(opt => {
-                  const active = (effective?.type ?? 'none') === opt;
-                  return (
-                    <button
-                      key={opt}
-                      onClick={() => setMethodOverrides(prev => ({ ...prev, [exercise.id]: opt }))}
-                      className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                        active ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
-                      }`}
-                    >
-                      {opt === 'cluster' ? 'Cluster' : opt === 'emom' ? 'EMOM' : 'Normal'}
-                    </button>
-                  );
-                })}
-              </div>
-
-              {effective?.type === 'cluster' && (() => {
-                const { numSeries, miniSeries } = getClusterConfig(effective);
-                return (
-                  <>
-                    <p className="text-sm text-foreground font-medium">
-                      {numSeries} séries × {miniSeries.map(m => `${m.reps}×${Math.round(m.percentage * 100)}%`).join(' · ')}
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {miniSeries.map(m => `${getMiniSeriesWeight(effective.trainingMax, m.percentage)}kg`).join(' · ')}
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-2">TM: {effective.trainingMax} kg</p>
-                  </>
-                );
-              })()}
-
-              {effective?.type === 'emom' && (() => {
-                const { durationMinutes, repsPerMinute, percentage } = getEmomConfig(effective);
-                return (
-                  <>
-                    <p className="text-sm text-foreground font-medium">
-                      {durationMinutes} min × {repsPerMinute} reps/min à <span className="text-primary font-bold">{getEmomWeight(effective.trainingMax, percentage)} kg</span> ({Math.round(percentage * 100)}%)
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-2">TM: {effective.trainingMax} kg</p>
-                  </>
-                );
-              })()}
-
-              {!effective && (
-                <p className="text-xs text-muted-foreground">
-                  Sets normaux pour cette séance — {exercise.sets} × {exercise.reps}
-                </p>
-              )}
             </div>
           );
         })}
@@ -573,6 +531,12 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
   const regularSets = sets
     .map((s, i) => ({ ...s, globalIdx: i }))
     .filter(s => !fiveThreeOneExerciseIds.has(s.exerciseId) && !clusterExerciseIds.has(s.exerciseId) && !emomExerciseIds.has(s.exerciseId));
+  // Exercises with a configured Cluster/EMOM default that are currently overridden to
+  // "Normal" for this session — still get the picker on their (now regular) card so
+  // switching back doesn't require restarting the session.
+  const methodConfigMap = new Map(
+    (selectedType?.exercises || []).filter(ex => ex.method?.type === 'cluster' || ex.method?.type === 'emom').map(ex => [ex.id, ex])
+  );
 
   // Build ordered blocks (single exercise or superset pair)
   type SingleBlock = { kind: 'single'; exerciseId: string; name: string; entries: { globalIdx: number; set: SetLog }[] };
@@ -790,8 +754,9 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
           <div key={ex.id} className="glass-card p-4 mb-4 border-primary/30">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-bold text-primary">{ex.name}</h3>
-              <span className="text-xs text-muted-foreground">Cluster · TM {method.trainingMax} kg</span>
+              <span className="text-xs text-muted-foreground">TM {method.trainingMax} kg</span>
             </div>
+            <MethodPickerRow active="cluster" onSelect={opt => applyMethodOverride(ex, opt)} />
             <label className="flex items-center justify-between mb-3 -mt-1 cursor-pointer">
               <span className="text-xs text-muted-foreground flex items-center gap-1.5">
                 <Timer size={12} className="text-primary" /> Chrono automatique
@@ -869,8 +834,9 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
           <div key={ex.id} className="glass-card p-4 mb-4 border-primary/30">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-bold text-primary">{ex.name}</h3>
-              <span className="text-xs text-muted-foreground">EMOM · TM {method.trainingMax} kg</span>
+              <span className="text-xs text-muted-foreground">TM {method.trainingMax} kg</span>
             </div>
+            <MethodPickerRow active="emom" onSelect={opt => applyMethodOverride(ex, opt)} />
             <div className="mb-3">
               <EmomTimer totalMinutes={durationMinutes} />
             </div>
@@ -1004,6 +970,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
           const lastPerf = getLastPerformance(name);
           const absRecord = getAbsoluteRecord(name);
           const isTemp = exerciseId.startsWith('temp-');
+          const methodEx = methodConfigMap.get(exerciseId);
 
           return (
             <div key={exerciseId} className="glass-card p-4">
@@ -1027,6 +994,8 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                   </button>
                 )}
               </div>
+
+              {methodEx && <MethodPickerRow active="none" onSelect={opt => applyMethodOverride(methodEx, opt)} />}
 
               {(lastPerf || absRecord) && (
                 <div className="flex flex-wrap gap-x-3 gap-y-0.5 mb-2">
