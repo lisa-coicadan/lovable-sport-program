@@ -233,14 +233,14 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
         <button onClick={onClose} className="text-muted-foreground touch-target p-1">
           <ArrowLeft size={20} />
         </button>
-        <h1 className="text-xl font-bold text-foreground">Settings</h1>
+        <h1 className="text-xl font-bold text-foreground">Réglages</h1>
       </div>
 
       {/* Body Weight */}
       <div className="glass-card p-4 mb-6">
         <div className="flex items-center gap-2 mb-3">
           <Scale size={16} className="text-primary" />
-          <h3 className="text-sm font-bold text-foreground">Log Body Weight</h3>
+          <h3 className="text-sm font-bold text-foreground">Poids corporel</h3>
         </div>
         <div className="flex items-center gap-3">
           <input
@@ -248,13 +248,13 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
             value={bodyWeight}
             onChange={e => setBodyWeight(e.target.value)}
             className="flex-1 bg-secondary text-foreground rounded-xl px-3 py-2.5 text-sm outline-none font-mono text-center"
-            placeholder="e.g. 75"
+            placeholder="ex. 75"
           />
           <span className="text-sm text-muted-foreground">kg</span>
         </div>
         {(data.bodyWeightLogs || []).length > 0 && (
           <p className="text-[10px] text-muted-foreground mt-2">
-            Last: {data.bodyWeightLogs.sort((a, b) => b.date.localeCompare(a.date))[0].weight} kg
+            Dernier : {data.bodyWeightLogs.sort((a, b) => b.date.localeCompare(a.date))[0].weight} kg
           </p>
         )}
       </div>
@@ -262,8 +262,8 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
       {/* Weekly Goal */}
       <div className="glass-card p-4 mb-6">
         <div className="flex items-center justify-between mb-2">
-          <span className="text-sm font-medium text-foreground">Weekly Goal</span>
-          <span className="text-sm font-bold text-primary">{weeklyGoal} sessions</span>
+          <span className="text-sm font-medium text-foreground">Objectif hebdo</span>
+          <span className="text-sm font-bold text-primary">{weeklyGoal} séances</span>
         </div>
         <input
           type="range"
@@ -278,7 +278,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
 
       {/* Active Sessions */}
       <div className="mb-4">
-        <h3 className="text-sm font-semibold text-foreground mb-3">Active Sessions</h3>
+        <h3 className="text-sm font-semibold text-foreground mb-3">Séances actives</h3>
         <div className="space-y-3">
           {workoutTypes.map((type, ti) => {
             if (type.hidden) return null;
@@ -290,24 +290,24 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                     value={type.name}
                     onChange={e => updateTypeName(ti, e.target.value)}
                     className="bg-transparent text-foreground font-semibold outline-none flex-1"
-                    placeholder="Session name"
+                    placeholder="Nom de la séance"
                   />
-                  <button onClick={() => toggleHide(ti)} className="text-muted-foreground p-1 touch-target" title="Hide">
+                  <button onClick={() => toggleHide(ti)} className="text-muted-foreground p-1 touch-target" title="Masquer">
                     <EyeOff size={16} />
                   </button>
-                  <button onClick={() => deleteType(ti)} className="text-destructive p-1 touch-target" title="Delete">
+                  <button onClick={() => deleteType(ti)} className="text-destructive p-1 touch-target" title="Supprimer">
                     <Trash2 size={16} />
                   </button>
                 </div>
                 <div className="flex items-center gap-1.5 mb-3 flex-wrap">
-                  <span className="text-[10px] text-muted-foreground mr-1">Color</span>
+                  <span className="text-[10px] text-muted-foreground mr-1">Couleur</span>
                   {WORKOUT_COLORS.map(c => (
                     <button
                       key={c}
                       onClick={() => updateTypeColor(ti, c)}
                       className={`w-6 h-6 rounded-full border-2 transition-transform ${type.color === c ? 'border-foreground scale-110' : 'border-transparent'}`}
                       style={{ backgroundColor: `hsl(${c})` }}
-                      aria-label="Select color"
+                      aria-label="Choisir une couleur"
                     />
                   ))}
                 </div>
@@ -328,7 +328,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                 ? 'bg-primary/15 text-primary font-medium border border-primary/40'
                                 : 'bg-secondary text-foreground'
                             }`}
-                            placeholder="Exercise"
+                            placeholder="Exercice"
                           />
                           {hasMethod ? (
                             <span className="text-[10px] text-muted-foreground px-1 flex-shrink-0" title="Séries, reps et poids sont calculés automatiquement à partir du Training Max">
@@ -337,7 +337,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                           ) : (
                             <>
                               {opts?.hideSets ? (
-                                <span className="text-[10px] text-muted-foreground w-10 text-center">shared</span>
+                                <span className="text-[10px] text-muted-foreground w-10 text-center">partagé</span>
                               ) : (
                                 <input
                                   type="number"
@@ -395,7 +395,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                   <div className="flex items-center gap-2">
                                     {!a.method && (
                                       <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                                        <span>Series</span>
+                                        <span>Séries</span>
                                         <input
                                           type="number"
                                           value={a.sets || ''}
@@ -407,7 +407,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                     <button
                                       onClick={() => unlinkExerciseSuperset(ti, block.key)}
                                       className="text-muted-foreground p-1 active:text-destructive"
-                                      title="Unlink"
+                                      title="Dissocier"
                                     >
                                       <Link2Off size={13} />
                                     </button>
@@ -439,7 +439,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                               {freePartners.length > 0 && (
                                 <details className="pl-6">
                                   <summary className="text-[10px] text-muted-foreground cursor-pointer flex items-center gap-1 py-0.5">
-                                    <Link2 size={10} /> Link as superset
+                                    <Link2 size={10} /> Associer en superset
                                   </summary>
                                   <div className="flex flex-wrap gap-1 pt-1">
                                     {freePartners.map(p => (
@@ -523,7 +523,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                             method531.currentWeek === w ? 'bg-primary text-primary-foreground' : 'bg-background/60 text-muted-foreground'
                                           }`}
                                         >
-                                          {w === 4 ? 'D' : `W${w}`}
+                                          {w === 4 ? 'D' : `S${w}`}
                                         </button>
                                       ))}
                                     </div>
@@ -545,7 +545,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                   })()}
 
                   <button onClick={() => addExercise(ti)} className="flex items-center gap-1 text-primary text-xs font-medium py-1">
-                    <Plus size={12} /> Add exercise
+                    <Plus size={12} /> Ajouter un exercice
                   </button>
                 </div>
               </div>
@@ -557,18 +557,18 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
       {/* Hidden Sessions */}
       {hiddenTypes.length > 0 && (
         <div className="mb-4">
-          <h3 className="text-sm font-semibold text-muted-foreground mb-3">Hidden Sessions</h3>
+          <h3 className="text-sm font-semibold text-muted-foreground mb-3">Séances masquées</h3>
           <div className="space-y-2">
             {hiddenTypes.map(type => {
               const ti = workoutTypes.findIndex(t => t.id === type.id);
               return (
                 <div key={type.id} className="glass-card p-3 opacity-60 flex items-center gap-3">
                   <div className="w-3 h-3 rounded-full" style={{ backgroundColor: `hsl(${type.color})` }} />
-                  <span className="text-foreground text-sm flex-1">{type.name || 'Unnamed'}</span>
-                  <button onClick={() => toggleHide(ti)} className="text-primary p-1 touch-target" title="Restore">
+                  <span className="text-foreground text-sm flex-1">{type.name || 'Sans nom'}</span>
+                  <button onClick={() => toggleHide(ti)} className="text-primary p-1 touch-target" title="Restaurer">
                     <RotateCcw size={16} />
                   </button>
-                  <button onClick={() => deleteType(ti)} className="text-destructive p-1 touch-target" title="Delete permanently">
+                  <button onClick={() => deleteType(ti)} className="text-destructive p-1 touch-target" title="Supprimer définitivement">
                     <Trash2 size={16} />
                   </button>
                 </div>
@@ -582,7 +582,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
         onClick={addWorkoutType}
         className="w-full glass-card p-3 flex items-center justify-center gap-2 text-primary text-sm font-medium mb-3 transition-transform active:scale-95"
       >
-        <Plus size={16} /> Add new session type
+        <Plus size={16} /> Ajouter un type de séance
       </button>
 
       {/* Create a session from freeform notes */}
@@ -637,13 +637,13 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
             onClick={handleExport}
             className="flex items-center justify-center gap-1.5 bg-secondary text-foreground rounded-xl py-2.5 text-sm font-medium active:scale-95 transition-transform"
           >
-            <Download size={14} /> Export
+            <Download size={14} /> Exporter
           </button>
           <button
             onClick={handleImportClick}
             className="flex items-center justify-center gap-1.5 bg-secondary text-foreground rounded-xl py-2.5 text-sm font-medium active:scale-95 transition-transform"
           >
-            <Upload size={14} /> Import
+            <Upload size={14} /> Importer
           </button>
         </div>
         <input

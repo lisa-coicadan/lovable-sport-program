@@ -9,10 +9,10 @@ interface SetupWizardProps {
 const SetupWizard = ({ onComplete }: SetupWizardProps) => {
   const [step, setStep] = useState(0);
   const [workoutTypes, setWorkoutTypes] = useState<WorkoutType[]>([
-    { id: '1', name: 'Push', color: WORKOUT_COLORS[0], exercises: [{ id: 'e1', name: 'Bench Press', sets: 4, reps: 8 }] },
-    { id: '2', name: 'Pull', color: WORKOUT_COLORS[1], exercises: [{ id: 'e2', name: 'Barbell Row', sets: 4, reps: 8 }] },
-    { id: '3', name: 'Legs', color: WORKOUT_COLORS[2], exercises: [{ id: 'e3', name: 'Squat', sets: 4, reps: 8 }] },
-    { id: '4', name: 'Full Body', color: WORKOUT_COLORS[3], exercises: [{ id: 'e4', name: 'Deadlift', sets: 3, reps: 5 }] },
+    { id: '1', name: 'Poussée', color: WORKOUT_COLORS[0], exercises: [{ id: 'e1', name: 'Développé couché', sets: 4, reps: 8 }] },
+    { id: '2', name: 'Tirage', color: WORKOUT_COLORS[1], exercises: [{ id: 'e2', name: 'Rowing barre', sets: 4, reps: 8 }] },
+    { id: '3', name: 'Jambes', color: WORKOUT_COLORS[2], exercises: [{ id: 'e3', name: 'Squat', sets: 4, reps: 8 }] },
+    { id: '4', name: 'Corps entier', color: WORKOUT_COLORS[3], exercises: [{ id: 'e4', name: 'Soulevé de terre', sets: 3, reps: 5 }] },
   ]);
 
   const addExercise = (typeIndex: number) => {
@@ -56,16 +56,16 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
         <div className="text-center mb-10">
           <div className="text-5xl mb-4">💪</div>
           <h1 className="text-3xl font-bold text-foreground mb-2">FitTrack</h1>
-          <p className="text-muted-foreground mb-1">Your personal fitness companion</p>
+          <p className="text-muted-foreground mb-1">Ton compagnon fitness personnel</p>
           <p className="text-sm text-muted-foreground mt-4 max-w-xs mx-auto">
-            Track your workouts, follow the 5/3/1 squat program, and monitor your progress — all in one app.
+            Suis tes séances, active le 5/3/1 sur les exercices de ton choix, et progresse — tout en une seule app.
           </p>
         </div>
         <button
           onClick={() => setStep(1)}
           className="w-full max-w-xs bg-primary text-primary-foreground font-semibold py-4 rounded-2xl touch-target text-lg transition-transform active:scale-95"
         >
-          Get Started
+          Commencer
         </button>
       </div>
     );
@@ -77,9 +77,9 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
       <div className="min-h-screen bg-background px-4 pt-12 pb-8 animate-slide-up">
         <div className="flex items-center gap-3 mb-1">
           <button onClick={() => setStep(0)} className="text-muted-foreground p-1"><ChevronLeft size={20} /></button>
-          <h2 className="text-2xl font-bold text-foreground">Your Workouts</h2>
+          <h2 className="text-2xl font-bold text-foreground">Tes séances</h2>
         </div>
-        <p className="text-muted-foreground text-sm mb-6 ml-8">Create your workout templates with exercises</p>
+        <p className="text-muted-foreground text-sm mb-6 ml-8">Crée tes modèles de séance avec leurs exercices</p>
         
         <div className="space-y-4 mb-8">
           {workoutTypes.map((type, ti) => (
@@ -90,7 +90,7 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
                   value={type.name}
                   onChange={e => updateTypeName(ti, e.target.value)}
                   className="bg-transparent text-foreground font-semibold text-lg outline-none flex-1"
-                  placeholder="Workout name"
+                  placeholder="Nom de la séance"
                 />
               </div>
               <div className="space-y-2">
@@ -100,14 +100,14 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
                       value={ex.name}
                       onChange={e => updateExercise(ti, ei, 'name', e.target.value)}
                       className="flex-1 bg-secondary text-foreground rounded-lg px-3 py-2 text-sm outline-none"
-                      placeholder="Exercise name"
+                      placeholder="Nom de l'exercice"
                     />
                     <input
                       type="number"
                       value={ex.sets || ''}
                       onChange={e => updateExercise(ti, ei, 'sets', e.target.value === '' ? '' as any : parseInt(e.target.value) || 0)}
                       className="w-14 bg-secondary text-foreground rounded-lg px-2 py-2 text-sm text-center outline-none"
-                      placeholder="Sets"
+                      placeholder="Séries"
                     />
                     <span className="text-muted-foreground text-xs">×</span>
                     <input
@@ -123,7 +123,7 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
                   </div>
                 ))}
                 <button onClick={() => addExercise(ti)} className="flex items-center gap-1 text-primary text-sm font-medium py-1">
-                  <Plus size={14} /> Add exercise
+                  <Plus size={14} /> Ajouter un exercice
                 </button>
               </div>
             </div>
@@ -133,7 +133,7 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
           onClick={() => setStep(2)}
           className="w-full bg-primary text-primary-foreground font-semibold py-4 rounded-2xl touch-target text-lg flex items-center justify-center gap-2 transition-transform active:scale-95"
         >
-          Next <ChevronRight size={20} />
+          Suivant <ChevronRight size={20} />
         </button>
       </div>
     );
@@ -156,14 +156,14 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
             <div key={type.id} className="glass-card p-4">
               <div className="flex items-center gap-2 mb-3">
                 <div className="w-3 h-3 rounded-full" style={{ backgroundColor: `hsl(${type.color})` }} />
-                <span className="text-foreground font-semibold">{type.name || 'Untitled'}</span>
+                <span className="text-foreground font-semibold">{type.name || 'Sans titre'}</span>
               </div>
               <div className="space-y-2">
                 {type.exercises.map((ex, ei) => {
                   const method531 = ex.method?.type === '531' ? ex.method : null;
                   return (
                     <div key={ex.id} className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm text-foreground flex-1 min-w-0 truncate">{ex.name || 'Untitled'}</span>
+                      <span className="text-sm text-foreground flex-1 min-w-0 truncate">{ex.name || 'Sans titre'}</span>
                       <button
                         onClick={() => updateExerciseMethod(ti, ei, undefined)}
                         className={`text-xs px-2.5 py-1.5 rounded-lg font-medium transition-all ${
@@ -204,7 +204,7 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
           onClick={() => setStep(3)}
           className="w-full bg-primary text-primary-foreground font-semibold py-4 rounded-2xl touch-target text-lg flex items-center justify-center gap-2 transition-transform active:scale-95"
         >
-          Next <ChevronRight size={20} />
+          Suivant <ChevronRight size={20} />
         </button>
       </div>
     );
@@ -215,9 +215,9 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
     <div className="min-h-screen bg-background px-4 pt-12 pb-8 animate-slide-up">
       <div className="flex items-center gap-3 mb-1">
         <button onClick={() => setStep(2)} className="text-muted-foreground p-1"><ChevronLeft size={20} /></button>
-        <h2 className="text-2xl font-bold text-foreground">Ready to go!</h2>
+        <h2 className="text-2xl font-bold text-foreground">C'est prêt !</h2>
       </div>
-      <p className="text-muted-foreground text-sm mb-6 ml-8">Review your setup</p>
+      <p className="text-muted-foreground text-sm mb-6 ml-8">Vérifie ta configuration</p>
 
       <div className="space-y-3 mb-6">
         {workoutTypes.map(type => (
@@ -230,7 +230,7 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
               )}
             </div>
             <p className="text-xs text-muted-foreground ml-6">
-              {type.exercises.map(e => e.name).filter(Boolean).join(' · ') || 'No exercises'}
+              {type.exercises.map(e => e.name).filter(Boolean).join(' · ') || 'Aucun exercice'}
             </p>
           </div>
         ))}
@@ -258,7 +258,7 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
         onClick={handleFinish}
         className="w-full bg-primary text-primary-foreground font-semibold py-4 rounded-2xl touch-target text-lg flex items-center justify-center gap-2 transition-transform active:scale-95"
       >
-        <Check size={20} /> Start Training
+        <Check size={20} /> Commencer
       </button>
     </div>
   );

@@ -218,7 +218,7 @@ const RestTimer = ({ defaultSeconds = 90 }: RestTimerProps) => {
   return (
     <div className="fixed bottom-24 right-4 z-40 glass-card p-4 shadow-2xl w-72">
       <div className="flex items-center justify-between mb-3">
-        <span className="text-sm font-medium text-muted-foreground">Rest Timer</span>
+        <span className="text-sm font-medium text-muted-foreground">Minuteur de repos</span>
         <button onClick={() => setExpanded(false)} className="text-muted-foreground p-1">
           <X size={16} />
         </button>
@@ -263,7 +263,7 @@ const RestTimer = ({ defaultSeconds = 90 }: RestTimerProps) => {
             className="flex-1 touch-target bg-primary text-primary-foreground rounded-xl py-2.5 font-medium text-sm flex items-center justify-center gap-1.5 transition-transform active:scale-95"
           >
             {isRunning ? <Pause size={14} /> : <Play size={14} />}
-            {isRunning ? 'Pause' : 'Start'}
+            {isRunning ? 'Pause' : 'Démarrer'}
           </button>
           <button
             onClick={reset}

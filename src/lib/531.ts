@@ -40,7 +40,7 @@ export function getWeekSets(trainingMax: number, week: number): FiveThreeOneSet[
 }
 
 export function getWeekLabel(week: number): string {
-  const labels = ['Week 1 — 5s', 'Week 2 — 3s', 'Week 3 — 5/3/1', 'Week 4 — Deload'];
+  const labels = ['Semaine 1 — 5 reps', 'Semaine 2 — 3 reps', 'Semaine 3 — 5/3/1', 'Semaine 4 — Deload'];
   return labels[week - 1] || labels[0];
 }
 

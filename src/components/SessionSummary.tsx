@@ -81,12 +81,12 @@ const SessionSummary = ({ session, previousSessions = [], onSave, onBack, readOn
   };
 
   const handleShare = async () => {
-    const text = `${session.workoutTypeName} — ${new Date(session.date + 'T00:00:00').toLocaleDateString('default', { month: 'long', day: 'numeric', year: 'numeric' })}\n\n` +
+    const text = `${session.workoutTypeName} — ${new Date(session.date + 'T00:00:00').toLocaleDateString('fr-FR', { month: 'long', day: 'numeric', year: 'numeric' })}\n\n` +
       groupedExercises.map(([name, sets]) => {
         const best = sets.reduce((b, s) => calculate1RM(s.weight, s.reps) > calculate1RM(b.weight, b.reps) ? s : b, sets[0]);
         return `${name}: ${best.weight}kg × ${best.reps} (1RM: ${calculate1RM(best.weight, best.reps)}kg)`;
       }).join('\n') +
-      `\n\nDuration: ${duration || session.duration || 60} min | RPE: ${difficulty || session.difficulty || '?'}/5` +
+      `\n\nDurée : ${duration || session.duration || 60} min | RPE : ${difficulty || session.difficulty || '?'}/5` +
       (notes ? `\n${notes}` : '');
 
     if (navigator.share) {
@@ -96,7 +96,7 @@ const SessionSummary = ({ session, previousSessions = [], onSave, onBack, readOn
     }
   };
 
-  const sessionDate = new Date(session.date + 'T00:00:00').toLocaleDateString('default', {
+  const sessionDate = new Date(session.date + 'T00:00:00').toLocaleDateString('fr-FR', {
     weekday: 'long', month: 'long', day: 'numeric', year: 'numeric'
   });
 
@@ -108,7 +108,7 @@ const SessionSummary = ({ session, previousSessions = [], onSave, onBack, readOn
         </button>
         <div className="flex-1">
           <h1 className="text-xl font-bold text-foreground">
-            {readOnly ? session.workoutTypeName : 'Session Complete! 🎉'}
+            {readOnly ? session.workoutTypeName : 'Séance terminée ! 🎉'}
           </h1>
           <p className="text-xs text-muted-foreground">{sessionDate}</p>
         </div>
@@ -121,7 +121,7 @@ const SessionSummary = ({ session, previousSessions = [], onSave, onBack, readOn
       <div className="grid grid-cols-3 gap-3 mb-6">
         <div className="glass-card p-3 text-center">
           <p className="text-2xl font-bold text-primary">{completedSets.length}</p>
-          <p className="text-[10px] text-muted-foreground">Sets Done</p>
+          <p className="text-[10px] text-muted-foreground">Séries faites</p>
         </div>
         <div className="glass-card p-3 text-center">
           <p className="text-2xl font-bold text-foreground">{Math.round(totalVolume)}</p>
@@ -173,7 +173,7 @@ const SessionSummary = ({ session, previousSessions = [], onSave, onBack, readOn
                 <div className="space-y-1.5 mb-2">
                   {sets.map((s, i) => (
                     <div key={i} className="flex items-center justify-between bg-secondary rounded-lg px-3 py-2">
-                      <span className="text-xs text-muted-foreground">Set {i + 1}</span>
+                      <span className="text-xs text-muted-foreground">Série {i + 1}</span>
                       <span className="text-sm text-foreground font-mono">{s.weight} kg × {s.reps}</span>
                     </div>
                   ))}
@@ -192,7 +192,7 @@ const SessionSummary = ({ session, previousSessions = [], onSave, onBack, readOn
                     }`}>
                       {prog.weightDiff !== 0 && `${prog.weightDiff > 0 ? '+' : ''}${prog.weightDiff}kg`}
                       {prog.repDiff !== 0 && ` ${prog.repDiff > 0 ? '+' : ''}${prog.repDiff} rep${Math.abs(prog.repDiff) > 1 ? 's' : ''}`}
-                      {prog.weightDiff === 0 && prog.repDiff === 0 && 'Same as last time'}
+                      {prog.weightDiff === 0 && prog.repDiff === 0 && 'Identique à la dernière fois'}
                     </span>
                   </div>
                 )}
@@ -206,7 +206,7 @@ const SessionSummary = ({ session, previousSessions = [], onSave, onBack, readOn
         <>
           {/* Duration */}
           <div className="glass-card p-4 mb-4">
-            <label className="text-xs text-muted-foreground mb-1.5 block">Duration (minutes)</label>
+            <label className="text-xs text-muted-foreground mb-1.5 block">Durée (minutes)</label>
             <input
               type="number"
               value={duration || ''}
@@ -218,7 +218,7 @@ const SessionSummary = ({ session, previousSessions = [], onSave, onBack, readOn
           {/* Difficulty 1-5 */}
           <div className="glass-card p-4 mb-4">
             <div className="flex items-center justify-between mb-3">
-              <label className="text-xs text-muted-foreground">How did you feel?</label>
+              <label className="text-xs text-muted-foreground">Comment tu t'es sentie ?</label>
               <span className="text-sm font-bold text-foreground">{difficulty}/5</span>
             </div>
             <input
@@ -230,8 +230,8 @@ const SessionSummary = ({ session, previousSessions = [], onSave, onBack, readOn
               className="w-full accent-primary h-2"
             />
             <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
-              <span>Easy</span>
-              <span>Hard</span>
+              <span>Facile</span>
+              <span>Difficile</span>
             </div>
           </div>
 
@@ -241,7 +241,7 @@ const SessionSummary = ({ session, previousSessions = [], onSave, onBack, readOn
             <textarea
               value={notes}
               onChange={e => setNotes(e.target.value)}
-              placeholder="How did the session go?"
+              placeholder="Comment s'est passée la séance ?"
               className="w-full bg-secondary text-foreground rounded-xl px-3 py-2.5 text-sm outline-none resize-none min-h-[80px]"
             />
           </div>
@@ -250,7 +250,7 @@ const SessionSummary = ({ session, previousSessions = [], onSave, onBack, readOn
             onClick={handleSave}
             className="w-full bg-primary text-primary-foreground font-semibold py-4 rounded-2xl touch-target text-lg flex items-center justify-center gap-2 transition-transform active:scale-95"
           >
-            Save Session <ChevronRight size={20} />
+            Enregistrer la séance <ChevronRight size={20} />
           </button>
         </>
       )}

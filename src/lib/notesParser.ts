@@ -159,7 +159,7 @@ export const NOTES_SYNTAX_HELP =
   `  Développé couché : 3x8\n` +
   `  3x8 développé couché\n` +
   `  Développé militaire 4x12 à 10kg\n` +
-  `  3x12 Overhead press+ 10 Élévations latérales\n\n` +
+  `  3x12 Développé militaire+ 10 Élévations latérales\n\n` +
   `(le "+" permet de créer un superset)\n\n` +
   `La première ligne doit être le nom de la séance\n\n` +
   `Une ligne non reconnue n'est pas incluse et reste éditable à la main`;

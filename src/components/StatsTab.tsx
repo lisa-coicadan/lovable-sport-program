@@ -97,7 +97,7 @@ const StatsTab = ({ data }: StatsTabProps) => {
     while (cursor <= nowMonday) {
       const key = cursor.toISOString().split('T')[0];
       out.push({
-        week: cursor.toLocaleDateString('default', { month: 'short', day: 'numeric' }),
+        week: cursor.toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' }),
         sessions: countByWeek.get(key) || 0,
         goal: data.weeklyGoal,
       });
@@ -114,7 +114,7 @@ const StatsTab = ({ data }: StatsTabProps) => {
       .map(s => {
         const volume = s.sets.reduce((acc, set) => acc + set.reps * set.weight, 0);
         return {
-          date: new Date(s.date).toLocaleDateString('default', { month: 'short', day: 'numeric' }),
+          date: new Date(s.date).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' }),
           volume,
           type: s.workoutTypeName,
         };
@@ -130,7 +130,7 @@ const StatsTab = ({ data }: StatsTabProps) => {
       .sort((a, b) => a.date.localeCompare(b.date))
       .slice(-20)
       .map(s => ({
-        date: new Date(s.date).toLocaleDateString('default', { month: 'short', day: 'numeric' }),
+        date: new Date(s.date).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' }),
         difficulty: s.difficulty || 0,
         type: s.workoutTypeName,
       }));
@@ -148,7 +148,7 @@ const StatsTab = ({ data }: StatsTabProps) => {
       .sort(([a], [b]) => a.localeCompare(b))
       .slice(-8)
       .map(([week, minutes]) => ({
-        week: new Date(week).toLocaleDateString('default', { month: 'short', day: 'numeric' }),
+        week: new Date(week).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' }),
         minutes,
       }));
   }, [data.sessions]);
@@ -165,7 +165,7 @@ const StatsTab = ({ data }: StatsTabProps) => {
       .sort(([a], [b]) => a.localeCompare(b))
       .slice(-6)
       .map(([month, minutes]) => ({
-        month: new Date(month + '-01').toLocaleDateString('default', { month: 'short' }),
+        month: new Date(month + '-01').toLocaleDateString('fr-FR', { month: 'short' }),
         minutes,
       }));
   }, [data.sessions]);
@@ -181,11 +181,11 @@ const StatsTab = ({ data }: StatsTabProps) => {
 
   return (
     <div className="px-4 pt-12 pb-24 animate-slide-up">
-      <h1 className="text-2xl font-bold text-foreground mb-6">Stats</h1>
+      <h1 className="text-2xl font-bold text-foreground mb-6">Statistiques</h1>
 
       {noData && (
         <div className="glass-card p-8 text-center">
-          <p className="text-muted-foreground">Complete your first workout to see stats here!</p>
+          <p className="text-muted-foreground">Termine ta première séance pour voir tes stats ici !</p>
         </div>
       )}
 
@@ -196,7 +196,7 @@ const StatsTab = ({ data }: StatsTabProps) => {
           <div>
             <p className="text-2xl font-bold text-foreground">{latestBodyWeight.weight} kg</p>
             <p className="text-[10px] text-muted-foreground">
-              Body weight — {new Date(latestBodyWeight.date).toLocaleDateString('default', { month: 'short', day: 'numeric' })}
+              Poids corporel — {new Date(latestBodyWeight.date).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })}
             </p>
           </div>
         </div>
@@ -207,7 +207,7 @@ const StatsTab = ({ data }: StatsTabProps) => {
         <div className="glass-card p-4 mb-4 border border-warning/40 bg-warning/5">
           <div className="flex items-center gap-2 mb-2">
             <Crown size={16} className="text-warning" />
-            <h3 className="text-sm font-semibold text-foreground">Record Squat</h3>
+            <h3 className="text-sm font-semibold text-foreground">Record au Squat</h3>
           </div>
           <div className="flex items-baseline gap-2">
             <span className="text-3xl font-bold text-warning">{squatPR.e1rm} kg</span>
@@ -250,9 +250,9 @@ const StatsTab = ({ data }: StatsTabProps) => {
       {weeklyData.length > 0 && (
         <div className="glass-card p-4 mb-4">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-foreground">Weekly Sessions</h3>
+            <h3 className="text-sm font-semibold text-foreground">Séances par semaine</h3>
             <div className="flex gap-1">
-              {([['4', '4w'], ['16', '16w'], ['all', 'All']] as const).map(([v, label]) => (
+              {([['4', '4 sem.'], ['16', '16 sem.'], ['all', 'Tout']] as const).map(([v, label]) => (
                 <button
                   key={v}
                   onClick={() => setWeeklyRange(v)}
@@ -281,7 +281,7 @@ const StatsTab = ({ data }: StatsTabProps) => {
       {/* Volume */}
       {(volumeData.length > 0 || volumeFilter) && (
         <div className="glass-card p-4 mb-4">
-          <h3 className="text-sm font-semibold text-foreground mb-3">Session Volume (kg)</h3>
+          <h3 className="text-sm font-semibold text-foreground mb-3">Volume par séance (kg)</h3>
           <div className="flex gap-1 mb-3 flex-wrap">
             <button
               onClick={() => setVolumeFilter(null)}
@@ -289,7 +289,7 @@ const StatsTab = ({ data }: StatsTabProps) => {
                 !volumeFilter ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
               }`}
             >
-              All
+              Tout
             </button>
             {activeTypes.map(t => (
               <button
@@ -314,7 +314,7 @@ const StatsTab = ({ data }: StatsTabProps) => {
               </LineChart>
             </ResponsiveContainer>
           ) : (
-            <p className="text-xs text-muted-foreground text-center py-8">No data for this session type</p>
+            <p className="text-xs text-muted-foreground text-center py-8">Aucune donnée pour ce type de séance</p>
           )}
         </div>
       )}
@@ -323,7 +323,7 @@ const StatsTab = ({ data }: StatsTabProps) => {
       {difficultyData.length > 0 && (
         <div className="glass-card p-4 mb-4">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-foreground">Perceived Effort (RPE /5)</h3>
+            <h3 className="text-sm font-semibold text-foreground">Effort perçu (RPE /5)</h3>
           </div>
           <div className="flex gap-1 mb-3 flex-wrap">
             <button
@@ -332,7 +332,7 @@ const StatsTab = ({ data }: StatsTabProps) => {
                 !difficultyFilter ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
               }`}
             >
-              All
+              Tout
             </button>
             {activeTypes.map(t => (
               <button
@@ -361,15 +361,15 @@ const StatsTab = ({ data }: StatsTabProps) => {
       {/* Weekly Training Time */}
       {weeklyTimeData.length > 0 && (
         <div className="glass-card p-4 mb-4">
-          <h3 className="text-sm font-semibold text-foreground mb-2">Weekly Training Time</h3>
+          <h3 className="text-sm font-semibold text-foreground mb-2">Temps d'entraînement hebdo</h3>
           <div className="flex gap-4 mb-3">
             <div className="text-center">
               <p className="text-lg font-bold text-foreground">{formatHM(currentWeekTime)}</p>
-              <p className="text-[10px] text-muted-foreground">This week</p>
+              <p className="text-[10px] text-muted-foreground">Cette semaine</p>
             </div>
             <div className="text-center">
               <p className="text-lg font-bold text-muted-foreground">{formatHM(prevWeekTime)}</p>
-              <p className="text-[10px] text-muted-foreground">Last week</p>
+              <p className="text-[10px] text-muted-foreground">Semaine dernière</p>
             </div>
           </div>
           <ResponsiveContainer width="100%" height={160}>
@@ -377,7 +377,7 @@ const StatsTab = ({ data }: StatsTabProps) => {
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 4% 20%)" />
               <XAxis dataKey="week" tick={chartStyle} axisLine={false} tickLine={false} />
               <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={35} />
-              <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: 'hsl(0 0% 95%)' }} formatter={(value: number) => [formatHM(value), 'Time']} />
+              <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: 'hsl(0 0% 95%)' }} formatter={(value: number) => [formatHM(value), 'Temps']} />
               <Bar dataKey="minutes" fill="hsl(174 72% 46%)" radius={[6, 6, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
@@ -387,13 +387,13 @@ const StatsTab = ({ data }: StatsTabProps) => {
       {/* Monthly Training Time */}
       {monthlyTimeData.length > 0 && (
         <div className="glass-card p-4 mb-4">
-          <h3 className="text-sm font-semibold text-foreground mb-3">Monthly Training Time</h3>
+          <h3 className="text-sm font-semibold text-foreground mb-3">Temps d'entraînement mensuel</h3>
           <ResponsiveContainer width="100%" height={160}>
             <BarChart data={monthlyTimeData}>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 4% 20%)" />
               <XAxis dataKey="month" tick={chartStyle} axisLine={false} tickLine={false} />
               <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={35} />
-              <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: 'hsl(0 0% 95%)' }} formatter={(value: number) => [formatHM(value), 'Time']} />
+              <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: 'hsl(0 0% 95%)' }} formatter={(value: number) => [formatHM(value), 'Temps']} />
               <Bar dataKey="minutes" fill="hsl(38 92% 50%)" radius={[6, 6, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>

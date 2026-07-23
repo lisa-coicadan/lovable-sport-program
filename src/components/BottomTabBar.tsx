@@ -6,8 +6,8 @@ interface BottomTabBarProps {
 }
 
 const tabs = [
-  { icon: Calendar, label: 'Calendar' },
-  { icon: Dumbbell, label: 'Workout' },
+  { icon: Calendar, label: 'Calendrier' },
+  { icon: Dumbbell, label: 'Séance' },
   { icon: BarChart3, label: 'Stats' },
 ];
 

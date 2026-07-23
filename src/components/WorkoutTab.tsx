@@ -215,7 +215,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
     const newId = `temp-${Date.now()}`;
     setSets(prev => [...prev, {
       exerciseId: newId,
-      exerciseName: 'New Exercise',
+      exerciseName: 'Nouvel exercice',
       setNumber: 1,
       reps: 10,
       weight: 0,
@@ -353,7 +353,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
     return (
       <div className="px-4 pt-12 pb-24 animate-slide-up">
         <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-bold text-foreground">Workout</h1>
+          <h1 className="text-2xl font-bold text-foreground">Séance</h1>
           <button
             onClick={() => setMode('settings')}
             className="touch-target p-2 text-muted-foreground"
@@ -388,7 +388,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
         })}
 
         {/* Session Selection */}
-        <p className="text-sm text-muted-foreground mb-3">Choose a session</p>
+        <p className="text-sm text-muted-foreground mb-3">Choisis une séance</p>
         <div className="space-y-2">
           {activeTypes.map(type => (
             <div key={type.id} className="glass-card p-4">
@@ -406,7 +406,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                 onClick={() => startWorkout(type)}
                 className="w-full bg-primary text-primary-foreground font-medium py-2.5 rounded-xl text-sm flex items-center justify-center gap-1.5 touch-target transition-transform active:scale-95"
               >
-                <Check size={14} /> Start Session
+                <Check size={14} /> Démarrer la séance
               </button>
             </div>
           ))}
@@ -546,7 +546,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                     week === w ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
                   }`}
                 >
-                  {w === 4 ? 'Deload' : `W${w}`}
+                  {w === 4 ? 'Deload' : `S${w}`}
                 </button>
               ))}
             </div>
@@ -732,7 +732,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                     value={name}
                     onChange={e => updateExerciseName(exerciseId, e.target.value)}
                     className="bg-transparent text-foreground font-semibold outline-none flex-1 text-sm"
-                    placeholder="Exercise name"
+                    placeholder="Nom de l'exercice"
                   />
                 ) : (
                   <button
@@ -770,7 +770,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                         sets[globalIdx].completed ? 'bg-primary/10' : 'bg-secondary/50'
                       }`}
                     >
-                      <span className="text-xs text-muted-foreground w-8">Set {localIdx + 1}</span>
+                      <span className="text-xs text-muted-foreground w-12 shrink-0">Série {localIdx + 1}</span>
                       <input
                         type="number"
                         value={sets[globalIdx].weight || ''}
@@ -809,7 +809,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                 onClick={() => addSetToExercise(exerciseId, name)}
                 className="flex items-center gap-1 text-primary text-xs font-medium py-1.5 mt-2"
               >
-                <Plus size={12} /> Add set
+                <Plus size={12} /> Ajouter une série
               </button>
             </div>
           );
@@ -825,14 +825,14 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
         onClick={addExerciseToSession}
         className="w-full glass-card p-3 flex items-center justify-center gap-2 text-primary text-sm font-medium mb-6 transition-transform active:scale-95"
       >
-        <Plus size={16} /> Add exercise
+        <Plus size={16} /> Ajouter un exercice
       </button>
 
       <button
         onClick={finishWorkout}
         className="w-full bg-primary text-primary-foreground font-semibold py-4 rounded-2xl touch-target text-lg flex items-center justify-center gap-2 transition-transform active:scale-95"
       >
-        Finish Workout <ChevronRight size={20} />
+        Terminer la séance <ChevronRight size={20} />
       </button>
 
       {/* Floating rest timer */}

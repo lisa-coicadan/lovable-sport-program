@@ -59,8 +59,8 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession }: Ca
 
   const prevMonth = () => setCurrentMonth(new Date(year, month - 1, 1));
   const nextMonth = () => setCurrentMonth(new Date(year, month + 1, 1));
-  const monthName = currentMonth.toLocaleString('default', { month: 'long', year: 'numeric' });
-  const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const monthName = currentMonth.toLocaleString('fr-FR', { month: 'long', year: 'numeric' });
+  const weekdays = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
   const today = new Date().toISOString().split('T')[0];
 
   // Every day click opens the day sheet
@@ -95,7 +95,7 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession }: Ca
   // Day bottom sheet
   if (selectedDate) {
     const daySessions = sessionsByDate[selectedDate] || [];
-    const dateLabel = new Date(selectedDate + 'T00:00:00').toLocaleDateString('default', { weekday: 'long', month: 'long', day: 'numeric' });
+    const dateLabel = new Date(selectedDate + 'T00:00:00').toLocaleDateString('fr-FR', { weekday: 'long', month: 'long', day: 'numeric' });
 
     return (
       <div className="px-4 pt-12 pb-24 animate-slide-up">
@@ -103,22 +103,22 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession }: Ca
         {confirmDeleteId && (
           <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-6 animate-fade-in">
             <div className="glass-card p-6 max-w-sm w-full">
-              <h3 className="text-lg font-bold text-foreground mb-2">Delete session?</h3>
+              <h3 className="text-lg font-bold text-foreground mb-2">Supprimer la séance ?</h3>
               <p className="text-sm text-muted-foreground mb-6">
-                Are you sure you want to delete this session? This action cannot be undone.
+                Es-tu sûre de vouloir supprimer cette séance ? Cette action est irréversible.
               </p>
               <div className="flex gap-3">
                 <button
                   onClick={() => setConfirmDeleteId(null)}
                   className="flex-1 bg-secondary text-secondary-foreground font-medium py-2.5 rounded-xl text-sm"
                 >
-                  Cancel
+                  Annuler
                 </button>
                 <button
                   onClick={() => handleDeleteFromList(confirmDeleteId)}
                   className="flex-1 bg-destructive text-destructive-foreground font-medium py-2.5 rounded-xl text-sm"
                 >
-                  Delete
+                  Supprimer
                 </button>
               </div>
             </div>
@@ -136,7 +136,7 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession }: Ca
 
         {daySessions.length === 0 && (
           <div className="text-center py-12">
-            <p className="text-muted-foreground text-sm mb-4">No sessions on this day</p>
+            <p className="text-muted-foreground text-sm mb-4">Aucune séance ce jour-là</p>
           </div>
         )}
 
@@ -156,7 +156,7 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession }: Ca
                 </div>
                 <div className="flex gap-4 text-xs text-muted-foreground ml-6">
                   {session.duration && <span>{session.duration} min</span>}
-                  <span>{session.sets.filter(s => s.completed).length}/{session.sets.length} sets</span>
+                  <span>{session.sets.filter(s => s.completed).length}/{session.sets.length} séries</span>
                   {session.difficulty && <span>RPE {session.difficulty}/10</span>}
                 </div>
               </button>
@@ -182,7 +182,7 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession }: Ca
           }}
           className="w-full bg-primary text-primary-foreground font-semibold py-4 rounded-2xl text-sm flex items-center justify-center gap-2 transition-transform active:scale-95"
         >
-          <Plus size={18} /> Add session
+          <Plus size={18} /> Ajouter une séance
         </button>
       </div>
     );
@@ -190,12 +190,12 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession }: Ca
 
   return (
     <div className="px-4 pt-12 pb-24 animate-slide-up">
-      <h1 className="text-2xl font-bold text-foreground mb-4">Calendar</h1>
+      <h1 className="text-2xl font-bold text-foreground mb-4">Calendrier</h1>
 
       <div className="grid grid-cols-2 gap-3 mb-6">
         <div className="glass-card p-3">
           <div className="flex items-center justify-between mb-1.5">
-            <span className="text-[10px] font-medium text-muted-foreground">This Week</span>
+            <span className="text-[10px] font-medium text-muted-foreground">Cette semaine</span>
             <span className="text-xs font-bold text-foreground">
               {thisWeekSessions.length}/{data.weeklyGoal}
             </span>
@@ -209,11 +209,11 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession }: Ca
         </div>
         <div className="glass-card p-3">
           <div className="flex items-center justify-between mb-1.5">
-            <span className="text-[10px] font-medium text-muted-foreground">This Month</span>
+            <span className="text-[10px] font-medium text-muted-foreground">Ce mois-ci</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-2xl font-bold text-primary">{thisMonthSessions.length}</span>
-            <span className="text-[10px] text-muted-foreground">sessions</span>
+            <span className="text-[10px] text-muted-foreground">séances</span>
           </div>
         </div>
       </div>

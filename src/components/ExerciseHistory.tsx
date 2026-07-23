@@ -70,14 +70,14 @@ const ExerciseHistory = ({ exerciseName, data, onClose }: ExerciseHistoryProps) 
         <div>
           <h1 className="text-xl font-bold text-foreground">{base}</h1>
           {overallPR > 0 && (
-            <p className="text-xs text-warning font-medium">PR: {overallPR} kg (est. 1RM)</p>
+            <p className="text-xs text-warning font-medium">Record : {overallPR} kg (1RM est.)</p>
           )}
         </div>
       </div>
 
       {variantGroups.length === 0 ? (
         <div className="glass-card p-8 text-center">
-          <p className="text-muted-foreground">No history yet for this exercise.</p>
+          <p className="text-muted-foreground">Pas encore d'historique pour cet exercice.</p>
         </div>
       ) : (
         variantGroups.map(group => (
@@ -95,7 +95,7 @@ const VariantSection = ({ group, showHeader }: { group: VariantGroup; showHeader
       if (!byDate[h.date] || h.e1rm > byDate[h.date]) byDate[h.date] = h.e1rm;
     });
     return Object.entries(byDate).map(([date, e1rm]) => ({
-      date: new Date(date + 'T00:00:00').toLocaleDateString('default', { month: 'short', day: 'numeric' }),
+      date: new Date(date + 'T00:00:00').toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' }),
       e1rm,
     }));
   }, [group.history]);
@@ -116,13 +116,13 @@ const VariantSection = ({ group, showHeader }: { group: VariantGroup; showHeader
       {showHeader && (
         <div className="flex items-center justify-between mb-2 px-1">
           <h3 className="text-sm font-semibold text-foreground">{group.label ?? 'Sans précision'}</h3>
-          {pr > 0 && <span className="text-xs text-warning font-medium">PR: {pr} kg</span>}
+          {pr > 0 && <span className="text-xs text-warning font-medium">Record : {pr} kg</span>}
         </div>
       )}
 
       {chartData.length > 1 && (
         <div className="glass-card p-4 mb-3">
-          <h4 className="text-xs font-semibold text-muted-foreground mb-3">Estimated 1RM Trend</h4>
+          <h4 className="text-xs font-semibold text-muted-foreground mb-3">Évolution du 1RM estimé</h4>
           <ResponsiveContainer width="100%" height={140}>
             <LineChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 4% 20%)" />
@@ -142,7 +142,7 @@ const VariantSection = ({ group, showHeader }: { group: VariantGroup; showHeader
         {groupedByDate.map(([date, sets]) => (
           <div key={date} className="glass-card p-4">
             <p className="text-xs text-muted-foreground mb-2">
-              {new Date(date + 'T00:00:00').toLocaleDateString('default', { weekday: 'short', month: 'long', day: 'numeric' })}
+              {new Date(date + 'T00:00:00').toLocaleDateString('fr-FR', { weekday: 'short', month: 'long', day: 'numeric' })}
             </p>
             <div className="space-y-1">
               {sets.map((s, i) => (

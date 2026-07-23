@@ -41,13 +41,13 @@ describe('getWeekSets', () => {
 
 describe('getWeekLabel', () => {
   it('returns the correct label for weeks 1-4', () => {
-    expect(getWeekLabel(1)).toBe('Week 1 — 5s');
-    expect(getWeekLabel(2)).toBe('Week 2 — 3s');
-    expect(getWeekLabel(3)).toBe('Week 3 — 5/3/1');
-    expect(getWeekLabel(4)).toBe('Week 4 — Deload');
+    expect(getWeekLabel(1)).toBe('Semaine 1 — 5 reps');
+    expect(getWeekLabel(2)).toBe('Semaine 2 — 3 reps');
+    expect(getWeekLabel(3)).toBe('Semaine 3 — 5/3/1');
+    expect(getWeekLabel(4)).toBe('Semaine 4 — Deload');
   });
 
   it('falls back to week 1 label for an out-of-range week', () => {
-    expect(getWeekLabel(9)).toBe('Week 1 — 5s');
+    expect(getWeekLabel(9)).toBe('Semaine 1 — 5 reps');
   });
 });

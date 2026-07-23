@@ -97,7 +97,7 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
     return { volDiff: Math.round(volDiff * 10) / 10, avg1RMDiff: Math.round(avg1RMDiff * 10) / 10, verdict };
   }, [data.sessions, session, totalVolume, progressions]);
 
-  const sessionDate = new Date(session.date + 'T00:00:00').toLocaleDateString('default', {
+  const sessionDate = new Date(session.date + 'T00:00:00').toLocaleDateString('fr-FR', {
     weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
   });
 
@@ -157,7 +157,7 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
   const addNewExercise = () => {
     const newId = `edit-${Date.now()}`;
     setEditSets(prev => [...prev, {
-      exerciseId: newId, exerciseName: 'New Exercise', setNumber: 1,
+      exerciseId: newId, exerciseName: 'Nouvel exercice', setNumber: 1,
       reps: 10, weight: 0, completed: true,
     }]);
   };
@@ -260,7 +260,7 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
       sets.forEach((s, i) => {
         ctx.font = '400 26px -apple-system, BlinkMacSystemFont, sans-serif';
         ctx.fillStyle = '#8a8a8e';
-        ctx.fillText(`  Set ${i + 1}`, left, y);
+        ctx.fillText(`  Série ${i + 1}`, left, y);
         ctx.fillStyle = '#d1d1d6';
         ctx.font = '500 26px -apple-system, BlinkMacSystemFont, monospace';
         const setText = `${s.weight} kg × ${s.reps}`;
@@ -273,13 +273,13 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
         ctx.font = '500 24px -apple-system, BlinkMacSystemFont, sans-serif';
         if (prog.e1rmPct > 0) {
           ctx.fillStyle = '#34c759';
-          ctx.fillText(`↑ +${prog.e1rmPct}% vs last session`, left + 16, y);
+          ctx.fillText(`↑ +${prog.e1rmPct}% vs séance précédente`, left + 16, y);
         } else if (prog.e1rmPct < 0) {
           ctx.fillStyle = '#ff453a';
-          ctx.fillText(`↓ ${prog.e1rmPct}% vs last session`, left + 16, y);
+          ctx.fillText(`↓ ${prog.e1rmPct}% vs séance précédente`, left + 16, y);
         } else {
           ctx.fillStyle = '#8a8a8e';
-          ctx.fillText('= Same as last session', left + 16, y);
+          ctx.fillText('= Identique à la séance précédente', left + 16, y);
         }
         y += lineH;
       }
@@ -294,7 +294,7 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
     // Tonnage
     ctx.font = '500 28px -apple-system, BlinkMacSystemFont, sans-serif';
     ctx.fillStyle = '#f2f2f2';
-    ctx.fillText('Total tonnage', left, y);
+    ctx.fillText('Tonnage total', left, y);
     ctx.font = 'bold 28px -apple-system, BlinkMacSystemFont, monospace';
     ctx.fillStyle = `hsl(${color})`;
     const tonText = `${Math.round(totalVolume)} kg`;
@@ -305,7 +305,7 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
     if (session.duration) {
       ctx.font = '500 28px -apple-system, BlinkMacSystemFont, sans-serif';
       ctx.fillStyle = '#f2f2f2';
-      ctx.fillText('Duration', left, y);
+      ctx.fillText('Durée', left, y);
       ctx.font = '500 28px -apple-system, BlinkMacSystemFont, monospace';
       ctx.fillStyle = '#d1d1d6';
       const durText = `${session.duration} min`;
@@ -356,19 +356,19 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
       ctx.font = '600 26px -apple-system, BlinkMacSystemFont, sans-serif';
       if (overallComparison.verdict === 'better') {
         ctx.fillStyle = '#34c759';
-        ctx.fillText('📈 Overall better than last session', left, y);
+        ctx.fillText('📈 Meilleure que la précédente', left, y);
       } else if (overallComparison.verdict === 'below') {
         ctx.fillStyle = '#ff453a';
-        ctx.fillText('📉 Below last session', left, y);
+        ctx.fillText('📉 En dessous de la précédente', left, y);
       } else {
         ctx.fillStyle = '#8a8a8e';
-        ctx.fillText('📊 Similar to last session', left, y);
+        ctx.fillText('📊 Similaire à la précédente', left, y);
       }
       y += lineH;
 
       ctx.font = '400 22px -apple-system, BlinkMacSystemFont, sans-serif';
       ctx.fillStyle = '#6e6e73';
-      ctx.fillText(`Volume: ${overallComparison.volDiff > 0 ? '+' : ''}${overallComparison.volDiff}%  •  Avg 1RM: ${overallComparison.avg1RMDiff > 0 ? '+' : ''}${overallComparison.avg1RMDiff}%`, left, y);
+      ctx.fillText(`Volume : ${overallComparison.volDiff > 0 ? '+' : ''}${overallComparison.volDiff}%  •  1RM moy. : ${overallComparison.avg1RMDiff > 0 ? '+' : ''}${overallComparison.avg1RMDiff}%`, left, y);
     }
 
     // Convert to blob and share
@@ -403,7 +403,7 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
           <button onClick={cancelEdit} className="text-muted-foreground touch-target p-1">
             <X size={20} />
           </button>
-          <h1 className="text-xl font-bold text-foreground flex-1">Edit Session</h1>
+          <h1 className="text-xl font-bold text-foreground flex-1">Modifier la séance</h1>
         </div>
 
         {/* Date */}
@@ -432,7 +432,7 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
                       value={name}
                       onChange={e => updateEditExerciseName(exerciseId, e.target.value)}
                       className="bg-transparent text-foreground font-semibold outline-none flex-1 text-sm"
-                      placeholder="Exercise name"
+                      placeholder="Nom de l'exercice"
                     />
                   ) : (
                     <h3 className="text-sm font-semibold text-foreground flex-1">{name}</h3>
@@ -473,7 +473,7 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
                   onClick={() => addEditSet(exerciseId, name)}
                   className="flex items-center gap-1 text-primary text-xs font-medium py-1.5 mt-2"
                 >
-                  <Plus size={12} /> Add set
+                  <Plus size={12} /> Ajouter une série
                 </button>
               </div>
             );
@@ -484,12 +484,12 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
           onClick={addNewExercise}
           className="w-full glass-card p-3 flex items-center justify-center gap-2 text-primary text-sm font-medium mb-4 transition-transform active:scale-95"
         >
-          <Plus size={16} /> Add exercise
+          <Plus size={16} /> Ajouter un exercice
         </button>
 
         {/* Duration */}
         <div className="glass-card p-4 mb-4">
-          <label className="text-xs text-muted-foreground mb-1.5 block">Duration (minutes)</label>
+          <label className="text-xs text-muted-foreground mb-1.5 block">Durée (minutes)</label>
           <input
             type="number"
             value={editDuration || ''}
@@ -512,7 +512,7 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
             className="w-full accent-primary h-2"
           />
           <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
-            <span>Easy</span><span>Hard</span>
+            <span>Facile</span><span>Difficile</span>
           </div>
         </div>
 
@@ -522,17 +522,17 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
           <textarea
             value={editNotes}
             onChange={e => setEditNotes(e.target.value)}
-            placeholder="How did the session go?"
+            placeholder="Comment s'est passée la séance ?"
             className="w-full bg-secondary text-foreground rounded-xl px-3 py-2.5 text-sm outline-none resize-none min-h-[80px]"
           />
         </div>
 
         <div className="flex gap-3">
           <button onClick={cancelEdit} className="flex-1 bg-secondary text-secondary-foreground font-semibold py-4 rounded-2xl text-sm transition-transform active:scale-95">
-            Cancel
+            Annuler
           </button>
           <button onClick={saveEdit} className="flex-1 bg-primary text-primary-foreground font-semibold py-4 rounded-2xl text-sm flex items-center justify-center gap-2 transition-transform active:scale-95">
-            Save Changes <Check size={18} />
+            Enregistrer <Check size={18} />
           </button>
         </div>
       </div>
@@ -546,16 +546,16 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
       {showConfirm && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-6 animate-fade-in">
           <div className="glass-card p-6 max-w-sm w-full">
-            <h3 className="text-lg font-bold text-foreground mb-2">Delete session?</h3>
+            <h3 className="text-lg font-bold text-foreground mb-2">Supprimer la séance ?</h3>
             <p className="text-sm text-muted-foreground mb-6">
-              Are you sure you want to delete this session? This action cannot be undone.
+              Es-tu sûre de vouloir supprimer cette séance ? Cette action est irréversible.
             </p>
             <div className="flex gap-3">
               <button onClick={() => setShowConfirm(false)} className="flex-1 bg-secondary text-secondary-foreground font-medium py-2.5 rounded-xl text-sm">
-                Cancel
+                Annuler
               </button>
               <button onClick={() => { onDelete?.(session.id); onClose(); }} className="flex-1 bg-destructive text-destructive-foreground font-medium py-2.5 rounded-xl text-sm">
-                Delete
+                Supprimer
               </button>
             </div>
           </div>
@@ -567,7 +567,7 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
         <button
           onClick={handleShare}
           className="p-2 text-muted-foreground hover:text-primary rounded-xl transition-colors touch-target"
-          title="Share recap"
+          title="Partager le récap"
         >
           <Share2 size={20} />
         </button>
@@ -575,7 +575,7 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
           <button
             onClick={() => setShowConfirm(true)}
             className="p-2 text-muted-foreground hover:text-destructive rounded-xl transition-colors touch-target"
-            title="Delete session"
+            title="Supprimer la séance"
           >
             <Trash2 size={20} />
           </button>
@@ -607,7 +607,7 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
       <div className="grid grid-cols-3 gap-3 mb-6">
         <div className="glass-card p-3 text-center">
           <p className="text-2xl font-bold text-primary">{completedSets.length}</p>
-          <p className="text-[10px] text-muted-foreground">Sets</p>
+          <p className="text-[10px] text-muted-foreground">Séries</p>
         </div>
         <div className="glass-card p-3 text-center">
           <p className="text-2xl font-bold text-foreground">{Math.round(totalVolume)}</p>
@@ -638,13 +638,13 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
                 </div>
                 {lastPerf && (
                   <p className="text-[10px] text-muted-foreground mb-2">
-                    Last time: {lastPerf.weight}kg × {lastPerf.reps} — {new Date(lastPerf.date + 'T00:00:00').toLocaleDateString('default', { month: 'short', day: 'numeric' })}
+                    Dernière fois : {lastPerf.weight}kg × {lastPerf.reps} — {new Date(lastPerf.date + 'T00:00:00').toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })}
                   </p>
                 )}
                 <div className="space-y-1.5 mb-2">
                   {sets.map((s, i) => (
                     <div key={i} className="flex items-center justify-between bg-secondary rounded-lg px-3 py-2">
-                      <span className="text-xs text-muted-foreground">Set {i + 1}</span>
+                      <span className="text-xs text-muted-foreground">Série {i + 1}</span>
                       <span className="text-sm text-foreground font-mono">{s.weight} kg × {s.reps}</span>
                     </div>
                   ))}
@@ -661,7 +661,7 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
                     <span className={`text-xs font-medium ${
                       prog.e1rmPct > 0 ? 'text-success' : prog.e1rmPct < 0 ? 'text-destructive' : 'text-muted-foreground'
                     }`}>
-                      {prog.e1rmPct !== 0 ? `${prog.e1rmPct > 0 ? '+' : ''}${prog.e1rmPct}% vs last session` : 'Same as last session'}
+                      {prog.e1rmPct !== 0 ? `${prog.e1rmPct > 0 ? '+' : ''}${prog.e1rmPct}% vs séance précédente` : 'Identique à la séance précédente'}
                     </span>
                   </div>
                 )}
@@ -701,11 +701,11 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
             <span className={`text-sm font-semibold ${
               overallComparison.verdict === 'better' ? 'text-success' : overallComparison.verdict === 'below' ? 'text-destructive' : 'text-muted-foreground'
             }`}>
-              {overallComparison.verdict === 'better' ? 'Better than last session' : overallComparison.verdict === 'below' ? 'Below last session' : 'Similar to last session'}
+              {overallComparison.verdict === 'better' ? 'Meilleure que la précédente' : overallComparison.verdict === 'below' ? 'En dessous de la précédente' : 'Similaire à la précédente'}
             </span>
           </div>
           <p className="text-[10px] text-muted-foreground mt-1">
-            Volume: {overallComparison.volDiff > 0 ? '+' : ''}{overallComparison.volDiff}% • Avg 1RM: {overallComparison.avg1RMDiff > 0 ? '+' : ''}{overallComparison.avg1RMDiff}%
+            Volume : {overallComparison.volDiff > 0 ? '+' : ''}{overallComparison.volDiff}% • 1RM moy. : {overallComparison.avg1RMDiff > 0 ? '+' : ''}{overallComparison.avg1RMDiff}%
           </p>
         </div>
       )}
@@ -715,7 +715,7 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
         onClick={enterEditMode}
         className="w-full bg-primary text-primary-foreground font-semibold py-4 rounded-2xl text-sm flex items-center justify-center gap-2 transition-transform active:scale-95"
       >
-        <Pencil size={16} /> Edit Session
+        <Pencil size={16} /> Modifier la séance
       </button>
     </div>
   );
