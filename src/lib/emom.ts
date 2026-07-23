@@ -1,4 +1,5 @@
 import { EMOMMethod } from './types';
+import { roundWeightSmart } from './weightRounding';
 
 // EMOM (Every Minute On the Minute): a fixed number of reps at the start of every
 // minute, for a fixed duration, at a %TM tuned to leave 30-40s of rest per minute.
@@ -35,10 +36,6 @@ export function getEmomConfig(method: EMOMMethod): EmomConfig {
   return { durationMinutes, repsPerMinute, percentage };
 }
 
-function roundToNearest(value: number, nearest: number): number {
-  return Math.round(value / nearest) * nearest;
-}
-
 export function getEmomWeight(trainingMax: number, percentage: number): number {
-  return roundToNearest(trainingMax * percentage, 2.5);
+  return roundWeightSmart(trainingMax * percentage);
 }

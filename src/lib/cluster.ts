@@ -1,4 +1,5 @@
 import { ClusterMethod, ClusterMiniSeries } from './types';
+import { roundWeightSmart } from './weightRounding';
 
 // Cluster training: a heavy set broken into mini-series with short intra-series rest
 // (10-30s) to preserve speed/power, longer rest between series. Defaults below apply
@@ -63,10 +64,6 @@ export function getClusterConfig(method: ClusterMethod): ClusterConfig {
   };
 }
 
-function roundToNearest(value: number, nearest: number): number {
-  return Math.round(value / nearest) * nearest;
-}
-
 export function getMiniSeriesWeight(trainingMax: number, percentage: number): number {
-  return roundToNearest(trainingMax * percentage, 2.5);
+  return roundWeightSmart(trainingMax * percentage);
 }

@@ -455,7 +455,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                 <span className="text-xs text-muted-foreground">Cluster</span>
               </div>
               <p className="text-sm text-foreground font-medium">
-                {numSeries} séries × {miniSeries.map(m => `${m.reps}@${Math.round(m.percentage * 100)}%`).join(' · ')}
+                {numSeries} séries × {miniSeries.map(m => `${m.reps}×${Math.round(m.percentage * 100)}%`).join(' · ')}
               </p>
               <p className="text-xs text-muted-foreground mt-1">
                 {miniSeries.map(m => `${getMiniSeriesWeight(method.trainingMax, m.percentage)}kg`).join(' · ')}
@@ -719,22 +719,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
         );
       })}
 
-      {/* Cluster auto-timer toggle — shown once if any Cluster exercise is in this session */}
-      {selectedType && selectedType.exercises.some(ex => ex.method?.type === 'cluster') && (
-        <label className="glass-card p-3 mb-4 flex items-center justify-between cursor-pointer">
-          <span className="text-xs text-foreground flex items-center gap-1.5">
-            <Timer size={12} className="text-primary" /> Chrono automatique (Cluster)
-          </span>
-          <input
-            type="checkbox"
-            checked={clusterAutoTimer}
-            onChange={e => setClusterAutoTimer(e.target.checked)}
-            className="w-4 h-4 accent-primary"
-          />
-        </label>
-      )}
-
-      {/* Cluster Block(s) in session — rest timers (manual, or auto if the toggle above is on) */}
+      {/* Cluster Block(s) in session — rest timers (manual, or auto via the per-block toggle) */}
       {selectedType && selectedType.exercises.filter(ex => ex.method?.type === 'cluster').map(ex => {
         const method = ex.method as ClusterMethod;
         const { numSeries, miniSeries, restMiniSeries, restSeries } = getClusterConfig(method);
@@ -763,6 +748,17 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
               <h3 className="text-sm font-bold text-primary">{ex.name}</h3>
               <span className="text-xs text-muted-foreground">Cluster · TM {method.trainingMax} kg</span>
             </div>
+            <label className="flex items-center justify-between mb-3 -mt-1 cursor-pointer">
+              <span className="text-xs text-muted-foreground flex items-center gap-1.5">
+                <Timer size={12} className="text-primary" /> Chrono automatique
+              </span>
+              <input
+                type="checkbox"
+                checked={clusterAutoTimer}
+                onChange={e => setClusterAutoTimer(e.target.checked)}
+                className="w-4 h-4 accent-primary"
+              />
+            </label>
             <div className="space-y-2">
               {Array.from({ length: numSeries }).map((_, seriesIdx) => {
                 const seriesSets = liveSets.slice(seriesIdx * miniPerSeries, (seriesIdx + 1) * miniPerSeries);
