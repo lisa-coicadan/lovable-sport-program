@@ -408,10 +408,32 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
         .map(ex => ({ type, exercise: ex, method: ex.method as EMOMMethod }))
     );
 
+    const greeting = (() => {
+      const h = new Date().getHours();
+      if (h < 5) return 'Bonne nuit';
+      if (h < 12) return 'Bonjour';
+      if (h < 18) return 'Bon après-midi';
+      return 'Bonsoir';
+    })();
+    const weekStart = (() => {
+      const d = new Date();
+      const day = d.getDay();
+      const m = new Date(d);
+      m.setDate(d.getDate() - (day === 0 ? 6 : day - 1));
+      m.setHours(0, 0, 0, 0);
+      return m;
+    })();
+    const sessionsThisWeek = data.sessions.filter(s => new Date(s.date + 'T00:00:00') >= weekStart).length;
+    const weeklyGoal = data.weeklyGoal || 0;
+    const weeklyProgress = weeklyGoal > 0 ? Math.min(100, (sessionsThisWeek / weeklyGoal) * 100) : 0;
+
     return (
       <div className="px-4 pt-12 pb-24 animate-slide-up">
-        <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-bold text-foreground">Séance</h1>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <p className="text-xs text-muted-foreground mb-0.5">{greeting}</p>
+            <h1 className="text-2xl font-bold text-foreground">Séance</h1>
+          </div>
           <button
             onClick={() => setMode('settings')}
             className="touch-target p-2 text-muted-foreground"
@@ -419,6 +441,21 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
             <Settings size={20} />
           </button>
         </div>
+
+        {weeklyGoal > 0 && (
+          <div className="glass-card p-3 mb-6">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-xs font-medium text-muted-foreground">Objectif de la semaine</span>
+              <span className="text-xs font-bold text-primary">{sessionsThisWeek}/{weeklyGoal}</span>
+            </div>
+            <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
+              <div
+                className="h-full bg-primary rounded-full transition-all duration-500"
+                style={{ width: `${weeklyProgress}%` }}
+              />
+            </div>
+          </div>
+        )}
 
         {/* 5/3/1 Block — one card per exercise using the method, if any */}
         {fiveThreeOneExercises.map(({ exercise, method }) => {

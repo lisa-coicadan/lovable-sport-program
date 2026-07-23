@@ -1,6 +1,20 @@
 import { useState } from 'react';
 import { AppData, WorkoutType, Exercise, ExerciseMethod, FiveThreeOneMethod, ClusterMethod, EMOMMethod, WORKOUT_COLORS } from '@/lib/types';
-import { Plus, Trash2, ChevronRight, ChevronLeft, Check } from 'lucide-react';
+import { Plus, Trash2, ChevronRight, ChevronLeft, Check, Zap, Timer, Clock } from 'lucide-react';
+
+// Slim progress stepper shown across steps 1-3 (step 0 is the welcome screen, not counted).
+const WizardProgress = ({ step }: { step: number }) => (
+  <div className="flex items-center gap-1.5 mb-6 ml-8">
+    {[1, 2, 3].map(s => (
+      <div
+        key={s}
+        className={`h-1 flex-1 rounded-full transition-colors duration-300 ${
+          s <= step ? 'bg-primary' : 'bg-secondary'
+        }`}
+      />
+    ))}
+  </div>
+);
 
 interface SetupWizardProps {
   onComplete: (data: Partial<AppData>) => void;
@@ -52,18 +66,43 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
   // Step 0 — Welcome
   if (step === 0) {
     return (
-      <div className="min-h-screen bg-background flex flex-col items-center justify-center px-6 animate-slide-up">
-        <div className="text-center mb-10">
-          <div className="text-5xl mb-4">💪</div>
-          <h1 className="text-3xl font-bold text-foreground mb-2">FitTrack</h1>
-          <p className="text-muted-foreground mb-1">Ton compagnon fitness personnel</p>
-          <p className="text-sm text-muted-foreground mt-4 max-w-xs mx-auto">
-            Suis tes séances, active le 5/3/1 sur les exercices de ton choix, et progresse — tout en une seule app.
-          </p>
+      <div className="relative min-h-screen bg-background flex flex-col items-center justify-center px-6 overflow-hidden animate-slide-up">
+        <div className="absolute inset-0 pointer-events-none">
+          <div className="absolute top-[18%] left-1/2 -translate-x-1/2 w-72 h-72 bg-primary/20 rounded-full blur-3xl" />
         </div>
+
+        <div className="relative text-center mb-10">
+          <div className="relative w-24 h-24 mx-auto mb-6">
+            <div className="absolute inset-0 bg-primary/30 rounded-full blur-2xl animate-pulse-glow" />
+            <div className="relative w-24 h-24 rounded-3xl glass-card border-primary/20 flex items-center justify-center text-5xl">
+              💪
+            </div>
+          </div>
+          <h1 className="text-4xl font-bold tracking-tight text-foreground mb-2">FitTrack</h1>
+          <p className="text-muted-foreground">Ton compagnon fitness personnel</p>
+          <p className="text-sm text-muted-foreground/80 mt-4 max-w-xs mx-auto leading-relaxed">
+            Suis tes séances, active le 5/3/1, le Cluster ou l'EMOM sur les exercices de ton choix, et progresse — tout en une seule app.
+          </p>
+
+          <div className="flex items-center justify-center gap-2 mt-6">
+            {[
+              { icon: Zap, label: '5/3/1' },
+              { icon: Timer, label: 'Cluster' },
+              { icon: Clock, label: 'EMOM' },
+            ].map(({ icon: Icon, label }) => (
+              <span
+                key={label}
+                className="flex items-center gap-1.5 text-xs font-medium text-primary bg-primary/10 border border-primary/20 rounded-full px-3 py-1.5"
+              >
+                <Icon size={12} /> {label}
+              </span>
+            ))}
+          </div>
+        </div>
+
         <button
           onClick={() => setStep(1)}
-          className="w-full max-w-xs bg-primary text-primary-foreground font-semibold py-4 rounded-2xl touch-target text-lg transition-transform active:scale-95"
+          className="relative w-full max-w-xs bg-primary text-primary-foreground font-semibold py-4 rounded-2xl touch-target text-lg shadow-lg shadow-primary/20 transition-transform active:scale-95"
         >
           Commencer
         </button>
@@ -79,8 +118,9 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
           <button onClick={() => setStep(0)} className="text-muted-foreground p-1"><ChevronLeft size={20} /></button>
           <h2 className="text-2xl font-bold text-foreground">Tes séances</h2>
         </div>
-        <p className="text-muted-foreground text-sm mb-6 ml-8">Crée tes modèles de séance avec leurs exercices</p>
-        
+        <p className="text-muted-foreground text-sm mb-3 ml-8">Crée tes modèles de séance avec leurs exercices</p>
+        <WizardProgress step={1} />
+
         <div className="space-y-4 mb-8">
           {workoutTypes.map((type, ti) => (
             <div key={type.id} className="glass-card p-4">
@@ -147,9 +187,10 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
           <button onClick={() => setStep(1)} className="text-muted-foreground p-1"><ChevronLeft size={20} /></button>
           <h2 className="text-2xl font-bold text-foreground">Méthodes d'entraînement</h2>
         </div>
-        <p className="text-muted-foreground text-sm mb-6 ml-8">
+        <p className="text-muted-foreground text-sm mb-3 ml-8">
           Optionnel — active un programme 5/3/1, Cluster ou EMOM pour les exercices que tu veux muscler en force. Aucun choix n'est obligatoire.
         </p>
+        <WizardProgress step={2} />
 
         <div className="space-y-4 mb-8">
           {workoutTypes.filter(t => t.exercises.length > 0).map((type, ti) => (
@@ -235,7 +276,8 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
         <button onClick={() => setStep(2)} className="text-muted-foreground p-1"><ChevronLeft size={20} /></button>
         <h2 className="text-2xl font-bold text-foreground">C'est prêt !</h2>
       </div>
-      <p className="text-muted-foreground text-sm mb-6 ml-8">Vérifie ta configuration</p>
+      <p className="text-muted-foreground text-sm mb-3 ml-8">Vérifie ta configuration</p>
+      <WizardProgress step={3} />
 
       <div className="space-y-3 mb-6">
         {workoutTypes.map(type => (
