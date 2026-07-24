@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AppData, calculate1RM } from '@/lib/types';
-import { splitEquipmentVariant } from '@/lib/exerciseNormalize';
+import { splitEquipmentVariant, isBodyweightOptionalExercise } from '@/lib/exerciseNormalize';
 import { ArrowLeft } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import RangeButtons, { RangeFilter, rangeCutoffDate } from './RangeButtons';
@@ -39,6 +39,9 @@ const ExerciseHistory = ({ exerciseName, data, onClose }: ExerciseHistoryProps) 
   // couché haltères" and "Développé couché machine" all show up under one screen — but
   // each equipment variant keeps its own PR/history, since their loads aren't comparable.
   const base = useMemo(() => splitEquipmentVariant(exerciseName).base, [exerciseName]);
+  // Tractions/dips are meaningfully loggable at 0kg (bodyweight) or negative (assisted) —
+  // everywhere else, weight <= 0 just means "not filled in", so it stays excluded.
+  const bodyweightOptional = useMemo(() => isBodyweightOptionalExercise(exerciseName), [exerciseName]);
 
   const variantGroups = useMemo(() => {
     const groups = new Map<string, VariantGroup>();
@@ -47,7 +50,7 @@ const ExerciseHistory = ({ exerciseName, data, onClose }: ExerciseHistoryProps) 
       .sort((a, b) => a.date.localeCompare(b.date))
       .forEach(session => {
         session.sets
-          .filter(s => s.completed && s.weight > 0)
+          .filter(s => s.completed && (s.weight > 0 || bodyweightOptional))
           .forEach(s => {
             const split = splitEquipmentVariant(s.exerciseName);
             if (split.base !== base) return;
@@ -62,7 +65,7 @@ const ExerciseHistory = ({ exerciseName, data, onClose }: ExerciseHistoryProps) 
           });
       });
     return [...groups.values()];
-  }, [data.sessions, base]);
+  }, [data.sessions, base, bodyweightOptional]);
 
   const overallPR = useMemo(() => {
     const all = variantGroups.flatMap(g => g.history);

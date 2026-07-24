@@ -173,14 +173,14 @@ const RestTimer = forwardRef<RestTimerHandle, RestTimerProps>(({ defaultSeconds 
     );
   }
 
+  // `.glass-card` applies `position: relative` (needed by its own ::before glow layer)
+  // via a utilities-layer rule declared AFTER Tailwind's own `.fixed` utility in
+  // index.css — same specificity, same layer, so it silently won and this panel was
+  // rendering in normal flow instead of pinned to the viewport. Every other
+  // fixed-overlay + glass-card pairing in the app already avoids this by keeping them
+  // on separate elements (see the confirm dialogs in SettingsPanel/WorkoutTab) — this
+  // was the one place that combined both classes on the same node.
   return createPortal(
-    // `.glass-card` applies `position: relative` (needed by its own ::before glow layer)
-    // via a utilities-layer rule declared AFTER Tailwind's own `.fixed` utility in
-    // index.css — same specificity, same layer, so it silently won and this panel was
-    // rendering in normal flow instead of pinned to the viewport. Every other
-    // fixed-overlay + glass-card pairing in the app already avoids this by keeping them
-    // on separate elements (see the confirm dialogs in SettingsPanel/WorkoutTab) — this
-    // was the one place that combined both classes on the same node.
     <div className="fixed bottom-24 right-4 z-40 w-72">
       <div className="glass-card p-4 shadow-2xl">
         <div className="flex items-center justify-between mb-3">

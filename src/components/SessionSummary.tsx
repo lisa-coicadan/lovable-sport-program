@@ -1,16 +1,18 @@
 import { useState, useMemo, useRef } from 'react';
-import { SessionLog, AppData, calculate1RM } from '@/lib/types';
+import { SessionLog, AppData, WorkoutType, calculate1RM } from '@/lib/types';
+import { isBodyweightOptionalExercise } from '@/lib/exerciseNormalize';
 import { ArrowLeft, ChevronRight, Share2, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 
 interface SessionSummaryProps {
   session: SessionLog;
   previousSessions?: SessionLog[];
+  workoutTypes?: WorkoutType[];
   onSave: (session: SessionLog) => void;
   onBack: () => void;
   readOnly?: boolean;
 }
 
-const SessionSummary = ({ session, previousSessions = [], onSave, onBack, readOnly = false }: SessionSummaryProps) => {
+const SessionSummary = ({ session, previousSessions = [], workoutTypes = [], onSave, onBack, readOnly = false }: SessionSummaryProps) => {
   const [duration, setDuration] = useState(session.duration || 0);
   const [difficulty, setDifficulty] = useState(session.difficulty || 3);
   const [notes, setNotes] = useState(session.notes || '');
@@ -18,6 +20,15 @@ const SessionSummary = ({ session, previousSessions = [], onSave, onBack, readOn
 
   const completedSets = session.sets.filter(s => s.completed);
   const totalVolume = completedSets.reduce((acc, s) => acc + s.weight * s.reps, 0);
+
+  // 1RM is only a meaningful headline number for exercises actively following a
+  // structured method (5/3/1, Cluster, EMOM) — for everything else, volume (already
+  // compared above vs last session / vs average) is the metric that matters.
+  const methodExerciseNames = useMemo(() => {
+    const names = new Set<string>();
+    workoutTypes.forEach(t => t.exercises.forEach(e => { if (e.method) names.add(e.name); }));
+    return names;
+  }, [workoutTypes]);
 
   // Group completed sets by exercise
   const groupedExercises = useMemo(() => {
@@ -74,7 +85,7 @@ const SessionSummary = ({ session, previousSessions = [], onSave, onBack, readOn
         return e1rm > calculate1RM(best.weight, best.reps) ? s : best;
       }, sets[0]);
 
-      const lastSets = lastSameTypeSession.sets.filter(s => s.exerciseName === name && s.completed && s.weight > 0);
+      const lastSets = lastSameTypeSession.sets.filter(s => s.exerciseName === name && s.completed && (s.weight > 0 || isBodyweightOptionalExercise(name)));
       if (lastSets.length === 0) return;
 
       const lastBest = lastSets.reduce((best, s) => {
@@ -197,12 +208,13 @@ const SessionSummary = ({ session, previousSessions = [], onSave, onBack, readOn
             const best = sets.reduce((b, s) => calculate1RM(s.weight, s.reps) > calculate1RM(b.weight, b.reps) ? s : b, sets[0]);
             const e1rm = calculate1RM(best.weight, best.reps);
             const prog = progressions[name];
+            const hasMethod = methodExerciseNames.has(name);
 
             return (
               <div key={name} className="glass-card p-4">
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="text-sm font-semibold text-foreground">{name}</h3>
-                  {e1rm > 0 && (
+                  {hasMethod && e1rm > 0 && (
                     <span className="text-xs text-primary font-medium">1RM: {e1rm} kg</span>
                   )}
                 </div>

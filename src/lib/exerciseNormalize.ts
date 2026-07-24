@@ -4,7 +4,7 @@
 // Only the BARBELL variant maps to the PR-tracked canonical name.
 
 interface EquipmentDetection {
-  key: 'barre' | 'haltere' | 'smith' | 'machine' | 'poulie' | 'elastique' | 'unilateral';
+  key: 'barre' | 'haltere' | 'smith' | 'machine' | 'poulie' | 'elastique' | 'assiste' | 'unilateral';
   label: string;
   keywords: string[];
 }
@@ -12,6 +12,10 @@ interface EquipmentDetection {
 const EQUIPMENT: EquipmentDetection[] = [
   { key: 'haltere', label: 'haltères', keywords: ['haltere', 'halteres', 'dumbbell', 'db', 'hltr'] },
   { key: 'smith', label: 'Smith', keywords: ['smith', 'smith machine'] },
+  // Machine-assisted (e.g. assisted pull-up/dip machine) — distinct from "machine" above,
+  // and from "elastique" (band-assisted): tractions/dips have both an elastic-band and a
+  // dedicated assisted-machine variant, with different load characteristics.
+  { key: 'assiste', label: 'assisté', keywords: ['assiste', 'assistee', 'assistes', 'assistees', 'assisted'] },
   { key: 'machine', label: 'machine', keywords: ['machine', 'guide', 'hammer'] },
   { key: 'poulie', label: 'poulie', keywords: ['poulie', 'cable', 'cables'] },
   { key: 'elastique', label: 'élastique', keywords: ['elastique', 'band', 'bands'] },
@@ -242,6 +246,7 @@ const EQUIPMENT_VARIANT_LABEL: Record<EquipmentDetection['key'], string> = {
   machine: 'à la machine',
   poulie: 'à la poulie',
   elastique: "à l'élastique",
+  assiste: 'assisté',
   unilateral: 'unilatéral',
 };
 
@@ -260,4 +265,14 @@ export function splitEquipmentVariant(name: string): { base: string; variantLabe
     base: normalizeExerciseName(withoutEquipment || name),
     variantLabel: EQUIPMENT_VARIANT_LABEL[eqSpan.eq.key] ?? eqSpan.eq.label,
   };
+}
+
+// Tractions/dips are meaningfully loggable at 0kg (bodyweight only) or even a negative
+// weight (assisted via band or machine) — unlike every other exercise, where a weight of
+// 0 just means "not filled in yet" and would pollute history/records if counted. Callers
+// use this to decide whether a completed set should count regardless of its weight value
+// (this family) or whether weight > 0 is still required (everything else).
+export function isBodyweightOptionalExercise(name: string): boolean {
+  const base = splitEquipmentVariant(name).base;
+  return base === 'Tractions lestées' || base === 'Dips lestés';
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeExerciseName, isPrTracked, PR_TRACKED_CANONICAL, splitEquipmentVariant } from './exerciseNormalize';
+import { normalizeExerciseName, isPrTracked, PR_TRACKED_CANONICAL, splitEquipmentVariant, isBodyweightOptionalExercise } from './exerciseNormalize';
 
 describe('normalizeExerciseName', () => {
   it('maps spelling variants to the same canonical name', () => {
@@ -127,5 +127,28 @@ describe('splitEquipmentVariant', () => {
 
   it('handles empty input', () => {
     expect(splitEquipmentVariant('')).toEqual({ base: '', variantLabel: null });
+  });
+
+  it('recognizes the "assisté" equipment variant, distinct from "élastique"', () => {
+    expect(splitEquipmentVariant('Tractions assistées')).toEqual({ base: 'Tractions lestées', variantLabel: 'assisté' });
+    expect(splitEquipmentVariant('Dips assisté')).toEqual({ base: 'Dips lestés', variantLabel: 'assisté' });
+    expect(splitEquipmentVariant('Tractions élastique')).toEqual({ base: 'Tractions lestées', variantLabel: 'à l\'élastique' });
+  });
+});
+
+describe('isBodyweightOptionalExercise', () => {
+  it('is true for tractions and dips regardless of equipment suffix', () => {
+    expect(isBodyweightOptionalExercise('Tractions')).toBe(true);
+    expect(isBodyweightOptionalExercise('Tractions lestées')).toBe(true);
+    expect(isBodyweightOptionalExercise('Tractions assistées')).toBe(true);
+    expect(isBodyweightOptionalExercise('Tractions élastique')).toBe(true);
+    expect(isBodyweightOptionalExercise('Dips')).toBe(true);
+    expect(isBodyweightOptionalExercise('Dips assistés')).toBe(true);
+  });
+
+  it('is false for every other exercise', () => {
+    expect(isBodyweightOptionalExercise('Squat')).toBe(false);
+    expect(isBodyweightOptionalExercise('Développé couché')).toBe(false);
+    expect(isBodyweightOptionalExercise('Curl biceps')).toBe(false);
   });
 });

@@ -36,9 +36,13 @@ const emitPulses = (
   const ctx = getSharedAudioContext();
   if (!ctx) return [];
   const limiter = ctx.createDynamicsCompressor();
-  limiter.threshold.value = -24;
-  limiter.knee.value = 10;
-  limiter.ratio.value = 12;
+  // Threshold lowered and ratio raised vs. before: the compressor kicks in earlier and
+  // squeezes harder, which raises the average perceived loudness of the stacked
+  // oscillators below without letting the peaks clip — this is the only real lever left
+  // once individual oscillator gains are already at their max (peak: 1).
+  limiter.threshold.value = -30;
+  limiter.knee.value = 6;
+  limiter.ratio.value = 18;
   limiter.attack.value = 0.001;
   limiter.release.value = 0.1;
   limiter.connect(ctx.destination);
@@ -46,8 +50,9 @@ const emitPulses = (
   const oscillators: OscillatorNode[] = [];
   pulses.forEach(({ offset, freq }) => {
     const start = when + offset;
-    // Fundamental + octave stacked for extra loudness, tamed by the shared limiter
-    [{ f: freq, peak: 1 }, { f: freq * 2, peak: 0.6 }].forEach(({ f, peak }) => {
+    // Fundamental + octave + a sub-octave stacked for extra loudness/body, tamed by the
+    // shared limiter above.
+    [{ f: freq, peak: 1 }, { f: freq * 2, peak: 0.8 }, { f: freq / 2, peak: 0.5 }].forEach(({ f, peak }) => {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'square';

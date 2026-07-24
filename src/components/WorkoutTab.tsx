@@ -4,12 +4,13 @@ import { getWeekSets, getWeekLabel } from '@/lib/531';
 import { getClusterConfig, getMiniSeriesWeight } from '@/lib/cluster';
 import { getEmomConfig, getEmomWeight } from '@/lib/emom';
 import { buildExerciseBlocks } from '@/lib/superset';
+import { isBodyweightOptionalExercise } from '@/lib/exerciseNormalize';
 import RestTimer, { RestTimerHandle } from './RestTimer';
 import EmomTimer from './EmomTimer';
 import ExerciseHistory from './ExerciseHistory';
 import SessionSummary from './SessionSummary';
 import SettingsPanel from './SettingsPanel';
-import { Check, ChevronRight, ArrowLeft, Settings, History, Plus, Trash2, ChevronDown, Timer } from 'lucide-react';
+import { Check, ChevronRight, ArrowLeft, Settings, History, Plus, Trash2, ChevronDown, Timer, Pencil } from 'lucide-react';
 import { SortableList, DragHandle } from './SortableBlock';
 import SetDots from './SetDots';
 
@@ -119,6 +120,12 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
   const [clusterAutoTimer, setClusterAutoTimer] = useState(false);
   const [methodOverrides, setMethodOverrides] = useState<Record<string, MethodOverride>>({});
   const [showAbandonConfirm, setShowAbandonConfirm] = useState(false);
+  // Renaming a regular exercise mid-session (e.g. "Hack squat ou leg press" -> whichever
+  // one she actually did today) reuses updateExerciseName below — the card's displayed
+  // name already reads live from `sets`, not from the WorkoutType template, so this is
+  // session-only by construction, no separate override map needed.
+  const [renamingExerciseId, setRenamingExerciseId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
   const restTimerRef = useRef<RestTimerHandle>(null);
 
   // Resolves the full method (preset/rest times/duration included, not just TM) that
@@ -186,7 +193,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
   const getLastPerformance = useCallback((exerciseName: string) => {
     for (let i = data.sessions.length - 1; i >= 0; i--) {
       const s = data.sessions[i];
-      const matchingSets = s.sets.filter(set => set.exerciseName === exerciseName && set.completed && set.weight > 0);
+      const matchingSets = s.sets.filter(set => set.exerciseName === exerciseName && set.completed && (set.weight > 0 || isBodyweightOptionalExercise(exerciseName)));
       if (matchingSets.length > 0) {
         const best = matchingSets.reduce((b, set) => set.weight > b.weight ? set : b, matchingSets[0]);
         return { weight: best.weight, reps: best.reps, date: s.date };
@@ -200,7 +207,8 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
     let best: { weight: number; reps: number } | null = null;
     data.sessions.forEach(s => {
       s.sets.forEach(set => {
-        if (set.exerciseName !== exerciseName || !set.completed || set.weight <= 0) return;
+        if (set.exerciseName !== exerciseName || !set.completed) return;
+        if (set.weight <= 0 && !isBodyweightOptionalExercise(exerciseName)) return;
         if (!best || set.weight > best.weight || (set.weight === best.weight && set.reps > best.reps)) {
           best = { weight: set.weight, reps: set.reps };
         }
@@ -217,8 +225,13 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
     if (!lastSession) return {};
     
     const weights: Record<string, number> = {};
+    // A plain `!weights[id]` guard would misfire once 0 becomes a legitimate stored value
+    // (bodyweight tractions/dips) — 0 is falsy, so it would keep looking like "not seen
+    // yet" and get overwritten by a later set. Track "seen" explicitly instead.
+    const seenExerciseIds = new Set<string>();
     lastSession.sets.forEach(s => {
-      if (s.completed && s.weight > 0 && !weights[s.exerciseId]) {
+      if (s.completed && (s.weight > 0 || isBodyweightOptionalExercise(s.exerciseName)) && !seenExerciseIds.has(s.exerciseId)) {
+        seenExerciseIds.add(s.exerciseId);
         weights[s.exerciseId] = s.weight;
       }
     });
@@ -231,6 +244,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
     setStartTime(Date.now());
     setAmrapReps({});
     setMethodOverrides({});
+    setRenamingExerciseId(null);
 
     const initialWeeks: Record<string, number> = {};
     type.exercises.forEach(ex => {
@@ -298,7 +312,8 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
   // Propagate first-set weight to remaining empty sets when user leaves the field
   const propagateWeightOnBlur = (index: number) => {
     const currentSet = sets[index];
-    if (!currentSet || currentSet.setNumber !== 1 || currentSet.weight <= 0) return;
+    if (!currentSet || currentSet.setNumber !== 1) return;
+    if (currentSet.weight <= 0 && !isBodyweightOptionalExercise(currentSet.exerciseName)) return;
     const updated = [...sets];
     for (let i = index + 1; i < updated.length; i++) {
       if (updated[i].exerciseId === currentSet.exerciseId && updated[i].weight === 0) {
@@ -349,7 +364,10 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
     setSets(prev => prev.filter((_, i) => i !== index));
   };
 
-  // Update exercise name for temp exercises
+  // Renames an exercise for this session only — used both for temp exercises (freely
+  // named) and for regular ones (e.g. picking which variant of "Hack squat ou leg press"
+  // she actually did today). The WorkoutType template is never touched; only this live
+  // `sets` array, which is what every card/history lookup below reads its name from.
   const updateExerciseName = (exerciseId: string, name: string) => {
     setSets(prev => prev.map(s => s.exerciseId === exerciseId ? { ...s, exerciseName: name } : s));
   };
@@ -434,6 +452,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
     setSets([]);
     setPendingSession(null);
     setMethodOverrides({});
+    setRenamingExerciseId(null);
   };
 
   if (mode === 'summary' && pendingSession) {
@@ -441,6 +460,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
       <SessionSummary
         session={pendingSession}
         previousSessions={data.sessions}
+        workoutTypes={data.workoutTypes}
         onSave={handleSummaryComplete}
         onBack={() => setMode(selectedType ? 'recap' : 'select')}
       />
@@ -625,6 +645,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
     setSelectedType(null);
     setSets([]);
     setMethodOverrides({});
+    setRenamingExerciseId(null);
   };
 
   const abandonSession = () => {
@@ -672,19 +693,32 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
             <div className="px-3 pb-3 space-y-1">
               {(() => {
                 const previewMap = new Map(selectedType.exercises.map(e => [e.id, e]));
+                // Dot color: method hue when the exercise carries one (matches the
+                // primary/purple/blue convention used everywhere else for 5/3/1/Cluster/
+                // EMOM), magenta for supersets, cyan as the neutral default otherwise —
+                // replaces the previous flat gray list.
                 const rows = buildExerciseBlocks(selectedType.exercises).map(block => {
                   if (block.isSuperset) {
                     const a = previewMap.get(block.exerciseIds[0])!;
                     const b = previewMap.get(block.exerciseIds[1])!;
-                    return { label: `${a.name} + ${b.name}`, volume: `${a.sets} × ${a.reps} / ${b.reps}` };
+                    return { label: `${a.name} + ${b.name}`, volume: `${a.sets} × ${a.reps} / ${b.reps}`, dot: 'hsl(var(--primary))' };
                   }
                   const ex = previewMap.get(block.exerciseIds[0])!;
-                  return { label: ex.name, volume: `${ex.sets} × ${ex.reps}` };
+                  // 531/Cluster get their own hue; EMOM and plain exercises share the
+                  // neutral cyan default since EMOM's blue already matches that hue.
+                  const dot = ex.method?.type === '531' ? 'hsl(var(--primary))'
+                    : ex.method?.type === 'cluster' ? 'hsl(var(--accent-purple))'
+                    : 'hsl(var(--accent-blue))';
+                  return { label: ex.name, volume: `${ex.sets} × ${ex.reps}`, dot };
                 });
                 return rows.map((r, i) => (
-                  <div key={i} className="flex items-center justify-between text-xs py-1">
+                  <div key={i} className="flex items-center gap-2 text-xs py-1">
+                    <span
+                      className="w-1.5 h-1.5 rounded-full shrink-0"
+                      style={{ backgroundColor: r.dot, boxShadow: `0 0 4px ${r.dot}` }}
+                    />
                     <span className="text-foreground/80 truncate flex-1 pr-2">{r.label}</span>
-                    <span className="text-muted-foreground font-mono shrink-0">{r.volume}</span>
+                    <span className="font-mono shrink-0" style={{ color: r.dot }}>{r.volume}</span>
                   </div>
                 ));
               })()}
@@ -1070,14 +1104,34 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
                     className="bg-transparent text-foreground font-semibold outline-none flex-1 text-sm"
                     placeholder="Nom de l'exercice"
                   />
+                ) : renamingExerciseId === exerciseId ? (
+                  <input
+                    autoFocus
+                    value={renameValue}
+                    onChange={e => setRenameValue(e.target.value)}
+                    onBlur={() => { updateExerciseName(exerciseId, renameValue.trim() || name); setRenamingExerciseId(null); }}
+                    onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                    className="bg-transparent text-foreground font-semibold outline-none flex-1 text-sm border-b border-primary/40"
+                    placeholder="Nom de l'exercice"
+                  />
                 ) : (
-                  <button
-                    onClick={() => { setHistoryExercise(name); setMode('history'); }}
-                    className="min-h-11 flex items-center gap-1.5 group"
-                  >
-                    <h3 className="text-sm font-semibold text-foreground group-active:text-primary transition-colors">{name}</h3>
-                    <History size={12} className="text-muted-foreground group-active:text-primary" />
-                  </button>
+                  <>
+                    <button
+                      onClick={() => { setHistoryExercise(name); setMode('history'); }}
+                      className="min-h-11 flex items-center gap-1.5 group min-w-0"
+                    >
+                      <h3 className="text-sm font-semibold text-foreground group-active:text-primary transition-colors truncate">{name}</h3>
+                      <History size={12} className="text-muted-foreground group-active:text-primary shrink-0" />
+                    </button>
+                    <button
+                      onClick={() => { setRenamingExerciseId(exerciseId); setRenameValue(name); }}
+                      className="touch-target p-1 text-muted-foreground active:text-primary shrink-0"
+                      aria-label={`Changer le nom de ${name} pour cette séance`}
+                      title="Renommer pour cette séance (ex. quel équipement utilisé)"
+                    >
+                      <Pencil size={12} />
+                    </button>
+                  </>
                 )}
               </div>
 

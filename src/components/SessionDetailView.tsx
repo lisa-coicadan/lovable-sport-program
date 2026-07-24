@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback, useRef } from 'react';
 import { SessionLog, SetLog, AppData, calculate1RM } from '@/lib/types';
+import { isBodyweightOptionalExercise } from '@/lib/exerciseNormalize';
 import { Trash2, Pencil, Share2, Plus, X, TrendingUp, TrendingDown, Minus, Check } from 'lucide-react';
 
 interface SessionDetailViewProps {
@@ -29,7 +30,7 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
     for (let i = data.sessions.length - 1; i >= 0; i--) {
       const s = data.sessions[i];
       if (s.id === excludeSessionId) continue;
-      const matchingSets = s.sets.filter(set => set.exerciseName === exerciseName && set.completed && set.weight > 0);
+      const matchingSets = s.sets.filter(set => set.exerciseName === exerciseName && set.completed && (set.weight > 0 || isBodyweightOptionalExercise(exerciseName)));
       if (matchingSets.length > 0) {
         const best = matchingSets.reduce((b, set) => set.weight > b.weight ? set : b, matchingSets[0]);
         return { weight: best.weight, reps: best.reps, date: s.date };
@@ -59,7 +60,7 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
     const result: Record<string, { weightDiff: number; repDiff: number; e1rmDiff: number; e1rmPct: number }> = {};
     groupedExercises.forEach(([name, sets]) => {
       const bestSet = sets.reduce((best, s) => calculate1RM(s.weight, s.reps) > calculate1RM(best.weight, best.reps) ? s : best, sets[0]);
-      const lastSets = lastSession.sets.filter(s => s.exerciseName === name && s.completed && s.weight > 0);
+      const lastSets = lastSession.sets.filter(s => s.exerciseName === name && s.completed && (s.weight > 0 || isBodyweightOptionalExercise(name)));
       if (lastSets.length === 0) return;
       const lastBest = lastSets.reduce((best, s) => calculate1RM(s.weight, s.reps) > calculate1RM(best.weight, best.reps) ? s : best, lastSets[0]);
       const current1RM = calculate1RM(bestSet.weight, bestSet.reps);
