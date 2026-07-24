@@ -40,6 +40,8 @@ export interface EMOMMethod {
 
 export type ExerciseMethod = FiveThreeOneMethod | ClusterMethod | EMOMMethod;
 
+export type ExerciseEquipment = 'barre' | 'halteres' | 'machine' | 'smith' | 'poulie';
+
 export interface Exercise {
   id: string;
   name: string;
@@ -49,6 +51,8 @@ export interface Exercise {
   supersetGroupId?: string; // shared id between the 2 partners
   supersetRole?: 'A' | 'B';
   method?: ExerciseMethod; // optional per-exercise training method (5/3/1, later cluster/EMOM)
+  unilateral?: boolean; // display-only attribute (execution mode)
+  equipment?: ExerciseEquipment; // display-only attribute (equipment tag)
 }
 
 export interface WorkoutType {
