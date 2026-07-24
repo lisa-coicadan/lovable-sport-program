@@ -6,6 +6,7 @@ import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine
 } from 'recharts';
+import RangeButtons, { RangeFilter, rangeWeeks, rangeCutoffDate } from './RangeButtons';
 
 interface StatsTabProps {
   data: AppData;
@@ -41,22 +42,7 @@ const formatHM = (mins: number) => {
 };
 
 // 1 mois = 4 semaines pile (pas de semaine coupée) ; 3 mois ≈ 13 semaines.
-type RangeFilter = '1m' | '3m' | 'all';
-const RANGE_OPTIONS: { value: RangeFilter; label: string }[] = [
-  { value: '1m', label: '1 mois' },
-  { value: '3m', label: '3 mois' },
-  { value: 'all', label: 'Tout' },
-];
-const rangeWeeks = (range: RangeFilter): number | null => (range === '1m' ? 4 : range === '3m' ? 13 : null);
 const rangeMonths = (range: RangeFilter): number | null => (range === '1m' ? 1 : range === '3m' ? 3 : null);
-const rangeCutoffDate = (range: RangeFilter): Date | null => {
-  const weeks = rangeWeeks(range);
-  if (weeks === null) return null;
-  const d = new Date();
-  d.setDate(d.getDate() - weeks * 7);
-  d.setHours(0, 0, 0, 0);
-  return d;
-};
 
 // Builds the list of Mondays to display for a given range: exactly `rangeWeeks` weeks
 // ending on the current week for '1m'/'3m', or every week since the earliest reference
@@ -86,28 +72,11 @@ const weekRangeMondays = (range: RangeFilter, referenceDates: string[]): Date[] 
   return out;
 };
 
-const RangeButtons = ({ value, onChange }: { value: RangeFilter; onChange: (v: RangeFilter) => void }) => (
-  <div className="flex gap-1">
-    {RANGE_OPTIONS.map(opt => (
-      <button
-        key={opt.value}
-        onClick={() => onChange(opt.value)}
-        className={`touch-target inline-flex items-center justify-center px-2 rounded-lg text-[10px] font-medium transition-colors ${
-          value === opt.value ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
-        }`}
-      >
-        {opt.label}
-      </button>
-    ))}
-  </div>
-);
-
 const StatsTab = ({ data }: StatsTabProps) => {
-  const [difficultyFilter, setDifficultyFilter] = useState<string | null>(null);
   const [volumeFilter, setVolumeFilter] = useState<string | null>(null);
   const [weeklyRange, setWeeklyRange] = useState<RangeFilter>('all');
-  const [volumeRange, setVolumeRange] = useState<RangeFilter>('all');
-  const [difficultyRange, setDifficultyRange] = useState<RangeFilter>('all');
+  const [volumeRange, setVolumeRange] = useState<RangeFilter>('3m');
+  const [difficultyRange, setDifficultyRange] = useState<RangeFilter>('3m');
   const [weeklyTimeRange, setWeeklyTimeRange] = useState<RangeFilter>('all');
   const [monthlyTimeRange, setMonthlyTimeRange] = useState<RangeFilter>('all');
   const [e1rmOpen, setE1rmOpen] = useState(false);
@@ -237,7 +206,6 @@ const StatsTab = ({ data }: StatsTabProps) => {
     return data.sessions
       .filter(s => s.date >= RPE_CUTOFF)
       .filter(s => s.difficulty && s.difficulty > 0)
-      .filter(s => !difficultyFilter || s.workoutTypeName === difficultyFilter)
       .filter(s => !cutoff || new Date(s.date + 'T00:00:00') >= cutoff)
       .sort((a, b) => a.date.localeCompare(b.date))
       .map(s => ({
@@ -246,7 +214,7 @@ const StatsTab = ({ data }: StatsTabProps) => {
         type: s.workoutTypeName,
         programName: s.programName,
       }));
-  }, [data.sessions, difficultyFilter, difficultyRange]);
+  }, [data.sessions, difficultyRange]);
   const difficultyProgramColors = useMemo(() => programColorFor(difficultyData), [difficultyData]);
 
   // Weekly training time — include empty weeks
@@ -523,27 +491,6 @@ const StatsTab = ({ data }: StatsTabProps) => {
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-foreground">Effort perçu (RPE /5)</h3>
             <RangeButtons value={difficultyRange} onChange={setDifficultyRange} />
-          </div>
-          <div className="flex gap-1 mb-3 flex-wrap">
-            <button
-              onClick={() => setDifficultyFilter(null)}
-              className={`touch-target inline-flex items-center justify-center px-2 rounded-lg text-[10px] font-medium transition-colors ${
-                !difficultyFilter ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
-              }`}
-            >
-              Tout
-            </button>
-            {activeTypeNames.map(name => (
-              <button
-                key={name}
-                onClick={() => setDifficultyFilter(name)}
-                className={`touch-target inline-flex items-center justify-center px-2 rounded-lg text-[10px] font-medium transition-colors ${
-                  difficultyFilter === name ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
-                }`}
-              >
-                {name}
-              </button>
-            ))}
           </div>
           <ResponsiveContainer width="100%" height={180}>
             <LineChart data={difficultyData}>

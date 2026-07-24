@@ -1,8 +1,9 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { AppData, calculate1RM } from '@/lib/types';
 import { splitEquipmentVariant } from '@/lib/exerciseNormalize';
 import { ArrowLeft } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import RangeButtons, { RangeFilter, rangeCutoffDate } from './RangeButtons';
 
 interface ExerciseHistoryProps {
   exerciseName: string;
@@ -96,15 +97,19 @@ const ExerciseHistory = ({ exerciseName, data, onClose }: ExerciseHistoryProps) 
 };
 
 const VariantSection = ({ group, showHeader }: { group: VariantGroup; showHeader: boolean }) => {
+  const [range, setRange] = useState<RangeFilter>('3m');
+
   const chartData = useMemo(() => {
+    const cutoff = rangeCutoffDate(range);
     const byDate: Record<string, number> = {};
     group.history.forEach(h => {
+      if (cutoff && new Date(h.date + 'T00:00:00') < cutoff) return;
       if (!byDate[h.date] || h.e1rm > byDate[h.date]) byDate[h.date] = h.e1rm;
     });
     return Object.entries(byDate)
       .map(([date, e1rm]) => ({ date: new Date(date + 'T00:00:00').getTime(), e1rm }))
       .sort((a, b) => a.date - b.date);
-  }, [group.history]);
+  }, [group.history, range]);
 
   const groupedByDate = useMemo(() => {
     const map: Record<string, HistoryEntry[]> = {};
@@ -126,9 +131,13 @@ const VariantSection = ({ group, showHeader }: { group: VariantGroup; showHeader
         </div>
       )}
 
-      {chartData.length > 1 && (
+      {group.history.length > 1 && (
         <div className="glass-card p-4 mb-3">
-          <h4 className="text-xs font-semibold text-muted-foreground mb-3">Évolution du 1RM estimé</h4>
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="text-xs font-semibold text-muted-foreground">Évolution du 1RM estimé</h4>
+            <RangeButtons value={range} onChange={setRange} />
+          </div>
+          {chartData.length > 1 ? (
           <ResponsiveContainer width="100%" height={140}>
             <LineChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 12% 20%)" />
@@ -156,6 +165,9 @@ const VariantSection = ({ group, showHeader }: { group: VariantGroup; showHeader
               />
             </LineChart>
           </ResponsiveContainer>
+          ) : (
+            <p className="text-xs text-muted-foreground text-center py-6">Pas assez de données sur cette période</p>
+          )}
         </div>
       )}
 

@@ -21,6 +21,11 @@ describe('normalizeExerciseName', () => {
     expect(normalizeExerciseName('hack squat')).not.toBe('Squat');
   });
 
+  it('groups Squat pendule with Hack Squat, not with plain Squat', () => {
+    expect(normalizeExerciseName('Squat pendule')).toBe('Hack Squat');
+    expect(normalizeExerciseName('squat pendule')).not.toBe('Squat');
+  });
+
 
   it('maps barbell-qualified variants to the canonical (barbell) name', () => {
     expect(normalizeExerciseName('Développé couché barre')).toBe('Développé couché');

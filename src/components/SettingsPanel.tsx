@@ -35,6 +35,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
   // her phone. This in-app modal replaces it for both flows.
   const [namePrompt, setNamePrompt] = useState<{ title: string; onSubmit: (name: string) => void } | null>(null);
   const [namePromptValue, setNamePromptValue] = useState('');
+  const [expandedMethodFor, setExpandedMethodFor] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Program management ----------------------------------------------------------
@@ -947,25 +948,35 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                   })()}
                                 </div>
                               ) : (
-                                <div className="flex items-center gap-3 pl-1 flex-wrap">
+                                <div className="pl-1">
                                   <button
-                                    onClick={() => updateExerciseMethod(ti, exIdx, { type: '531', trainingMax: 60, currentCycle: 1, currentWeek: 1, increment: 2.5 })}
+                                    onClick={() => setExpandedMethodFor(expandedMethodFor === ex.id ? null : ex.id)}
                                     className="text-[10px] text-muted-foreground flex items-center gap-1"
                                   >
-                                    <Zap size={10} /> Ajouter une méthode 5/3/1
+                                    <Zap size={10} /> Ajouter une méthode
                                   </button>
-                                  <button
-                                    onClick={() => updateExerciseMethod(ti, exIdx, { type: 'cluster', trainingMax: 60 })}
-                                    className="text-[10px] text-muted-foreground flex items-center gap-1"
-                                  >
-                                    <Timer size={10} /> Ajouter un Cluster
-                                  </button>
-                                  <button
-                                    onClick={() => updateExerciseMethod(ti, exIdx, { type: 'emom', trainingMax: 60 })}
-                                    className="text-[10px] text-muted-foreground flex items-center gap-1"
-                                  >
-                                    <Clock size={10} /> Ajouter un EMOM
-                                  </button>
+                                  {expandedMethodFor === ex.id && (
+                                    <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+                                      <button
+                                        onClick={() => { updateExerciseMethod(ti, exIdx, { type: '531', trainingMax: 60, currentCycle: 1, currentWeek: 1, increment: 2.5 }); setExpandedMethodFor(null); }}
+                                        className="text-[10px] text-muted-foreground flex items-center gap-1"
+                                      >
+                                        <Zap size={10} /> 5/3/1
+                                      </button>
+                                      <button
+                                        onClick={() => { updateExerciseMethod(ti, exIdx, { type: 'cluster', trainingMax: 60 }); setExpandedMethodFor(null); }}
+                                        className="text-[10px] text-muted-foreground flex items-center gap-1"
+                                      >
+                                        <Timer size={10} /> Cluster
+                                      </button>
+                                      <button
+                                        onClick={() => { updateExerciseMethod(ti, exIdx, { type: 'emom', trainingMax: 60 }); setExpandedMethodFor(null); }}
+                                        className="text-[10px] text-muted-foreground flex items-center gap-1"
+                                      >
+                                        <Clock size={10} /> EMOM
+                                      </button>
+                                    </div>
+                                  )}
                                 </div>
                               )}
                             </div>

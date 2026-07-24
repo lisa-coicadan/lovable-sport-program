@@ -102,7 +102,9 @@ const RULES: NormalizationRule[] = [
     canonical: 'Hack Squat',
     baseLabel: 'Hack Squat',
     prTracked: false,
-    keywords: ['hack squat'],
+    // Squat pendulum machine lands here too — it's a fixed-path machine squat like hack
+    // squat, its loads aren't comparable to free-weight Squat despite the shared name.
+    keywords: ['hack squat', 'squat pendule', 'pendulum squat'],
   },
   {
     canonical: 'Goblet Squat',
