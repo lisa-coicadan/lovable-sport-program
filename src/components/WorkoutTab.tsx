@@ -164,7 +164,10 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
     return () => clearInterval(id);
   }, [mode]);
 
-  const activeTypes = data.workoutTypes.filter(t => !t.hidden);
+  const activeProgramId = data.activeProgramId ?? null;
+  const activeTypes = data.workoutTypes.filter(t =>
+    !t.hidden && (!activeProgramId || !t.programId || t.programId === activeProgramId)
+  );
 
   // Get last performance for an exercise (most recent session containing it)
   const getLastPerformance = useCallback((exerciseName: string) => {
