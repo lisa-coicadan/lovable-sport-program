@@ -102,6 +102,9 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
   // her phone. This in-app modal replaces it for both flows.
   const [namePrompt, setNamePrompt] = useState<{ title: string; onSubmit: (name: string) => void } | null>(null);
   const [namePromptValue, setNamePromptValue] = useState('');
+  // window.confirm() has the same iOS standalone-PWA reliability issue as window.prompt()
+  // above — this in-app modal replaces every window.confirm() in this file.
+  const [confirmDialog, setConfirmDialog] = useState<{ title: string; message: string; confirmLabel: string; danger?: boolean; onConfirm: () => void } | null>(null);
   const [expandedMethodFor, setExpandedMethodFor] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -154,13 +157,20 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
     }
     const current = programs.find(p => p.id === activeProgramId);
     const owned = workoutTypes.filter(t => t.programId === activeProgramId && !t.hidden).length;
-    if (!window.confirm(`Supprimer le programme "${current?.name}" ? Ses ${owned} séance(s) seront masquées (non supprimées, tu retrouveras leur historique dans Calendrier/Stats).`)) return;
-    setPrograms(prev => prev.filter(p => p.id !== activeProgramId));
-    // Hide owned workoutTypes rather than deleting them — history/stats keep referencing
-    // them by id unaffected, they just stop being offered anywhere as selectable.
-    const fallback = programs.find(p => p.id !== activeProgramId)!;
-    setWorkoutTypes(prev => prev.map(t => t.programId === activeProgramId ? { ...t, hidden: true } : t));
-    setActiveProgramId(fallback.id);
+    setConfirmDialog({
+      title: 'Supprimer ce programme ?',
+      message: `Supprimer "${current?.name}" ? Ses ${owned} séance(s) seront masquées (non supprimées, tu retrouveras leur historique dans Calendrier/Stats).`,
+      confirmLabel: 'Supprimer',
+      danger: true,
+      onConfirm: () => {
+        setPrograms(prev => prev.filter(p => p.id !== activeProgramId));
+        // Hide owned workoutTypes rather than deleting them — history/stats keep referencing
+        // them by id unaffected, they just stop being offered anywhere as selectable.
+        const fallback = programs.find(p => p.id !== activeProgramId)!;
+        setWorkoutTypes(prev => prev.map(t => t.programId === activeProgramId ? { ...t, hidden: true } : t));
+        setActiveProgramId(fallback.id);
+      },
+    });
   };
 
 
@@ -262,27 +272,33 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
       if (!imported || !Array.isArray(imported.workoutTypes) || !Array.isArray(imported.sessions)) {
         throw new Error('Fichier invalide');
       }
-      const confirmed = window.confirm(
-        `Restaurer cette sauvegarde ?\n\n• ${imported.sessions.length} séances\n• ${imported.workoutTypes.length} types de séance\n\nCela remplacera les données actuelles de cet appareil.`
-      );
-      if (!confirmed) return;
-      saveData(imported);
-      toast({ title: 'Sauvegarde restaurée', description: 'Rechargement…' });
-      setTimeout(() => window.location.reload(), 400);
+      setConfirmDialog({
+        title: 'Restaurer cette sauvegarde ?',
+        message: `${imported.sessions.length} séances\n${imported.workoutTypes.length} types de séance\n\nCela remplacera les données actuelles de cet appareil.`,
+        confirmLabel: 'Restaurer',
+        danger: true,
+        onConfirm: () => {
+          saveData(imported);
+          toast({ title: 'Sauvegarde restaurée', description: 'Rechargement…' });
+          setTimeout(() => window.location.reload(), 400);
+        },
+      });
     } catch (err) {
       toast({ title: 'Import impossible', description: 'Fichier JSON invalide.', variant: 'destructive' });
     }
   };
 
   const handleReset = () => {
-    const confirmed = window.confirm(
-      `Réinitialiser complètement l'app ?\n\n` +
-      `Ceci supprime définitivement TOUTES les données de cet appareil ` +
-      `(${data.sessions?.length || 0} séances, programmes, réglages) et relance l'écran d'initialisation.\n\n` +
-      `As-tu bien exporté une sauvegarde JSON récente ? Cette action est irréversible.`
-    );
-    if (!confirmed) return;
-    onUpdateData(DEFAULT_APP_DATA);
+    setConfirmDialog({
+      title: "Réinitialiser complètement l'app ?",
+      message:
+        `Ceci supprime définitivement TOUTES les données de cet appareil ` +
+        `(${data.sessions?.length || 0} séances, programmes, réglages) et relance l'écran d'initialisation.\n\n` +
+        `As-tu bien exporté une sauvegarde JSON récente ? Cette action est irréversible.`,
+      confirmLabel: 'Réinitialiser',
+      danger: true,
+      onConfirm: () => onUpdateData(DEFAULT_APP_DATA),
+    });
   };
 
 
@@ -1240,6 +1256,38 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
               className="flex-1 btn-neon font-medium py-2.5 rounded-xl text-sm touch-target"
             >
               Valider
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {confirmDialog && (
+      <div
+        className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-6 animate-fade-in"
+        onClick={() => setConfirmDialog(null)}
+      >
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="confirm-dialog-title"
+          className="glass-card p-6 max-w-sm w-full"
+          onClick={e => e.stopPropagation()}
+        >
+          <h3 id="confirm-dialog-title" className="text-lg font-bold text-foreground mb-2">{confirmDialog.title}</h3>
+          <p className="text-sm text-muted-foreground mb-6 whitespace-pre-line">{confirmDialog.message}</p>
+          <div className="flex gap-3">
+            <button
+              onClick={() => setConfirmDialog(null)}
+              className="flex-1 bg-secondary text-secondary-foreground font-medium py-2.5 rounded-xl text-sm touch-target"
+            >
+              Annuler
+            </button>
+            <button
+              onClick={() => { confirmDialog.onConfirm(); setConfirmDialog(null); }}
+              className={`flex-1 font-medium py-2.5 rounded-xl text-sm touch-target ${confirmDialog.danger ? 'bg-destructive text-destructive-foreground' : 'btn-neon'}`}
+            >
+              {confirmDialog.confirmLabel}
             </button>
           </div>
         </div>
