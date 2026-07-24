@@ -9,7 +9,7 @@ import { toast } from '@/hooks/use-toast';
 import BrandMark from './BrandMark';
 import { SortableList, DragHandle } from './SortableBlock';
 
-type WizStep = 'welcome' | 'list' | 'build' | 'notes' | 'goal' | 'methodParams' | 'recap';
+type WizStep = 'welcome' | 'programName' | 'list' | 'build' | 'notes' | 'goal' | 'methodParams' | 'recap';
 type MethodType = '531' | 'cluster' | 'emom';
 
 const METHOD_LABELS: Record<MethodType, string> = { '531': '5/3/1', cluster: 'Cluster', emom: 'EMOM' };
@@ -71,6 +71,7 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [expandedMethodFor, setExpandedMethodFor] = useState<string | null>(null);
   const [weeklyGoal, setWeeklyGoal] = useState(4);
+  const [programName, setProgramName] = useState('Mon programme');
   const [notesText, setNotesText] = useState('');
   const [tmMode, setTmMode] = useState<Record<string, 'direct' | 'compute'>>({});
   const [tmInputs, setTmInputs] = useState<Record<string, { weight: number; reps: number }>>({});
@@ -216,9 +217,9 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
   };
 
   const handleFinish = () => {
-    // Auto-create a default program on first setup so multi-program switching in Réglages
-    // has something to switch between. The user can rename or add more later.
-    const program = { id: `p${Date.now()}`, name: 'Mon programme' };
+    // First program is named up front (programName step) instead of a hardcoded default,
+    // so it's identifiable right away in Réglages/history once she creates a second one.
+    const program = { id: `p${Date.now()}`, name: programName.trim() || 'Mon programme' };
     const typedWithProgram = workoutTypes.map(t => ({ ...t, programId: program.id }));
     onComplete({
       workoutTypes: typedWithProgram,
@@ -273,10 +274,44 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
         </div>
 
         <button
-          onClick={() => setStep('list')}
+          onClick={() => setStep('programName')}
           className="relative w-full max-w-xs btn-neon font-semibold py-4 rounded-2xl touch-target text-lg transition-transform active:scale-95"
         >
           Commencer
+        </button>
+      </div>
+    );
+  }
+
+  // ============================================================ Step — Nom du programme
+  if (step === 'programName') {
+    return (
+      <div className="min-h-screen bg-background px-4 pt-12 pb-8 animate-slide-up">
+        <div className="flex items-center gap-3 mb-1">
+          <button onClick={() => setStep('welcome')} aria-label="Retour à l'accueil" className="text-muted-foreground touch-target p-1"><ChevronLeft size={20} /></button>
+          <h2 className="text-2xl font-bold text-foreground">Ton programme</h2>
+        </div>
+        <p className="text-muted-foreground text-sm mb-6 ml-8">
+          Donne un nom à ton programme actuel — tu pourras en créer d'autres plus tard quand tes séances évolueront
+        </p>
+
+        <div className="glass-card p-4 mb-8">
+          <label className="text-xs text-muted-foreground block mb-2">Nom du programme</label>
+          <input
+            autoFocus
+            value={programName}
+            onChange={e => setProgramName(e.target.value)}
+            className="w-full bg-secondary text-foreground rounded-xl px-3 py-3 text-base font-semibold outline-none"
+            placeholder="ex. Push Pull Legs, Full Body..."
+          />
+        </div>
+
+        <button
+          onClick={() => setStep('list')}
+          disabled={programName.trim() === ''}
+          className="w-full btn-neon font-semibold py-4 rounded-2xl touch-target text-lg flex items-center justify-center gap-2 transition-transform active:scale-95 disabled:opacity-40"
+        >
+          Suivant <ChevronRight size={20} />
         </button>
       </div>
     );
@@ -287,7 +322,7 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
     return (
       <div className="min-h-screen bg-background px-4 pt-12 pb-8 animate-slide-up">
         <div className="flex items-center gap-3 mb-1">
-          <button onClick={() => setStep('welcome')} aria-label="Retour à l'accueil" className="text-muted-foreground touch-target p-1"><ChevronLeft size={20} /></button>
+          <button onClick={() => setStep('programName')} aria-label="Retour au nom du programme" className="text-muted-foreground touch-target p-1"><ChevronLeft size={20} /></button>
           <h2 className="text-2xl font-bold text-foreground">Tes séances</h2>
         </div>
         <p className="text-muted-foreground text-sm mb-3 ml-8">Crée tes modèles de séance, avec ou sans méthode d'entraînement</p>

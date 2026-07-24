@@ -399,6 +399,12 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
     setWorkoutTypes(updated);
   };
 
+  const updateTypeProgram = (index: number, programId: string) => {
+    const updated = [...workoutTypes];
+    updated[index] = { ...updated[index], programId };
+    setWorkoutTypes(updated);
+  };
+
   const hiddenTypes = workoutTypes.filter(t => t.hidden);
 
   return (
@@ -518,9 +524,16 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                     placeholder="Nom de la séance"
                   />
                   {programs.length > 1 && (
-                    <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-secondary text-muted-foreground shrink-0">
-                      {programs.find(p => p.id === type.programId)?.name ?? '—'}
-                    </span>
+                    <select
+                      value={type.programId ?? ''}
+                      onChange={e => updateTypeProgram(ti, e.target.value)}
+                      className="text-[10px] font-medium pl-2 pr-1 py-0.5 rounded-full bg-secondary text-muted-foreground shrink-0 outline-none max-w-[100px]"
+                      aria-label={`Programme de ${type.name || 'cette séance'}`}
+                    >
+                      {programs.map(p => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
                   )}
                   <button onClick={() => toggleHide(ti)} className="text-muted-foreground p-1 touch-target" title="Masquer" aria-label={`Masquer ${type.name || 'cette séance'}`}>
                     <EyeOff size={16} />
@@ -1102,6 +1115,11 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                 <div key={type.id} className="glass-card p-3 opacity-60 flex items-center gap-3">
                   <div className="w-3 h-3 rounded-full" style={{ backgroundColor: `hsl(${type.color})` }} />
                   <span className="text-foreground text-sm flex-1">{type.name || 'Sans nom'}</span>
+                  {programs.length > 1 && (
+                    <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-secondary/80 text-muted-foreground shrink-0">
+                      {programs.find(p => p.id === type.programId)?.name ?? '—'}
+                    </span>
+                  )}
                   <button onClick={() => toggleHide(ti)} className="text-primary p-1 touch-target" title="Restaurer" aria-label={`Restaurer ${type.name || 'cette séance'}`}>
                     <Eye size={16} />
                   </button>
