@@ -207,7 +207,17 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
   };
 
   const handleFinish = () => {
-    onComplete({ workoutTypes, weeklyGoal, setupComplete: true });
+    // Auto-create a default program on first setup so multi-program switching in Réglages
+    // has something to switch between. The user can rename or add more later.
+    const program = { id: `p${Date.now()}`, name: 'Mon programme' };
+    const typedWithProgram = workoutTypes.map(t => ({ ...t, programId: program.id }));
+    onComplete({
+      workoutTypes: typedWithProgram,
+      weeklyGoal,
+      setupComplete: true,
+      programs: [program],
+      activeProgramId: program.id,
+    });
   };
 
   // ============================================================ Step 0 — Welcome
@@ -461,15 +471,17 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
                     <p className="text-[10px] text-muted-foreground/70 mt-1 ml-0.5">Sans nom, cet exercice ne sera pas gardé</p>
                   )}
 
-                  <button
-                    onClick={() => setExpandedMethodFor(isExpanded ? null : ex.id)}
-                    className={`mt-1.5 w-full flex items-center justify-center gap-1.5 rounded-lg py-2 text-xs font-semibold border transition-all ${
-                      methodType ? METHOD_HUES[methodType] : 'text-muted-foreground bg-secondary border-dashed border-border'
-                    }`}
-                  >
-                    {methodType ? (() => { const Icon = METHOD_ICONS[methodType]; return <Icon size={13} />; })() : <Plus size={13} />}
-                    {methodType ? `Méthode : ${METHOD_LABELS[methodType]}` : 'Ajouter une méthode d\'entraînement (5/3/1, Cluster, EMOM)'}
-                  </button>
+                  <div className="flex justify-end mt-1.5">
+                    <button
+                      onClick={() => setExpandedMethodFor(isExpanded ? null : ex.id)}
+                      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-medium border transition-all ${
+                        methodType ? METHOD_HUES[methodType] : 'text-muted-foreground bg-transparent border-border/60'
+                      }`}
+                    >
+                      {methodType ? (() => { const Icon = METHOD_ICONS[methodType]; return <Icon size={10} />; })() : <Plus size={10} />}
+                      {methodType ? METHOD_LABELS[methodType] : 'Méthode'}
+                    </button>
+                  </div>
 
                   {isExpanded && (
                     <div className="mt-1.5">
@@ -658,10 +670,13 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
                   </div>
                 )}
 
-                {!method.trainingMax && (
-                  <p className="text-xs text-warning mt-1">
-                    Sans Training Max, cet exercice partira à 0 kg à ta première séance
-                  </p>
+                {!method.trainingMax && mode === 'direct' && (
+                  <button
+                    onClick={() => setTmMode(prev => ({ ...prev, [exercise.id]: 'compute' }))}
+                    className="mt-2 w-full flex items-center justify-center gap-1.5 bg-primary/15 text-primary rounded-lg py-2 text-xs font-semibold border border-primary/40"
+                  >
+                    <Calculator size={12} /> Calculer mon Training Max
+                  </button>
                 )}
 
                 {methodType === 'cluster' && (() => {
