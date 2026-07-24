@@ -174,50 +174,59 @@ const RestTimer = forwardRef<RestTimerHandle, RestTimerProps>(({ defaultSeconds 
   }
 
   return createPortal(
-    <div className="fixed bottom-24 right-4 z-40 glass-card p-4 shadow-2xl w-72">
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-sm font-medium text-muted-foreground">Minuteur de repos</span>
-        <button onClick={() => setExpanded(false)} className="text-muted-foreground p-1">
-          <X size={16} />
-        </button>
-      </div>
-
-      {/* Duration selector */}
-      <div className="flex gap-1 mb-3">
-        {[30, 60, 90, 120, 180, 300].map(t => (
-          <button
-            key={t}
-            onClick={() => applyDuration(t)}
-            className={`flex-1 py-1.5 rounded-lg text-[10px] font-medium transition-colors ${
-              total === t ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground'
-            }`}
-          >
-            {t < 60 ? `${t}s` : `${t / 60}m`}
+    // `.glass-card` applies `position: relative` (needed by its own ::before glow layer)
+    // via a utilities-layer rule declared AFTER Tailwind's own `.fixed` utility in
+    // index.css — same specificity, same layer, so it silently won and this panel was
+    // rendering in normal flow instead of pinned to the viewport. Every other
+    // fixed-overlay + glass-card pairing in the app already avoids this by keeping them
+    // on separate elements (see the confirm dialogs in SettingsPanel/WorkoutTab) — this
+    // was the one place that combined both classes on the same node.
+    <div className="fixed bottom-24 right-4 z-40 w-72">
+      <div className="glass-card p-4 shadow-2xl">
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-sm font-medium text-muted-foreground">Minuteur de repos</span>
+          <button onClick={() => setExpanded(false)} className="text-muted-foreground p-1">
+            <X size={16} />
           </button>
-        ))}
-      </div>
-
-      <div className="flex items-center gap-3">
-        <div className="relative w-14 h-14">
-          <OrbitRing progress={progress / 100} size={56} />
-          <span className="absolute inset-0 flex items-center justify-center text-foreground font-mono font-bold text-xs">
-            {mins}:{secs.toString().padStart(2, '0')}
-          </span>
         </div>
-        <div className="flex gap-2 flex-1">
-          <button
-            onClick={isRunning ? pause : start}
-            className="flex-1 touch-target bg-primary text-primary-foreground rounded-xl py-2.5 font-medium text-sm flex items-center justify-center gap-1.5 transition-transform active:scale-95"
-          >
-            {isRunning ? <Pause size={14} /> : <Play size={14} />}
-            {isRunning ? 'Pause' : 'Démarrer'}
-          </button>
-          <button
-            onClick={reset}
-            className="touch-target bg-secondary text-secondary-foreground rounded-xl px-3 py-2.5 transition-transform active:scale-95"
-          >
-            <RotateCcw size={14} />
-          </button>
+
+        {/* Duration selector */}
+        <div className="flex gap-1 mb-3">
+          {[30, 60, 90, 120, 180, 300].map(t => (
+            <button
+              key={t}
+              onClick={() => applyDuration(t)}
+              className={`flex-1 py-1.5 rounded-lg text-[10px] font-medium transition-colors ${
+                total === t ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground'
+              }`}
+            >
+              {t < 60 ? `${t}s` : `${t / 60}m`}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-3">
+          <div className="relative w-14 h-14">
+            <OrbitRing progress={progress / 100} size={56} />
+            <span className="absolute inset-0 flex items-center justify-center text-foreground font-mono font-bold text-xs">
+              {mins}:{secs.toString().padStart(2, '0')}
+            </span>
+          </div>
+          <div className="flex gap-2 flex-1">
+            <button
+              onClick={isRunning ? pause : start}
+              className="flex-1 touch-target bg-primary text-primary-foreground rounded-xl py-2.5 font-medium text-sm flex items-center justify-center gap-1.5 transition-transform active:scale-95"
+            >
+              {isRunning ? <Pause size={14} /> : <Play size={14} />}
+              {isRunning ? 'Pause' : 'Démarrer'}
+            </button>
+            <button
+              onClick={reset}
+              className="touch-target bg-secondary text-secondary-foreground rounded-xl px-3 py-2.5 transition-transform active:scale-95"
+            >
+              <RotateCcw size={14} />
+            </button>
+          </div>
         </div>
       </div>
     </div>,
