@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Pause, Play, RotateCcw } from 'lucide-react';
 import { getSharedAudioContext, scheduleBeep, cancelBeep } from '@/lib/beep';
+import OrbitRing from './OrbitRing';
 
 interface EmomTimerProps {
   totalMinutes: number;
@@ -125,18 +126,7 @@ const EmomTimer = ({ totalMinutes }: EmomTimerProps) => {
   return (
     <div className="flex items-center gap-3">
       <div className="relative w-14 h-14 shrink-0">
-        <svg className="w-14 h-14 -rotate-90" viewBox="0 0 64 64">
-          <circle cx="32" cy="32" r="28" fill="none" stroke="hsl(var(--progress-track))" strokeWidth="4" />
-          <circle
-            cx="32" cy="32" r="28" fill="none"
-            stroke="hsl(var(--progress-fill))"
-            strokeWidth="4"
-            strokeLinecap="round"
-            strokeDasharray={`${2 * Math.PI * 28}`}
-            strokeDashoffset={`${2 * Math.PI * 28 * (1 - progress / 100)}`}
-            className="transition-all duration-1000 ease-linear"
-          />
-        </svg>
+        <OrbitRing progress={progress / 100} size={56} />
         <span className="absolute inset-0 flex items-center justify-center text-foreground font-mono font-bold text-xs">
           {mins}:{secs.toString().padStart(2, '0')}
         </span>

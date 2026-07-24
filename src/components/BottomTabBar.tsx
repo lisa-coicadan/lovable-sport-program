@@ -25,7 +25,7 @@ const BottomTabBar = ({ activeTab, onTabChange }: BottomTabBarProps) => {
             >
               <tab.icon
                 size={22}
-                className={active ? 'text-tab-active' : 'text-tab-inactive'}
+                className={active ? 'text-tab-active drop-shadow-[0_0_6px_hsl(var(--tab-active)/0.7)]' : 'text-tab-inactive'}
                 strokeWidth={active ? 2.5 : 1.8}
               />
               <span className={`text-[10px] font-medium ${active ? 'text-tab-active' : 'text-tab-inactive'}`}>

@@ -237,8 +237,8 @@ const StatsTab = ({ data }: StatsTabProps) => {
   const prevWeekTime = weeklyTimeData.length > 1 ? weeklyTimeData[weeklyTimeData.length - 2]?.minutes || 0 : 0;
   const latestBodyWeight = (data.bodyWeightLogs || []).sort((a, b) => b.date.localeCompare(a.date))[0];
 
-  const chartStyle = { fontSize: 10, fill: 'hsl(240 5% 55%)' };
-  const tooltipStyle = { background: 'hsl(240 5% 11%)', border: '1px solid hsl(240 4% 20%)', borderRadius: 12, fontSize: 12 };
+  const chartStyle = { fontSize: 10, fill: 'hsl(240 8% 58%)' };
+  const tooltipStyle = { background: 'hsl(240 14% 9%)', border: '1px solid hsl(240 12% 20%)', borderRadius: 10, fontSize: 12 };
   const noData = data.sessions.length === 0;
   const activeTypes = data.workoutTypes.filter(t => !t.hidden);
 
@@ -321,12 +321,12 @@ const StatsTab = ({ data }: StatsTabProps) => {
           </div>
           <ResponsiveContainer width="100%" height={180}>
             <BarChart data={weeklyData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 4% 20%)" />
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 12% 20%)" />
               <XAxis dataKey="week" tick={chartStyle} axisLine={false} tickLine={false} />
               <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={30} allowDecimals={false} />
               <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: 'hsl(0 0% 95%)' }} />
-              <ReferenceLine y={data.weeklyGoal} stroke="hsl(84 81% 44%)" strokeDasharray="4 4" strokeWidth={1.5} />
-              <Bar dataKey="sessions" fill="hsl(199 89% 48%)" radius={[6, 6, 0, 0]} />
+              <ReferenceLine y={data.weeklyGoal} stroke="hsl(38 92% 55%)" strokeDasharray="4 4" strokeWidth={1.5} />
+              <Bar dataKey="sessions" fill="hsl(189 94% 55%)" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -363,11 +363,11 @@ const StatsTab = ({ data }: StatsTabProps) => {
           {volumeData.length > 0 ? (
             <ResponsiveContainer width="100%" height={180}>
               <LineChart data={volumeData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 4% 20%)" />
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 12% 20%)" />
                 <XAxis dataKey="date" tick={chartStyle} axisLine={false} tickLine={false} />
                 <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={45} />
                 <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: 'hsl(0 0% 95%)' }} />
-                <Line type="monotone" dataKey="volume" stroke="hsl(330 81% 60%)" strokeWidth={2.5} dot={{ r: 3, fill: 'hsl(330 81% 60%)' }} />
+                <Line type="monotone" dataKey="volume" stroke="hsl(322 100% 60%)" strokeWidth={2.5} dot={{ r: 3, fill: 'hsl(322 100% 60%)' }} />
               </LineChart>
             </ResponsiveContainer>
           ) : (
@@ -406,11 +406,11 @@ const StatsTab = ({ data }: StatsTabProps) => {
           </div>
           <ResponsiveContainer width="100%" height={180}>
             <LineChart data={difficultyData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 4% 20%)" />
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 12% 20%)" />
               <XAxis dataKey="date" tick={chartStyle} axisLine={false} tickLine={false} />
               <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={30} domain={[0, 5]} />
               <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: 'hsl(0 0% 95%)' }} />
-              <Line type="monotone" dataKey="difficulty" stroke="hsl(262 83% 58%)" strokeWidth={2.5} dot={{ r: 3, fill: 'hsl(262 83% 58%)' }} />
+              <Line type="monotone" dataKey="difficulty" stroke="hsl(262 83% 66%)" strokeWidth={2.5} dot={{ r: 3, fill: 'hsl(262 83% 66%)' }} />
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -435,11 +435,11 @@ const StatsTab = ({ data }: StatsTabProps) => {
           </div>
           <ResponsiveContainer width="100%" height={160}>
             <BarChart data={weeklyTimeData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 4% 20%)" />
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 12% 20%)" />
               <XAxis dataKey="week" tick={chartStyle} axisLine={false} tickLine={false} />
               <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={35} />
               <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: 'hsl(0 0% 95%)' }} formatter={(value: number) => [formatHM(value), 'Temps']} />
-              <Bar dataKey="minutes" fill="hsl(174 72% 46%)" radius={[6, 6, 0, 0]} />
+              <Bar dataKey="minutes" fill="hsl(174 80% 48%)" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -454,11 +454,11 @@ const StatsTab = ({ data }: StatsTabProps) => {
           </div>
           <ResponsiveContainer width="100%" height={160}>
             <BarChart data={monthlyTimeData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 4% 20%)" />
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 12% 20%)" />
               <XAxis dataKey="month" tick={chartStyle} axisLine={false} tickLine={false} />
               <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={35} />
               <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: 'hsl(0 0% 95%)' }} formatter={(value: number) => [formatHM(value), 'Temps']} />
-              <Bar dataKey="minutes" fill="hsl(38 92% 50%)" radius={[6, 6, 0, 0]} />
+              <Bar dataKey="minutes" fill="hsl(38 92% 55%)" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>

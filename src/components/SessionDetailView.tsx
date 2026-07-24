@@ -103,7 +103,7 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
 
   const getColorForType = () => {
     const wt = data.workoutTypes.find(w => w.id === session.workoutTypeId);
-    return wt?.color || '84 81% 44%';
+    return wt?.color || '189 94% 55%';
   };
 
   // --- Edit mode helpers ---

@@ -4,50 +4,63 @@
 
 @layer base {
   :root {
-    --background: 240 6% 7%;
-    --foreground: 0 0% 95%;
-    --card: 240 5% 11%;
+    /* Carbon black canvas, technical charcoal surfaces */
+    --background: 240 18% 5%;
+    --foreground: 0 0% 96%;
+    --card: 240 14% 9%;
     --card-foreground: 0 0% 95%;
-    --popover: 240 5% 11%;
+    --popover: 240 14% 9%;
     --popover-foreground: 0 0% 95%;
-    --primary: 322 100% 61%;
-    --primary-foreground: 240 10% 8%;
-    --secondary: 240 4% 16%;
-    --secondary-foreground: 0 0% 85%;
-    --muted: 240 4% 16%;
-    --muted-foreground: 240 5% 55%;
-    --accent: 262 83% 66%;
-    --accent-foreground: 240 10% 8%;
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 240 4% 20%;
-    --input: 240 4% 20%;
-    --ring: 322 100% 61%;
-    --radius: 0.75rem;
 
-    --sidebar-background: 240 6% 7%;
+    /* Identity magenta — her signature neon, drives CTAs/active states */
+    --primary: 322 100% 60%;
+    --primary-foreground: 240 18% 8%;
+
+    --secondary: 240 12% 15%;
+    --secondary-foreground: 0 0% 85%;
+    --muted: 240 12% 15%;
+    --muted-foreground: 240 8% 58%;
+    --accent: 262 83% 66%;
+    --accent-foreground: 240 18% 8%;
+
+    --destructive: 356 88% 58%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 12% 20%;
+    --input: 240 12% 20%;
+    --ring: 189 94% 55%;
+    --radius: 0.625rem;
+
+    --sidebar-background: 240 18% 5%;
     --sidebar-foreground: 0 0% 95%;
-    --sidebar-primary: 322 100% 61%;
-    --sidebar-primary-foreground: 240 10% 8%;
-    --sidebar-accent: 240 4% 16%;
+    --sidebar-primary: 322 100% 60%;
+    --sidebar-primary-foreground: 240 18% 8%;
+    --sidebar-accent: 240 12% 15%;
     --sidebar-accent-foreground: 0 0% 95%;
-    --sidebar-border: 240 4% 20%;
-    --sidebar-ring: 322 100% 61%;
+    --sidebar-border: 240 12% 20%;
+    --sidebar-ring: 189 94% 55%;
 
     /* Custom tokens */
-    --surface: 240 5% 14%;
+    --surface: 240 12% 12%;
     --surface-foreground: 0 0% 90%;
-    --success: 142 71% 45%;
-    --warning: 38 92% 50%;
-    --tab-active: 322 100% 61%;
-    --tab-inactive: 240 5% 55%;
-    --progress-track: 240 4% 20%;
-    --progress-fill: 322 100% 61%;
 
-    /* Rose/violet/bleu accent trio — layered into glows, badges and decorative gradients
-       alongside the pink primary, per direction to keep the palette from reading flat. */
+    /* Success = validated step, one specific meaning: a completed set. Never used for CTAs. */
+    --success: 145 85% 50%;
+    --success-foreground: 150 45% 8%;
+    --warning: 38 92% 52%;
+
+    --tab-active: 322 100% 60%;
+    --tab-inactive: 240 8% 52%;
+    --progress-track: 240 12% 20%;
+    --progress-fill: 322 100% 60%;
+
+    /* Cyan-turquoise / violet / magenta trio — "flux de données, mouvement, identité".
+       accent-blue carries the cyan role (name kept for low-risk propagation to existing
+       class usages); accent-purple is the mid-flow violet. */
     --accent-purple: 262 83% 66%;
-    --accent-blue: 199 89% 60%;
+    --accent-blue: 189 94% 55%;
+
+    /* Circuit-grid mesh line color, applied at low opacity behind screens */
+    --grid-line: 240 12% 24%;
   }
 }
 
@@ -55,9 +68,20 @@
   * {
     @apply border-border;
   }
+  html {
+    color-scheme: dark;
+  }
+  /* Keyboard focus ring, in the cyan --ring token so it reads as part of the neon
+     system instead of the browser's default blue. Skipped for pointer/touch input via
+     :focus-visible so tapping a button never shows a ring. */
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', system-ui, sans-serif;
+    font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     -webkit-tap-highlight-color: transparent;
     overscroll-behavior: none;
@@ -69,23 +93,88 @@
   .safe-bottom {
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
-  .glass-card {
-    @apply bg-card/80 backdrop-blur-xl border border-border/50 rounded-2xl;
+
+  /* Printed-circuit dot mesh, reserved for the onboarding hero — the one brand moment
+     that earns it, per the brief's "behind key elements," not blanket app chrome.
+     Kept faint and coarse on purpose so it reads as texture, not a drawn grid. */
+  .bg-app {
+    background-color: hsl(var(--background));
+    background-image: radial-gradient(hsl(var(--grid-line) / 0.32) 1px, transparent 1px);
+    background-size: 36px 36px;
+    background-position: -1px -1px;
   }
+
+  /* Technical glass panel: blurred surface, hairline border, faint gradient-outline glow
+     running cyan -> violet across the top edge (the trio's "data flow" signature, kept
+     subtle so it reads as structure rather than decoration). */
+  .glass-card {
+    @apply bg-card/80 backdrop-blur-xl border border-border/70 rounded-[0.625rem] relative;
+  }
+  .glass-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(135deg, hsl(var(--accent-blue) / 0.28), transparent 35%, transparent 65%, hsl(var(--accent-purple) / 0.22));
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
   .touch-target {
     @apply min-h-[44px] min-w-[44px];
   }
-  /* Neon primary CTA: pink -> violet gradient, layered outer glow, thin top highlight
-     for shine. Used on the main "confirm this step" action of each screen. */
+
+  /* Neon primary CTA: cyan -> violet -> magenta flow gradient, layered outer glow, thin
+     top highlight for shine. Used on the main "confirm this step" action of each screen. */
   .btn-neon {
-    background: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--accent-purple)));
+    background: linear-gradient(135deg, hsl(var(--accent-blue)), hsl(var(--accent-purple)) 50%, hsl(var(--primary)));
     color: hsl(var(--primary-foreground));
     box-shadow:
-      0 0 18px -2px hsl(var(--primary) / 0.65),
-      0 0 46px -10px hsl(var(--primary) / 0.45),
-      inset 0 1px 0 hsl(0 0% 100% / 0.2);
+      0 0 18px -3px hsl(var(--primary) / 0.6),
+      0 0 34px -8px hsl(var(--accent-blue) / 0.55),
+      inset 0 1px 0 hsl(0 0% 100% / 0.22);
   }
   .btn-neon:disabled {
     box-shadow: none;
+  }
+
+  /* Glow applied to the "done" state — a completed set gets a green checkmark that
+     actually glows, distinct from the brand magenta used for actions/identity. */
+  .glow-success {
+    filter: drop-shadow(0 0 5px hsl(var(--success) / 0.9));
+  }
+
+  .text-glow-primary {
+    text-shadow: 0 0 20px hsl(var(--primary) / 0.5), 0 0 44px hsl(var(--primary) / 0.25);
+  }
+
+  /* FUI-style corner brackets — spent once, on the onboarding hero mark, per the
+     "one real risk" signature rather than sprinkled everywhere. */
+  .tech-frame {
+    position: relative;
+  }
+  .tech-frame::before,
+  .tech-frame::after {
+    content: '';
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    border: 1.5px solid hsl(var(--accent-blue) / 0.75);
+    pointer-events: none;
+  }
+  .tech-frame::before {
+    top: -8px;
+    left: -8px;
+    border-right: none;
+    border-bottom: none;
+  }
+  .tech-frame::after {
+    bottom: -8px;
+    right: -8px;
+    border-left: none;
+    border-top: none;
   }
 }

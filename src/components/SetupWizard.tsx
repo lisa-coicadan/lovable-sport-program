@@ -6,13 +6,22 @@ import { estimateOneRepMax, estimateTrainingMax } from '@/lib/trainingMax';
 import { parseSessionNotes, NOTES_SYNTAX_HELP } from '@/lib/notesParser';
 import { Plus, Trash2, ChevronRight, ChevronLeft, Check, Zap, Timer, Clock, FileText, X, Calculator } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
+import BrandMark from './BrandMark';
 
 type WizStep = 'welcome' | 'list' | 'build' | 'notes' | 'goal' | 'methodParams' | 'recap';
 type MethodType = '531' | 'cluster' | 'emom';
 
 const METHOD_LABELS: Record<MethodType, string> = { '531': '5/3/1', cluster: 'Cluster', emom: 'EMOM' };
+const METHOD_DESCRIPTIONS: Record<MethodType, string> = {
+  '531': 'Cycle de force sur 4 semaines, la charge grimpe automatiquement à partir de ton Training Max.',
+  cluster: 'Séries lourdes coupées en mini-séries avec un court repos entre chacune.',
+  emom: 'Une charge à soulever au début de chaque minute, pendant toute la durée choisie.',
+};
 const METHOD_ICONS: Record<MethodType, typeof Zap> = { '531': Zap, cluster: Timer, emom: Clock };
-const METHOD_HUES: Record<MethodType, string> = { '531': 'text-primary bg-primary/10 border-primary/20', cluster: 'text-accent-purple bg-accent-purple/10 border-accent-purple/20', emom: 'text-accent-blue bg-accent-blue/10 border-accent-blue/20' };
+// Cluster's text sits at a lighter lightness than --accent-purple itself (262 83% 72%
+// vs 66%) — on its own 10%-tint chip background the brand shade alone lands at 4.49:1,
+// just under the 4.5:1 floor for normal text; this keeps the same hue/identity at ~5.9:1.
+const METHOD_HUES: Record<MethodType, string> = { '531': 'text-primary bg-primary/10 border-primary/20', cluster: 'text-[hsl(262_83%_72%)] bg-accent-purple/10 border-accent-purple/20', emom: 'text-accent-blue bg-accent-blue/10 border-accent-blue/20' };
 
 const defaultMethodFor = (type: MethodType): ExerciseMethod => {
   if (type === '531') return { type: '531', trainingMax: 0, currentCycle: 1, currentWeek: 1, increment: 2.5 };
@@ -20,17 +29,34 @@ const defaultMethodFor = (type: MethodType): ExerciseMethod => {
   return { type: 'emom', trainingMax: 0 };
 };
 
-// Progress stepper: Séances -> Objectif -> (Méthodes) -> Récap
+// Progress stepper: Séances -> Objectif -> (Méthodes) -> Récap — an orbit-dot readout
+// since these steps are a real ordered sequence, each node connected by the same
+// workflow line as the exercise set trackers, lighting cyan -> violet -> magenta as she
+// moves through.
+const STEP_COLORS = ['hsl(189 94% 55%)', 'hsl(230 85% 64%)', 'hsl(262 83% 66%)', 'hsl(322 100% 60%)'];
 const WizardProgress = ({ step, total }: { step: number; total: number }) => (
-  <div className="flex items-center gap-1.5 mb-6 ml-8">
-    {Array.from({ length: total }).map((_, i) => (
-      <div
-        key={i}
-        className={`h-1 flex-1 rounded-full transition-colors duration-300 ${
-          i + 1 <= step ? 'bg-primary' : 'bg-secondary'
-        }`}
-      />
-    ))}
+  <div
+    role="progressbar"
+    aria-valuenow={step}
+    aria-valuemin={1}
+    aria-valuemax={total}
+    aria-label={`Étape ${step} sur ${total}`}
+    className="relative flex items-center gap-2.5 mb-6 ml-8"
+  >
+    <div className="absolute left-1 right-1 top-1/2 h-px bg-border -translate-y-1/2" />
+    {Array.from({ length: total }).map((_, i) => {
+      const done = i + 1 <= step;
+      const color = STEP_COLORS[i % STEP_COLORS.length];
+      return (
+        <span
+          key={i}
+          className="relative w-2.5 h-2.5 rounded-full shrink-0 transition-all duration-300"
+          style={done ? { backgroundColor: color, boxShadow: `0 0 8px ${color}` } : undefined}
+        >
+          {!done && <span className="absolute inset-0 rounded-full bg-secondary border border-border" />}
+        </span>
+      );
+    })}
   </div>
 );
 
@@ -187,21 +213,25 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
   // ============================================================ Step 0 — Welcome
   if (step === 'welcome') {
     return (
-      <div className="relative min-h-screen bg-background flex flex-col items-center justify-center px-6 overflow-hidden animate-slide-up">
+      <div className="relative min-h-screen bg-app flex flex-col items-center justify-center px-6 overflow-hidden animate-slide-up">
         <div className="absolute inset-0 pointer-events-none">
-          <div className="absolute top-[15%] left-[30%] w-64 h-64 bg-primary/25 rounded-full blur-3xl" />
-          <div className="absolute top-[22%] right-[20%] w-56 h-56 bg-accent-purple/20 rounded-full blur-3xl" />
+          <div className="absolute top-[15%] left-[30%] w-64 h-64 bg-primary/20 rounded-full blur-3xl" />
+          <div className="absolute top-[22%] right-[20%] w-56 h-56 bg-accent-purple/18 rounded-full blur-3xl" />
           <div className="absolute top-[30%] left-[45%] w-48 h-48 bg-accent-blue/15 rounded-full blur-3xl" />
         </div>
 
         <div className="relative text-center mb-10">
-          <div className="relative w-24 h-24 mx-auto mb-6">
-            <div className="absolute inset-0 bg-primary/30 rounded-full blur-2xl animate-pulse-glow" />
-            <div className="relative w-24 h-24 rounded-3xl glass-card border-primary/20 flex items-center justify-center text-5xl">
-              💪
-            </div>
+          <div className="tech-frame relative w-28 h-28 mx-auto mb-7">
+            <div className="absolute inset-0 bg-primary/25 rounded-full blur-2xl animate-pulse-glow" />
+            <BrandMark size={112} className="relative" />
           </div>
-          <h1 className="text-4xl font-bold tracking-tight text-foreground mb-2">Lisa Muscu</h1>
+
+          <div className="mb-2 leading-none">
+            <span className="block text-sm font-medium tracking-[0.3em] text-muted-foreground uppercase">muscu</span>
+            <span className="block text-5xl font-bold tracking-tight text-foreground text-glow-primary mt-1">
+              lisa
+            </span>
+          </div>
           <p className="text-muted-foreground">Ton compagnon fitness personnel</p>
           <p className="text-sm text-muted-foreground/80 mt-4 max-w-xs mx-auto leading-relaxed">
             Suis tes séances, active le 5/3/1, le Cluster ou l'EMOM sur les exercices de ton choix, et progresse — tout en une seule app.
@@ -238,7 +268,7 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
     return (
       <div className="min-h-screen bg-background px-4 pt-12 pb-8 animate-slide-up">
         <div className="flex items-center gap-3 mb-1">
-          <button onClick={() => setStep('welcome')} className="text-muted-foreground p-1"><ChevronLeft size={20} /></button>
+          <button onClick={() => setStep('welcome')} aria-label="Retour à l'accueil" className="text-muted-foreground touch-target p-1"><ChevronLeft size={20} /></button>
           <h2 className="text-2xl font-bold text-foreground">Tes séances</h2>
         </div>
         <p className="text-muted-foreground text-sm mb-3 ml-8">Crée tes modèles de séance, avec ou sans méthode d'entraînement</p>
@@ -246,27 +276,39 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
 
         {workoutTypes.length > 0 && (
           <div className="space-y-3 mb-6">
-            {workoutTypes.map((type, i) => (
-              <button
-                key={type.id}
-                onClick={() => editWorkout(i)}
-                className="w-full glass-card p-4 text-left flex items-center gap-3"
-              >
-                <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: `hsl(${type.color})` }} />
-                <div className="flex-1 min-w-0">
-                  <p className="text-foreground font-semibold">{type.name || 'Sans titre'}</p>
-                  <p className="text-xs text-muted-foreground truncate">
-                    {type.exercises.map(e => e.name).filter(Boolean).join(' · ') || 'Aucun exercice'}
-                  </p>
+            {workoutTypes.map((type, i) => {
+              const methods = (['531', 'cluster', 'emom'] as const).filter(mt => type.exercises.some(e => e.method?.type === mt));
+              return (
+                <div key={type.id} className="glass-card p-4 flex items-center gap-3">
+                  <button
+                    onClick={() => editWorkout(i)}
+                    className="flex-1 min-w-0 text-left flex items-center gap-3"
+                  >
+                    <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: `hsl(${type.color})` }} />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
+                        <p className="text-foreground font-semibold">{type.name || 'Sans titre'}</p>
+                        {methods.map(mt => (
+                          <span key={mt} className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full border shrink-0 ${METHOD_HUES[mt]}`}>
+                            {METHOD_LABELS[mt]}
+                          </span>
+                        ))}
+                      </div>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {type.exercises.map(e => e.name).filter(Boolean).join(' · ') || 'Aucun exercice'}
+                      </p>
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => deleteWorkout(i)}
+                    aria-label={`Supprimer la séance ${type.name || 'sans titre'}`}
+                    className="text-muted-foreground p-1.5 active:text-destructive shrink-0 touch-target"
+                  >
+                    <Trash2 size={16} />
+                  </button>
                 </div>
-                <span
-                  onClick={e => { e.stopPropagation(); deleteWorkout(i); }}
-                  className="text-muted-foreground p-1.5 active:text-destructive"
-                >
-                  <Trash2 size={16} />
-                </span>
-              </button>
-            ))}
+              );
+            })}
           </div>
         )}
 
@@ -300,6 +342,9 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
         >
           Suivant <ChevronRight size={20} />
         </button>
+        {workoutTypes.length === 0 && (
+          <p className="text-center text-xs text-muted-foreground mt-3">Crée au moins une séance pour continuer</p>
+        )}
       </div>
     );
   }
@@ -309,15 +354,18 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
     return (
       <div className="min-h-screen bg-background px-4 pt-12 pb-8 animate-slide-up">
         <div className="flex items-center gap-3 mb-1">
-          <button onClick={() => setStep('list')} className="text-muted-foreground p-1"><ChevronLeft size={20} /></button>
+          <button onClick={() => setStep('list')} aria-label="Retour à tes séances" className="text-muted-foreground touch-target p-1"><ChevronLeft size={20} /></button>
           <h2 className="text-2xl font-bold text-foreground">Depuis tes notes</h2>
         </div>
         <p className="text-muted-foreground text-sm mb-3 ml-8">Colle tes notes — tu pourras tout corriger ensuite</p>
         <WizardProgress step={1} total={4} />
 
-        <pre className="text-[10px] text-muted-foreground whitespace-pre-wrap bg-secondary rounded-lg p-3 mb-4">
-          {NOTES_SYNTAX_HELP}
-        </pre>
+        <div className="glass-card p-4 mb-4">
+          <p className="text-xs font-semibold text-foreground mb-2">Comment écrire tes notes</p>
+          <pre className="text-xs leading-relaxed text-muted-foreground whitespace-pre-wrap font-mono">
+            {NOTES_SYNTAX_HELP}
+          </pre>
+        </div>
 
         <textarea
           value={notesText}
@@ -334,6 +382,9 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
         >
           Générer la séance <ChevronRight size={20} />
         </button>
+        {notesText.trim() === '' && (
+          <p className="text-center text-xs text-muted-foreground mt-3">Colle ou écris tes notes ci-dessus pour continuer</p>
+        )}
       </div>
     );
   }
@@ -346,7 +397,7 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
     return (
       <div className="min-h-screen bg-background px-4 pt-12 pb-8 animate-slide-up">
         <div className="flex items-center gap-3 mb-1">
-          <button onClick={finishBuild} className="text-muted-foreground p-1"><ChevronLeft size={20} /></button>
+          <button onClick={finishBuild} aria-label="Retour à tes séances" className="text-muted-foreground touch-target p-1"><ChevronLeft size={20} /></button>
           <h2 className="text-2xl font-bold text-foreground">Séance</h2>
         </div>
         <p className="text-muted-foreground text-sm mb-3 ml-8">Ajoute les exercices, et une méthode si tu veux la travailler en force</p>
@@ -373,28 +424,42 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
                     <input
                       value={ex.name}
                       onChange={e => updateExercise(ei, 'name', e.target.value)}
-                      className="flex-1 bg-secondary text-foreground rounded-lg px-3 py-2 text-sm outline-none"
+                      className="flex-1 min-w-0 bg-secondary text-foreground rounded-lg px-3 py-2 text-sm outline-none"
                       placeholder="Nom de l'exercice"
                     />
-                    <input
-                      type="number"
-                      value={ex.sets || ''}
-                      onChange={e => updateExercise(ei, 'sets', e.target.value === '' ? 0 : parseInt(e.target.value) || 0)}
-                      className="w-14 bg-secondary text-foreground rounded-lg px-2 py-2 text-sm text-center outline-none"
-                      placeholder="Séries"
-                    />
-                    <span className="text-muted-foreground text-xs">×</span>
-                    <input
-                      type="number"
-                      value={ex.reps || ''}
-                      onChange={e => updateExercise(ei, 'reps', e.target.value === '' ? 0 : parseInt(e.target.value) || 0)}
-                      className="w-14 bg-secondary text-foreground rounded-lg px-2 py-2 text-sm text-center outline-none"
-                      placeholder="Reps"
-                    />
-                    <button onClick={() => removeExercise(ei)} className="text-muted-foreground p-1 shrink-0">
+                    {methodType ? (
+                      <span
+                        className="text-[10px] text-muted-foreground px-2 shrink-0"
+                        title="Séries, reps et charge sont calculées automatiquement à partir du Training Max"
+                      >
+                        auto ({METHOD_LABELS[methodType]})
+                      </span>
+                    ) : (
+                      <>
+                        <input
+                          type="number"
+                          value={ex.sets || ''}
+                          onChange={e => updateExercise(ei, 'sets', e.target.value === '' ? 0 : parseInt(e.target.value) || 0)}
+                          className="w-14 bg-secondary text-foreground rounded-lg px-2 py-2 text-sm text-center outline-none"
+                          placeholder="Séries"
+                        />
+                        <span className="text-muted-foreground text-xs">×</span>
+                        <input
+                          type="number"
+                          value={ex.reps || ''}
+                          onChange={e => updateExercise(ei, 'reps', e.target.value === '' ? 0 : parseInt(e.target.value) || 0)}
+                          className="w-14 bg-secondary text-foreground rounded-lg px-2 py-2 text-sm text-center outline-none"
+                          placeholder="Reps"
+                        />
+                      </>
+                    )}
+                    <button onClick={() => removeExercise(ei)} aria-label={`Supprimer ${ex.name || 'cet exercice'}`} className="text-muted-foreground p-1 shrink-0">
                       <Trash2 size={14} />
                     </button>
                   </div>
+                  {ex.name.trim() === '' && (
+                    <p className="text-[10px] text-muted-foreground/70 mt-1 ml-0.5">Sans nom, cet exercice ne sera pas gardé</p>
+                  )}
 
                   <button
                     onClick={() => setExpandedMethodFor(isExpanded ? null : ex.id)}
@@ -407,25 +472,41 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
                   </button>
 
                   {isExpanded && (
-                    <div className="flex gap-1.5 mt-1.5">
-                      {(['531', 'cluster', 'emom'] as const).map(mt => (
-                        <button
-                          key={mt}
-                          onClick={() => setExerciseMethod(ei, mt)}
-                          className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all ${
-                            methodType === mt ? METHOD_HUES[mt] : 'bg-secondary text-muted-foreground border-transparent'
-                          }`}
-                        >
-                          {METHOD_LABELS[mt]}
-                        </button>
-                      ))}
-                      {methodType && (
-                        <button
-                          onClick={() => setExerciseMethod(ei, null)}
-                          className="px-2.5 rounded-lg text-xs font-medium bg-secondary text-muted-foreground"
-                        >
-                          <X size={14} />
-                        </button>
+                    <div className="mt-1.5">
+                      <div className="flex gap-1.5">
+                        {(['531', 'cluster', 'emom'] as const).map(mt => (
+                          <button
+                            key={mt}
+                            onClick={() => setExerciseMethod(ei, mt)}
+                            className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                              methodType === mt ? METHOD_HUES[mt] : 'bg-secondary text-muted-foreground border-transparent'
+                            }`}
+                          >
+                            {METHOD_LABELS[mt]}
+                          </button>
+                        ))}
+                        {methodType && (
+                          <button
+                            onClick={() => setExerciseMethod(ei, null)}
+                            aria-label="Retirer la méthode d'entraînement"
+                            className="px-2.5 rounded-lg text-xs font-medium bg-secondary text-muted-foreground"
+                          >
+                            <X size={14} />
+                          </button>
+                        )}
+                      </div>
+                      {methodType ? (
+                        <p className="text-[10px] text-muted-foreground mt-1.5 px-0.5 leading-relaxed">
+                          {METHOD_DESCRIPTIONS[methodType]}
+                        </p>
+                      ) : (
+                        <div className="mt-1.5 space-y-1">
+                          {(['531', 'cluster', 'emom'] as const).map(mt => (
+                            <p key={mt} className="text-[10px] text-muted-foreground px-0.5 leading-relaxed">
+                              <span className="font-medium text-foreground/80">{METHOD_LABELS[mt]}</span> — {METHOD_DESCRIPTIONS[mt]}
+                            </p>
+                          ))}
+                        </div>
                       )}
                     </div>
                   )}
@@ -453,7 +534,7 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
     return (
       <div className="min-h-screen bg-background px-4 pt-12 pb-8 animate-slide-up">
         <div className="flex items-center gap-3 mb-1">
-          <button onClick={() => setStep('list')} className="text-muted-foreground p-1"><ChevronLeft size={20} /></button>
+          <button onClick={() => setStep('list')} aria-label="Retour à tes séances" className="text-muted-foreground touch-target p-1"><ChevronLeft size={20} /></button>
           <h2 className="text-2xl font-bold text-foreground">Ton objectif</h2>
         </div>
         <p className="text-muted-foreground text-sm mb-3 ml-8">Combien de séances par semaine vises-tu ?</p>
@@ -492,7 +573,7 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
     return (
       <div className="min-h-screen bg-background px-4 pt-12 pb-8 animate-slide-up">
         <div className="flex items-center gap-3 mb-1">
-          <button onClick={() => setStep('goal')} className="text-muted-foreground p-1"><ChevronLeft size={20} /></button>
+          <button onClick={() => setStep('goal')} aria-label="Retour à ton objectif" className="text-muted-foreground touch-target p-1"><ChevronLeft size={20} /></button>
           <h2 className="text-2xl font-bold text-foreground">Réglages des méthodes</h2>
         </div>
         <p className="text-muted-foreground text-sm mb-3 ml-8">
@@ -577,6 +658,12 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
                   </div>
                 )}
 
+                {!method.trainingMax && (
+                  <p className="text-xs text-warning mt-1">
+                    Sans Training Max, cet exercice partira à 0 kg à ta première séance
+                  </p>
+                )}
+
                 {methodType === 'cluster' && (() => {
                   const clusterMethod = method as ClusterMethod;
                   const currentMini = clusterMethod.miniSeries ?? CLUSTER_PRESETS[1].miniSeries;
@@ -644,7 +731,7 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
   return (
     <div className="min-h-screen bg-background px-4 pt-12 pb-8 animate-slide-up">
       <div className="flex items-center gap-3 mb-1">
-        <button onClick={() => setStep(taggedExercises.length > 0 ? 'methodParams' : 'goal')} className="text-muted-foreground p-1"><ChevronLeft size={20} /></button>
+        <button onClick={() => setStep(taggedExercises.length > 0 ? 'methodParams' : 'goal')} aria-label="Retour à l'étape précédente" className="text-muted-foreground touch-target p-1"><ChevronLeft size={20} /></button>
         <h2 className="text-2xl font-bold text-foreground">C'est prêt !</h2>
       </div>
       <p className="text-muted-foreground text-sm mb-3 ml-8">Vérifie ta configuration</p>

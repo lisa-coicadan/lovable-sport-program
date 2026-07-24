@@ -22,7 +22,7 @@ interface VariantGroup {
   history: HistoryEntry[];
 }
 
-const chartStyle = { fontSize: 10, fill: 'hsl(240 5% 55%)' };
+const chartStyle = { fontSize: 10, fill: 'hsl(240 8% 58%)' };
 
 const ExerciseHistory = ({ exerciseName, data, onClose }: ExerciseHistoryProps) => {
   // Group by base exercise (equipment-agnostic) so e.g. "Développé couché", "Développé
@@ -125,14 +125,14 @@ const VariantSection = ({ group, showHeader }: { group: VariantGroup; showHeader
           <h4 className="text-xs font-semibold text-muted-foreground mb-3">Évolution du 1RM estimé</h4>
           <ResponsiveContainer width="100%" height={140}>
             <LineChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 4% 20%)" />
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 12% 20%)" />
               <XAxis dataKey="date" tick={chartStyle} axisLine={false} tickLine={false} />
               <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={40} />
               <Tooltip
-                contentStyle={{ background: 'hsl(240 5% 11%)', border: '1px solid hsl(240 4% 20%)', borderRadius: 12, fontSize: 12 }}
+                contentStyle={{ background: 'hsl(240 14% 9%)', border: '1px solid hsl(240 12% 20%)', borderRadius: 10, fontSize: 12 }}
                 labelStyle={{ color: 'hsl(0 0% 95%)' }}
               />
-              <Line type="monotone" dataKey="e1rm" stroke="hsl(38 92% 50%)" strokeWidth={2.5} dot={{ r: 3, fill: 'hsl(38 92% 50%)' }} />
+              <Line type="monotone" dataKey="e1rm" stroke="hsl(38 92% 55%)" strokeWidth={2.5} dot={{ r: 3, fill: 'hsl(38 92% 55%)' }} />
             </LineChart>
           </ResponsiveContainer>
         </div>

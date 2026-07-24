@@ -11,6 +11,7 @@ import SessionSummary from './SessionSummary';
 import SettingsPanel from './SettingsPanel';
 import { Check, ChevronRight, ArrowLeft, Settings, History, Plus, Trash2, ChevronDown, Timer } from 'lucide-react';
 import { SortableList, DragHandle } from './SortableBlock';
+import SetDots from './SetDots';
 
 
 interface WorkoutTabProps {
@@ -659,6 +660,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
               <h3 className="text-sm font-bold text-primary">{ex.name}</h3>
               <span className="text-xs text-muted-foreground">Cycle {method.currentCycle}</span>
             </div>
+            <SetDots states={liveSets.map(s => sets[s.globalIdx].completed)} className="mb-3" />
             <div className="flex gap-1.5 mb-4">
               {[1, 2, 3, 4].map(w => (
                 <button
@@ -684,7 +686,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                   <div
                     key={globalIdx}
                     className={`flex items-center gap-2 rounded-xl px-3 py-2.5 transition-all ${
-                      sets[globalIdx].completed ? 'bg-primary/10' : 'bg-secondary/50'
+                      sets[globalIdx].completed ? 'bg-success/10 border border-success/25' : 'bg-secondary/50'
                     }`}
                   >
                     <span className="text-xs text-muted-foreground w-6">S{localIdx + 1}</span>
@@ -721,7 +723,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                     <button
                       onClick={() => toggleSet(globalIdx)}
                       className={`touch-target rounded-lg p-2 transition-colors ${
-                        sets[globalIdx].completed ? 'text-primary' : 'text-muted-foreground active:text-primary'
+                        sets[globalIdx].completed ? 'text-success glow-success' : 'text-muted-foreground active:text-success'
                       }`}
                     >
                       <Check size={18} />
@@ -783,7 +785,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                   <div
                     key={seriesIdx}
                     className={`rounded-xl p-2.5 border transition-all ${
-                      allDone ? 'bg-primary/15 border-primary/40' : 'bg-secondary/40 border-transparent'
+                      allDone ? 'bg-success/15 border-success/40' : 'bg-secondary/40 border-transparent'
                     }`}
                   >
                     <div className="flex items-center justify-between mb-1.5">
@@ -803,7 +805,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                           <button
                             onClick={() => onTapMiniSeries(s.globalIdx, seriesIdx, miniIdx)}
                             className={`flex-1 rounded-lg py-2 text-xs font-mono font-medium transition-colors ${
-                              sets[s.globalIdx].completed ? 'bg-primary text-primary-foreground' : 'bg-background/60 text-foreground'
+                              sets[s.globalIdx].completed ? 'bg-success text-success-foreground' : 'bg-background/60 text-foreground'
                             }`}
                           >
                             {sets[s.globalIdx].weight}kg × {sets[s.globalIdx].reps}
@@ -853,7 +855,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                   key={s.globalIdx}
                   onClick={() => toggleSet(s.globalIdx)}
                   className={`rounded-lg py-2 text-[11px] font-mono font-medium transition-colors ${
-                    sets[s.globalIdx].completed ? 'bg-primary text-primary-foreground' : 'bg-secondary/50 text-foreground'
+                    sets[s.globalIdx].completed ? 'bg-success text-success-foreground' : 'bg-secondary/50 text-foreground'
                   }`}
                 >
                   Min {minuteIdx + 1}
@@ -926,7 +928,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                       <div
                         key={localIdx}
                         className={`rounded-xl p-2.5 border transition-all ${
-                          bothDone ? 'bg-primary/15 border-primary/40' : 'bg-secondary/40 border-transparent'
+                          bothDone ? 'bg-success/15 border-success/40' : 'bg-secondary/40 border-transparent'
                         }`}
                       >
                         <div className="flex items-center justify-between mb-1.5">
@@ -934,7 +936,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                           <button
                             onClick={() => toggleSeries(serie.aIdx, serie.bIdx)}
                             className={`touch-target rounded-lg p-1.5 transition-colors ${
-                              bothDone ? 'text-primary' : 'text-muted-foreground active:text-primary'
+                              bothDone ? 'text-success glow-success' : 'text-muted-foreground active:text-success'
                             }`}
                           >
                             <Check size={18} />
@@ -1004,6 +1006,8 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
 
               {methodEx && <MethodPickerRow active="none" onSelect={opt => applyMethodOverride(methodEx, opt)} />}
 
+              <SetDots states={exerciseSets.map(e => sets[e.globalIdx].completed)} className="mb-2 ml-6" />
+
               {(lastPerf || absRecord) && (
                 <div className="flex flex-wrap gap-x-3 gap-y-0.5 mb-2">
                   {lastPerf && (
@@ -1026,7 +1030,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                     <div
                       key={globalIdx}
                       className={`flex items-center gap-2 rounded-xl px-3 py-2.5 transition-all ${
-                        sets[globalIdx].completed ? 'bg-primary/10' : 'bg-secondary/50'
+                        sets[globalIdx].completed ? 'bg-success/10 border border-success/25' : 'bg-secondary/50'
                       }`}
                     >
                       <span className="text-xs text-muted-foreground w-12 shrink-0">Série {localIdx + 1}</span>
@@ -1055,7 +1059,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                       <button
                         onClick={() => toggleSet(globalIdx)}
                         className={`touch-target rounded-lg p-2 transition-colors ${
-                          sets[globalIdx].completed ? 'text-primary' : 'text-muted-foreground active:text-primary'
+                          sets[globalIdx].completed ? 'text-success glow-success' : 'text-muted-foreground active:text-success'
                         }`}
                       >
                         <Check size={18} />
