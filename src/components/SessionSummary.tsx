@@ -47,6 +47,21 @@ const SessionSummary = ({ session, previousSessions = [], onSave, onBack, readOn
     ? Math.round(((totalVolume - lastTotalVolume) / lastTotalVolume) * 100)
     : null;
 
+  // Historical average tonnage across ALL past sessions of the same type (excluding this one),
+  // so a big session that beats one bad previous session doesn't feel like a real breakthrough
+  // if it's still below her long-term average.
+  const { avgTonnage, avgSampleSize, avgPct } = useMemo(() => {
+    const past = previousSessions.filter(s => s.workoutTypeId === session.workoutTypeId && s.id !== session.id);
+    if (past.length === 0) return { avgTonnage: 0, avgSampleSize: 0, avgPct: null as number | null };
+    const total = past.reduce((acc, s) => acc + s.sets.filter(x => x.completed).reduce((a, x) => a + x.weight * x.reps, 0), 0);
+    const avg = total / past.length;
+    return {
+      avgTonnage: Math.round(avg),
+      avgSampleSize: past.length,
+      avgPct: avg > 0 ? Math.round(((totalVolume - avg) / avg) * 100) : null,
+    };
+  }, [previousSessions, session.workoutTypeId, session.id, totalVolume]);
+
   // Progression vs last session of same type
   const progressions = useMemo(() => {
     if (!lastSameTypeSession) return {};
@@ -149,6 +164,27 @@ const SessionSummary = ({ session, previousSessions = [], onSave, onBack, readOn
             </p>
             <p className="text-[10px] text-muted-foreground">
               vs dernière séance {session.workoutTypeName} ({Math.round(lastTotalVolume)} kg)
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Total tonnage vs historical average of same type */}
+      {avgPct !== null && avgSampleSize > 0 && (
+        <div className="glass-card p-4 mb-6 flex items-center gap-3">
+          {avgPct > 0 ? (
+            <TrendingUp size={20} className="text-success shrink-0" />
+          ) : avgPct < 0 ? (
+            <TrendingDown size={20} className="text-destructive shrink-0" />
+          ) : (
+            <Minus size={20} className="text-muted-foreground shrink-0" />
+          )}
+          <div className="min-w-0 flex-1">
+            <p className={`text-sm font-bold ${avgPct > 0 ? 'text-success' : avgPct < 0 ? 'text-destructive' : 'text-muted-foreground'}`}>
+              {avgPct > 0 ? '+' : ''}{avgPct}% vs moyenne
+            </p>
+            <p className="text-[10px] text-muted-foreground">
+              Moyenne {session.workoutTypeName} : {avgTonnage} kg sur {avgSampleSize} séance{avgSampleSize > 1 ? 's' : ''}
             </p>
           </div>
         </div>
