@@ -1,22 +1,30 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Pause, Play, RotateCcw } from 'lucide-react';
-import { getSharedAudioContext, scheduleBeep, cancelBeep } from '@/lib/beep';
+import { getSharedAudioContext, scheduleBeep, scheduleFinalBeep, cancelBeep } from '@/lib/beep';
 import OrbitRing from './OrbitRing';
 
 interface EmomTimerProps {
   totalMinutes: number;
+  // Fired once per minute boundary crossed while running (1-indexed), including the
+  // final minute — lets the caller auto-check the matching set.
+  onMinuteComplete?: (minuteNumber: number) => void;
 }
 
 // One continuous countdown for the whole EMOM duration, auto-beeping at every minute
 // boundary (unlike RestTimer, which is manually re-triggered for each rest period).
 // Beeps are (re)scheduled from the elapsed time so pausing/resuming keeps the same
 // minute cadence instead of drifting.
-const EmomTimer = ({ totalMinutes }: EmomTimerProps) => {
+const EmomTimer = ({ totalMinutes, onMinuteComplete }: EmomTimerProps) => {
   const totalSeconds = totalMinutes * 60;
   const [seconds, setSeconds] = useState(totalSeconds);
   const [isRunning, setIsRunning] = useState(false);
   const endAtRef = useRef<number | null>(null);
   const scheduledBeepsRef = useRef<OscillatorNode[]>([]);
+  // Keeps the effect below decoupled from onMinuteComplete's identity (a new function
+  // every WorkoutTab render), so it never re-triggers the countdown bookkeeping.
+  const onMinuteCompleteRef = useRef(onMinuteComplete);
+  useEffect(() => { onMinuteCompleteRef.current = onMinuteComplete; });
+  const lastFiredMinuteRef = useRef(0);
 
   const stopAndCancel = useCallback(() => {
     cancelBeep(scheduledBeepsRef.current);
@@ -34,18 +42,21 @@ const EmomTimer = ({ totalMinutes }: EmomTimerProps) => {
       stopAndCancel();
       setIsRunning(false);
       setSeconds(totalSeconds); // ready for another round
+      onMinuteCompleteRef.current?.(totalMinutes);
+      lastFiredMinuteRef.current = 0;
       try {
         if ('vibrate' in navigator) navigator.vibrate([200, 100, 200]);
       } catch { /* vibration unsupported/blocked */ }
       return;
     }
     setSeconds(remaining);
-  }, [stopAndCancel, totalSeconds]);
+  }, [stopAndCancel, totalSeconds, totalMinutes]);
 
   useEffect(() => {
     stopAndCancel();
     setSeconds(totalSeconds);
     setIsRunning(false);
+    lastFiredMinuteRef.current = 0;
   }, [totalSeconds, stopAndCancel]);
 
   useEffect(() => () => cancelBeep(scheduledBeepsRef.current), []);
@@ -97,7 +108,8 @@ const EmomTimer = ({ totalMinutes }: EmomTimerProps) => {
     scheduledBeepsRef.current = [];
     if (ctx) {
       for (let boundary = Math.ceil((elapsed + 0.001) / 60) * 60; boundary <= totalSeconds; boundary += 60) {
-        scheduledBeepsRef.current.push(...scheduleBeep(ctx.currentTime + (boundary - elapsed)));
+        const beepFn = boundary === totalSeconds ? scheduleFinalBeep : scheduleBeep;
+        scheduledBeepsRef.current.push(...beepFn(ctx.currentTime + (boundary - elapsed)));
       }
     }
     setIsRunning(true);
@@ -115,6 +127,7 @@ const EmomTimer = ({ totalMinutes }: EmomTimerProps) => {
     stopAndCancel();
     setSeconds(totalSeconds);
     setIsRunning(false);
+    lastFiredMinuteRef.current = 0;
   };
 
   const progress = totalSeconds > 0 ? (seconds / totalSeconds) * 100 : 0;
@@ -122,6 +135,22 @@ const EmomTimer = ({ totalMinutes }: EmomTimerProps) => {
   const secs = seconds % 60;
   const elapsedSeconds = totalSeconds - seconds;
   const currentMinute = Math.min(totalMinutes, Math.floor(elapsedSeconds / 60) + 1);
+
+  // Fires onMinuteComplete for each minute boundary crossed since the last render
+  // (handles large jumps too, e.g. after being backgrounded for a few minutes on iOS).
+  // The final minute is intentionally excluded here — it's fired explicitly from
+  // syncFromWallClock's completion branch above, since currentMinute never actually
+  // reaches totalMinutes at that instant (seconds resets to totalSeconds in the same tick).
+  useEffect(() => {
+    if (!isRunning) return;
+    const completed = currentMinute - 1;
+    if (completed > lastFiredMinuteRef.current) {
+      for (let m = lastFiredMinuteRef.current + 1; m <= completed; m++) {
+        if (m < totalMinutes) onMinuteCompleteRef.current?.(m);
+      }
+      lastFiredMinuteRef.current = completed;
+    }
+  }, [currentMinute, isRunning, totalMinutes]);
 
   return (
     <div className="flex items-center gap-3">

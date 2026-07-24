@@ -330,7 +330,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
       <div className="glass-card p-4 mb-6">
         <div className="flex items-center gap-2 mb-3">
           <Scale size={16} className="text-primary" />
-          <h3 className="text-sm font-bold text-foreground">Poids corporel</h3>
+          <h3 className="text-sm font-bold text-foreground">Bodyweight</h3>
         </div>
         <div className="flex items-center gap-3">
           <input
@@ -339,7 +339,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
             onChange={e => setBodyWeight(e.target.value)}
             className="flex-1 bg-secondary text-foreground rounded-xl px-3 py-2.5 text-sm outline-none font-mono text-center"
             placeholder="ex. 75"
-            aria-label="Poids corporel (kg)"
+            aria-label="Bodyweight (kg)"
           />
           <span className="text-sm text-muted-foreground">kg</span>
         </div>

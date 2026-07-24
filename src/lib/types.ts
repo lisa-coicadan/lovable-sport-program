@@ -126,14 +126,14 @@ export interface AppData {
 }
 
 export const WORKOUT_COLORS = [
-  '189 94% 55%',  // cyan-turquoise
-  '262 83% 66%',  // violet
-  '322 100% 60%', // magenta
-  '38 92% 55%',   // amber
-  '231 85% 64%',  // indigo
-  '174 80% 48%',  // teal
-  '356 85% 60%',  // red
-  '45 93% 55%',   // yellow
+  '189 94% 55%',  // cyan-turquoise (= --accent-blue / --ring)
+  '262 83% 66%',  // violet (= --accent-purple)
+  '322 100% 60%', // magenta (= --primary)
+  '38 92% 52%',   // amber (= --warning)
+  '231 90% 65%',  // indigo
+  '174 88% 50%',  // teal
+  '356 88% 58%',  // red (= --destructive)
+  '54 95% 58%',   // yellow
 ];
 
 export const DEFAULT_APP_DATA: AppData = {

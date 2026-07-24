@@ -115,6 +115,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
   const [previewOpen, setPreviewOpen] = useState(true);
   const [clusterAutoTimer, setClusterAutoTimer] = useState(false);
   const [methodOverrides, setMethodOverrides] = useState<Record<string, MethodOverride>>({});
+  const [showAbandonConfirm, setShowAbandonConfirm] = useState(false);
   const restTimerRef = useRef<RestTimerHandle>(null);
 
   // Resolves the full method (preset/rest times/duration included, not just TM) that
@@ -605,17 +606,23 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
     }
   });
 
-  const abandonSession = () => {
-    if (sets.some(s => s.completed) && !window.confirm('Abandonner cette séance ? Les séries déjà cochées seront perdues.')) {
-      return;
-    }
+  const doAbandon = () => {
     setMode('select');
     setSelectedType(null);
     setSets([]);
     setMethodOverrides({});
   };
 
+  const abandonSession = () => {
+    if (sets.some(s => s.completed)) {
+      setShowAbandonConfirm(true);
+      return;
+    }
+    doAbandon();
+  };
+
   return (
+    <>
     <div className="px-4 pt-12 pb-24 animate-slide-up">
       <div className="flex items-center gap-3 mb-6">
         <button onClick={abandonSession} className="text-muted-foreground touch-target p-1" aria-label="Abandonner la séance">
@@ -686,7 +693,13 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
         return (
           <div key={ex.id} className="glass-card p-4 mb-4 border-primary/30">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-bold text-primary">{ex.name}</h3>
+              <button
+                onClick={() => { setHistoryExercise(ex.name); setMode('history'); }}
+                className="min-h-11 flex items-center gap-1.5 group"
+              >
+                <h3 className="text-sm font-bold text-primary">{ex.name}</h3>
+                <History size={12} className="text-primary/70 group-active:text-primary" />
+              </button>
               <span className="text-xs text-muted-foreground">Cycle {method.currentCycle}</span>
             </div>
             <SetDots states={liveSets.map(s => sets[s.globalIdx].completed)} className="mb-3" />
@@ -874,6 +887,11 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
           .filter(s => s.exerciseId === ex.id);
         if (liveSets.length === 0) return null;
 
+        const handleMinuteComplete = (minuteNumber: number) => {
+          const target = liveSets[minuteNumber - 1];
+          if (target && !sets[target.globalIdx].completed) toggleSet(target.globalIdx);
+        };
+
         return (
           <div key={ex.id} className="glass-card p-4 mb-4 border-accent-blue/30">
             <div className="flex items-center justify-between mb-3">
@@ -882,7 +900,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
             </div>
             <MethodPickerRow active="emom" onSelect={opt => applyMethodOverride(ex, opt)} />
             <div className="mb-3">
-              <EmomTimer totalMinutes={durationMinutes} />
+              <EmomTimer totalMinutes={durationMinutes} onMinuteComplete={handleMinuteComplete} />
             </div>
             <div className="grid grid-cols-5 gap-1.5">
               {liveSets.map((s, minuteIdx) => (
@@ -1142,11 +1160,48 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
         Terminer la séance <ChevronRight size={20} />
       </button>
 
-      {/* Floating rest timer */}
-      {mode === 'recap' && (
-        <RestTimer ref={restTimerRef} defaultSeconds={restDuration} />
-      )}
     </div>
+
+    {/* Floating rest timer — rendered outside the animated wrapper so position:fixed
+        stays anchored to the viewport (an animated `transform` ancestor makes iOS Safari
+        treat `fixed` descendants as if they were `absolute` to that ancestor instead) */}
+    {mode === 'recap' && (
+      <RestTimer ref={restTimerRef} defaultSeconds={restDuration} />
+    )}
+
+    {showAbandonConfirm && (
+      <div
+        className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-6 animate-fade-in"
+        onClick={() => setShowAbandonConfirm(false)}
+      >
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="abandon-title"
+          className="glass-card p-6 max-w-sm w-full"
+          onClick={e => e.stopPropagation()}
+        >
+          <h3 id="abandon-title" className="text-lg font-bold text-foreground mb-2">
+            Voulez-vous vraiment quitter cette séance ?
+          </h3>
+          <div className="flex gap-3 mt-4">
+            <button
+              onClick={() => setShowAbandonConfirm(false)}
+              className="flex-1 bg-secondary text-secondary-foreground font-medium py-2.5 rounded-xl text-sm touch-target"
+            >
+              Annuler
+            </button>
+            <button
+              onClick={() => { setShowAbandonConfirm(false); doAbandon(); }}
+              className="flex-1 bg-destructive text-destructive-foreground font-medium py-2.5 rounded-xl text-sm touch-target"
+            >
+              Oui
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 };
 

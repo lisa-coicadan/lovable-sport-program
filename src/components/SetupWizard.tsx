@@ -7,6 +7,7 @@ import { parseSessionNotes, NOTES_SYNTAX_HELP } from '@/lib/notesParser';
 import { Plus, Trash2, ChevronRight, ChevronLeft, Check, Zap, Timer, Clock, FileText, X, Calculator } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import BrandMark from './BrandMark';
+import { SortableList, DragHandle } from './SortableBlock';
 
 type WizStep = 'welcome' | 'list' | 'build' | 'notes' | 'goal' | 'methodParams' | 'recap';
 type MethodType = '531' | 'cluster' | 'emom';
@@ -73,6 +74,7 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
   const [notesText, setNotesText] = useState('');
   const [tmMode, setTmMode] = useState<Record<string, 'direct' | 'compute'>>({});
   const [tmInputs, setTmInputs] = useState<Record<string, { weight: number; reps: number }>>({});
+  const [showTmZeroConfirm, setShowTmZeroConfirm] = useState(false);
 
   const taggedExercises = workoutTypes.flatMap(t =>
     t.exercises.filter(e => e.method).map(e => ({ typeId: t.id, typeName: t.name, exercise: e }))
@@ -90,6 +92,13 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
     if (editingIndex === null) return;
     setWorkoutTypes(prev => prev.map((t, i) => i === editingIndex
       ? { ...t, exercises: t.exercises.filter((_, ei) => ei !== exIndex) }
+      : t));
+  };
+
+  const reorderExercises = (newItems: { key: string; ex: Exercise }[]) => {
+    if (editingIndex === null) return;
+    setWorkoutTypes(prev => prev.map((t, i) => i === editingIndex
+      ? { ...t, exercises: newItems.map(it => it.ex) }
       : t));
   };
 
@@ -425,12 +434,14 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
             />
           </div>
           <div className="space-y-2">
-            {type.exercises.map((ex, ei) => {
+            <SortableList items={type.exercises.map(ex => ({ key: ex.id, ex }))} onReorder={reorderExercises}>
+              {({ ex }, ei) => {
               const methodType = ex.method?.type as MethodType | undefined;
               const isExpanded = expandedMethodFor === ex.id;
               return (
-                <div key={ex.id} className="bg-secondary/40 rounded-xl p-2">
+                <div className="bg-secondary/40 rounded-xl p-2">
                   <div className="flex items-center gap-2">
+                    <DragHandle />
                     <input
                       value={ex.name}
                       onChange={e => updateExercise(ei, 'name', e.target.value)}
@@ -524,7 +535,8 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
                   )}
                 </div>
               );
-            })}
+              }}
+            </SortableList>
             <button onClick={addExercise} className="flex items-center gap-1 text-primary text-sm font-medium py-1">
               <Plus size={14} /> Ajouter un exercice
             </button>
@@ -670,15 +682,6 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
                   </div>
                 )}
 
-                {!method.trainingMax && mode === 'direct' && (
-                  <button
-                    onClick={() => setTmMode(prev => ({ ...prev, [exercise.id]: 'compute' }))}
-                    className="mt-2 w-full flex items-center justify-center gap-1.5 bg-primary/15 text-primary rounded-lg py-2 text-xs font-semibold border border-primary/40"
-                  >
-                    <Calculator size={12} /> Calculer mon Training Max
-                  </button>
-                )}
-
                 {methodType === 'cluster' && (() => {
                   const clusterMethod = method as ClusterMethod;
                   const currentMini = clusterMethod.miniSeries ?? CLUSTER_PRESETS[1].miniSeries;
@@ -733,11 +736,49 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
         </div>
 
         <button
-          onClick={() => setStep('recap')}
+          onClick={() => {
+            const hasZeroTm = taggedExercises.some(({ exercise }) => !exercise.method?.trainingMax);
+            if (hasZeroTm) { setShowTmZeroConfirm(true); return; }
+            setStep('recap');
+          }}
           className="w-full btn-neon font-semibold py-4 rounded-2xl touch-target text-lg flex items-center justify-center gap-2 transition-transform active:scale-95"
         >
           Suivant <ChevronRight size={20} />
         </button>
+
+        {showTmZeroConfirm && (
+          <div
+            className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-6 animate-fade-in"
+            onClick={() => setShowTmZeroConfirm(false)}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="tm-zero-title"
+              className="glass-card p-6 max-w-sm w-full"
+              onClick={e => e.stopPropagation()}
+            >
+              <h3 id="tm-zero-title" className="text-lg font-bold text-foreground mb-2">Le TM est à 0kg ?</h3>
+              <p className="text-sm text-muted-foreground mb-6">
+                Un ou plusieurs exercices ont un Training Max à 0kg. Tu peux continuer et le renseigner plus tard dans Réglages, ou revenir le calculer maintenant.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowTmZeroConfirm(false)}
+                  className="flex-1 bg-secondary text-secondary-foreground font-medium py-2.5 rounded-xl text-sm touch-target"
+                >
+                  Revenir
+                </button>
+                <button
+                  onClick={() => { setShowTmZeroConfirm(false); setStep('recap'); }}
+                  className="flex-1 btn-neon font-medium py-2.5 rounded-xl text-sm touch-target"
+                >
+                  Continuer
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }

@@ -27,7 +27,12 @@ export const getSharedAudioContext = (): AudioContext | null => {
 // Apple Music), so this is the loudest tone we can generate on our own end — the
 // ceiling of what's possible without a native app.
 // Returns the oscillators so a caller can cancel them (pause/reset/duration change).
-export const scheduleBeep = (when: number): OscillatorNode[] => {
+const emitPulses = (
+  when: number,
+  pulses: { offset: number; freq: number }[],
+  hold: number,
+  decay: number,
+): OscillatorNode[] => {
   const ctx = getSharedAudioContext();
   if (!ctx) return [];
   const limiter = ctx.createDynamicsCompressor();
@@ -38,10 +43,6 @@ export const scheduleBeep = (when: number): OscillatorNode[] => {
   limiter.release.value = 0.1;
   limiter.connect(ctx.destination);
 
-  const pulses = [
-    { offset: 0, freq: 1400 },
-    { offset: 0.22, freq: 1400 },
-  ];
   const oscillators: OscillatorNode[] = [];
   pulses.forEach(({ offset, freq }) => {
     const start = when + offset;
@@ -51,20 +52,33 @@ export const scheduleBeep = (when: number): OscillatorNode[] => {
       const gain = ctx.createGain();
       osc.type = 'square';
       osc.frequency.value = f;
-      // Near-instant attack, short hold, quick decay — hits hard and sharp
+      // Near-instant attack, held hold duration, then decay — hits hard and sharp
       gain.gain.setValueAtTime(0, start);
       gain.gain.linearRampToValueAtTime(peak, start + 0.002);
-      gain.gain.setValueAtTime(peak, start + 0.12);
-      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.2);
+      gain.gain.setValueAtTime(peak, start + hold);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + decay);
       osc.connect(gain);
       gain.connect(limiter);
       osc.start(start);
-      osc.stop(start + 0.22);
+      osc.stop(start + decay);
       oscillators.push(osc);
     });
   });
   return oscillators;
 };
+
+export const scheduleBeep = (when: number): OscillatorNode[] =>
+  emitPulses(when, [{ offset: 0, freq: 1400 }, { offset: 0.22, freq: 1400 }], 0.12, 0.2);
+
+// Longer, distinct signal for the very end of an EMOM (vs. the per-minute beep above):
+// 3 pulses instead of 2, each held longer, so it's unmistakably the "done" sound.
+export const scheduleFinalBeep = (when: number): OscillatorNode[] =>
+  emitPulses(
+    when,
+    [{ offset: 0, freq: 1400 }, { offset: 0.3, freq: 1400 }, { offset: 0.6, freq: 1400 }],
+    0.25,
+    0.35,
+  );
 
 // Cancels oscillators scheduled via scheduleBeep, whether or not they've started yet.
 export const cancelBeep = (oscillators: OscillatorNode[]) => {

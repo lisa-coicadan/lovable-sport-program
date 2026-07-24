@@ -101,10 +101,9 @@ const VariantSection = ({ group, showHeader }: { group: VariantGroup; showHeader
     group.history.forEach(h => {
       if (!byDate[h.date] || h.e1rm > byDate[h.date]) byDate[h.date] = h.e1rm;
     });
-    return Object.entries(byDate).map(([date, e1rm]) => ({
-      date: new Date(date + 'T00:00:00').toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' }),
-      e1rm,
-    }));
+    return Object.entries(byDate)
+      .map(([date, e1rm]) => ({ date: new Date(date + 'T00:00:00').getTime(), e1rm }))
+      .sort((a, b) => a.date - b.date);
   }, [group.history]);
 
   const groupedByDate = useMemo(() => {
@@ -133,11 +132,19 @@ const VariantSection = ({ group, showHeader }: { group: VariantGroup; showHeader
           <ResponsiveContainer width="100%" height={140}>
             <LineChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 12% 20%)" />
-              <XAxis dataKey="date" tick={chartStyle} axisLine={false} tickLine={false} />
+              <XAxis
+                dataKey="date"
+                type="number"
+                domain={['dataMin', 'dataMax']}
+                scale="time"
+                tickFormatter={(ts: number) => new Date(ts).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })}
+                tick={chartStyle} axisLine={false} tickLine={false}
+              />
               <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={40} />
               <Tooltip
                 contentStyle={tooltipStyle}
                 labelStyle={{ color: 'hsl(0 0% 95%)' }}
+                labelFormatter={(ts: number) => new Date(ts).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })}
               />
               <Line
                 type="monotone"

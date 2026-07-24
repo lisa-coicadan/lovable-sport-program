@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { AppData, calculate1RM } from '@/lib/types';
 import { normalizeExerciseName } from '@/lib/exerciseNormalize';
-import { Trophy, Scale, Crown } from 'lucide-react';
+import { Trophy, Scale, Crown, ChevronDown } from 'lucide-react';
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine
@@ -109,6 +109,7 @@ const StatsTab = ({ data }: StatsTabProps) => {
   const [difficultyRange, setDifficultyRange] = useState<RangeFilter>('all');
   const [weeklyTimeRange, setWeeklyTimeRange] = useState<RangeFilter>('all');
   const [monthlyTimeRange, setMonthlyTimeRange] = useState<RangeFilter>('all');
+  const [e1rmOpen, setE1rmOpen] = useState(false);
 
   // All PRs, grouped by normalized name -> best e1rm ever
   const prByName = useMemo(() => {
@@ -174,7 +175,7 @@ const StatsTab = ({ data }: StatsTabProps) => {
         name,
         points: points
           .sort((a, b) => a.date.localeCompare(b.date))
-          .map(p => ({ date: new Date(p.date).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' }), e1rm: p.e1rm })),
+          .map(p => ({ date: new Date(p.date).getTime(), e1rm: p.e1rm })),
       }));
   }, [methodExerciseNames, data.sessions]);
 
@@ -294,7 +295,7 @@ const StatsTab = ({ data }: StatsTabProps) => {
           <div>
             <p className="text-2xl font-bold text-foreground">{latestBodyWeight.weight} kg</p>
             <p className="text-[10px] text-muted-foreground">
-              Poids corporel — {new Date(latestBodyWeight.date).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })}
+              Bodyweight — {new Date(latestBodyWeight.date).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })}
             </p>
           </div>
         </div>
@@ -349,9 +350,16 @@ const StatsTab = ({ data }: StatsTabProps) => {
 
       {/* 1RM evolution per exercise with an active method */}
       {methodE1rmEvolution.length > 0 && (
-        <div className="glass-card p-4 mb-4">
-          <h3 className="text-sm font-semibold text-foreground mb-3">Progression 1RM (méthodes)</h3>
-          <div className="space-y-4">
+        <div className="glass-card mb-4 overflow-hidden">
+          <button
+            onClick={() => setE1rmOpen(v => !v)}
+            className="w-full flex items-center justify-between p-4 touch-target"
+          >
+            <span className="text-sm font-semibold text-foreground">Progression 1RM (méthodes)</span>
+            <ChevronDown size={16} className={`text-muted-foreground transition-transform ${e1rmOpen ? 'rotate-180' : ''}`} />
+          </button>
+          {e1rmOpen && (
+          <div className="px-4 pb-4 space-y-4">
             {methodE1rmEvolution.map(({ name, points }) => (
               <div key={name}>
                 <div className="flex items-center justify-between mb-1">
@@ -363,9 +371,21 @@ const StatsTab = ({ data }: StatsTabProps) => {
                 <ResponsiveContainer width="100%" height={100}>
                   <LineChart data={points} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 12% 20%)" />
-                    <XAxis dataKey="date" tick={chartStyle} axisLine={false} tickLine={false} />
+                    <XAxis
+                      dataKey="date"
+                      type="number"
+                      domain={['dataMin', 'dataMax']}
+                      scale="time"
+                      tickFormatter={(ts: number) => new Date(ts).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })}
+                      tick={chartStyle} axisLine={false} tickLine={false}
+                    />
                     <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={30} domain={['auto', 'auto']} />
-                    <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: 'hsl(0 0% 95%)' }} formatter={(v: number) => [`${v} kg`, '1RM']} />
+                    <Tooltip
+                      contentStyle={tooltipStyle}
+                      labelStyle={{ color: 'hsl(0 0% 95%)' }}
+                      formatter={(v: number) => [`${v} kg`, '1RM']}
+                      labelFormatter={(ts: number) => new Date(ts).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })}
+                    />
                     <Line
                       type="monotone"
                       dataKey="e1rm"
@@ -379,6 +399,7 @@ const StatsTab = ({ data }: StatsTabProps) => {
               </div>
             ))}
           </div>
+          )}
         </div>
       )}
 
@@ -395,7 +416,7 @@ const StatsTab = ({ data }: StatsTabProps) => {
               <XAxis dataKey="week" tick={chartStyle} axisLine={false} tickLine={false} />
               <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={30} allowDecimals={false} />
               <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: 'hsl(0 0% 95%)' }} />
-              <ReferenceLine y={data.weeklyGoal} stroke="hsl(38 92% 55%)" strokeDasharray="4 4" strokeWidth={1.5} />
+              <ReferenceLine y={data.weeklyGoal} stroke="hsl(38 92% 52%)" strokeDasharray="4 4" strokeWidth={1.5} />
               <Bar
                 dataKey="sessions"
                 fill="hsl(189 94% 55%)"
@@ -530,9 +551,9 @@ const StatsTab = ({ data }: StatsTabProps) => {
               <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: 'hsl(0 0% 95%)' }} formatter={(value: number) => [formatHM(value), 'Temps']} />
               <Bar
                 dataKey="minutes"
-                fill="hsl(174 80% 48%)"
+                fill="hsl(189 94% 55%)"
                 radius={[4, 4, 0, 0]}
-                style={{ filter: 'drop-shadow(0 0 5px hsl(174 80% 48% / 0.55))' }}
+                style={{ filter: 'drop-shadow(0 0 5px hsl(189 94% 55% / 0.55))' }}
               />
             </BarChart>
           </ResponsiveContainer>
@@ -554,9 +575,9 @@ const StatsTab = ({ data }: StatsTabProps) => {
               <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: 'hsl(0 0% 95%)' }} formatter={(value: number) => [formatHM(value), 'Temps']} />
               <Bar
                 dataKey="minutes"
-                fill="hsl(38 92% 55%)"
+                fill="hsl(262 83% 66%)"
                 radius={[4, 4, 0, 0]}
-                style={{ filter: 'drop-shadow(0 0 5px hsl(38 92% 55% / 0.5))' }}
+                style={{ filter: 'drop-shadow(0 0 5px hsl(262 83% 66% / 0.5))' }}
               />
             </BarChart>
           </ResponsiveContainer>

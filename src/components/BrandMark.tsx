@@ -6,9 +6,9 @@ interface BrandMarkProps {
   className?: string;
 }
 
-// Signature mark: a dumbbell fused with a flexed-muscle line, ringed by the dotted
-// workflow orbit — the same dot language reused functionally across the app for set
-// and timer progress (see OrbitRing/SetDots). Colors always run the cyan -> violet ->
+// Signature mark: a stylized neon dumbbell, ringed by the dotted workflow orbit —
+// the same dot language reused functionally across the app for set and timer
+// progress (see OrbitRing/SetDots). Colors always run the cyan -> violet ->
 // magenta flow, the trio's "data / motion / identity" read per the brief.
 const BrandMark = ({ size = 96, animated = true, className = '' }: BrandMarkProps) => {
   const uid = useId().replace(/[^a-zA-Z0-9]/g, '');
@@ -50,21 +50,21 @@ const BrandMark = ({ size = 96, animated = true, className = '' }: BrandMarkProp
       <circle cx="50" cy="4.3" r="2.8" fill="hsl(189 94% 55%)" className={animated ? 'animate-pulse-glow' : ''} />
       <circle cx="90.5" cy="65" r="2.8" fill="hsl(322 100% 60%)" className={animated ? 'animate-pulse-glow' : ''} />
 
-      {/* Flexed-muscle line, fused into the bar beneath it */}
-      <path
-        d="M 30 48 C 35 23, 46 13, 50 30 C 54 13, 65 23, 70 48"
-        fill="none"
-        stroke={`url(#${flowId})`}
-        strokeWidth="4.5"
-        strokeLinecap="round"
-      />
+      {/* Dumbbell — the sole mark now, sized up to fill the space and given a soft
+          neon halo so it carries the identity on its own */}
+      <g style={{ filter: 'drop-shadow(0 0 6px hsl(262 83% 66% / 0.45))' }}>
+        <rect x="30" y="47" width="40" height="6" rx="3" fill={`url(#${barId})`} />
 
-      {/* Dumbbell */}
-      <rect x="28" y="47" width="44" height="6" rx="3" fill={`url(#${barId})`} />
-      <rect x="15" y="41" width="6" height="18" rx="2.5" fill="hsl(189 94% 55%)" opacity="0.65" />
-      <rect x="19" y="36" width="9" height="28" rx="3" fill="hsl(189 94% 55%)" />
-      <rect x="72" y="36" width="9" height="28" rx="3" fill="hsl(322 100% 60%)" />
-      <rect x="79" y="41" width="6" height="18" rx="2.5" fill="hsl(322 100% 60%)" opacity="0.65" />
+        {/* Left plate stack */}
+        <rect x="13" y="39" width="7" height="22" rx="3.5" fill="hsl(189 94% 55%)" opacity="0.55" />
+        <rect x="18" y="33" width="11" height="34" rx="5.5" fill="hsl(189 94% 55%)" />
+        <rect x="20.5" y="37" width="3" height="10" rx="1.5" fill="hsl(0 0% 100%)" opacity="0.35" />
+
+        {/* Right plate stack */}
+        <rect x="71" y="33" width="11" height="34" rx="5.5" fill="hsl(322 100% 60%)" />
+        <rect x="80" y="39" width="7" height="22" rx="3.5" fill="hsl(322 100% 60%)" opacity="0.55" />
+        <rect x="76.5" y="37" width="3" height="10" rx="1.5" fill="hsl(0 0% 100%)" opacity="0.3" />
+      </g>
     </svg>
   );
 };
