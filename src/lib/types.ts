@@ -61,6 +61,15 @@ export interface WorkoutType {
   color: string;
   exercises: Exercise[];
   hidden?: boolean;
+  programId?: string; // multi-program grouping; migrated on load if absent
+}
+
+// A training program groups workout types together so switching program shows only
+// its own list of sessions. Sessions (history) are never filtered by program — they
+// stay visible across programs so the history is always intact.
+export interface Program {
+  id: string;
+  name: string;
 }
 
 export interface SetLog {
