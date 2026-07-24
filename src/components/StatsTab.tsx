@@ -341,6 +341,34 @@ const StatsTab = ({ data }: StatsTabProps) => {
         </div>
       )}
 
+      {/* 1RM evolution per exercise with an active method */}
+      {methodE1rmEvolution.length > 0 && (
+        <div className="glass-card p-4 mb-4">
+          <h3 className="text-sm font-semibold text-foreground mb-3">Progression 1RM (méthodes)</h3>
+          <div className="space-y-4">
+            {methodE1rmEvolution.map(({ name, points }) => (
+              <div key={name}>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-medium text-foreground">{name}</span>
+                  <span className="text-[10px] text-muted-foreground">
+                    {points[0].e1rm} → <span className="text-warning font-bold">{points[points.length - 1].e1rm}</span> kg
+                  </span>
+                </div>
+                <ResponsiveContainer width="100%" height={100}>
+                  <LineChart data={points} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 12% 20%)" />
+                    <XAxis dataKey="date" tick={chartStyle} axisLine={false} tickLine={false} />
+                    <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={30} domain={['auto', 'auto']} />
+                    <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: 'hsl(0 0% 95%)' }} formatter={(v: number) => [`${v} kg`, '1RM']} />
+                    <Line type="monotone" dataKey="e1rm" stroke="hsl(45 93% 55%)" strokeWidth={2} dot={{ r: 2, fill: 'hsl(45 93% 55%)' }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Weekly Frequency */}
       {weeklyData.length > 0 && (
         <div className="glass-card p-4 mb-4">
