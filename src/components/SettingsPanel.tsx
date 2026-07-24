@@ -1,10 +1,11 @@
 import { useState, useRef } from 'react';
 import { AppData, WorkoutType, Exercise, ExerciseMethod, Program, WORKOUT_COLORS, BodyWeightLog, DEFAULT_APP_DATA } from '@/lib/types';
 import { linkSuperset, unlinkSuperset, buildExerciseBlocks, flattenBlocks, ExerciseBlock } from '@/lib/superset';
-import { parseSessionNotes, NOTES_SYNTAX_HELP } from '@/lib/notesParser';
+import { parseSessionNotes, NOTES_SYNTAX_HELP, NOTES_SYNTAX_HELP_FILL } from '@/lib/notesParser';
 import { getEmomConfig, getEmomWeight, getDefaultEmomPercentage } from '@/lib/emom';
 import { getClusterConfig, getMiniSeriesWeight, CLUSTER_PRESETS } from '@/lib/cluster';
-import { ArrowLeft, Plus, Trash2, EyeOff, RotateCcw, Scale, Link2, Link2Off, Download, Upload, Database, AlertTriangle, FileText, Zap, Timer, Clock, Layers, Check } from 'lucide-react';
+import { estimateOneRepMax, estimateTrainingMax } from '@/lib/trainingMax';
+import { ArrowLeft, Plus, Trash2, EyeOff, Eye, Scale, Link2, Link2Off, Download, Upload, Database, AlertTriangle, FileText, Zap, Timer, Clock, Layers, Check, Calculator } from 'lucide-react';
 import { SortableList, DragHandle } from './SortableBlock';
 import { loadData, saveData } from '@/lib/storage';
 import { toast } from '@/hooks/use-toast';
@@ -14,6 +15,72 @@ import { toast } from '@/hooks/use-toast';
 // French names for WORKOUT_COLORS, same order, so color-swatch buttons can carry a
 // distinguishing aria-label instead of the identical "Choisir une couleur" for all eight.
 const WORKOUT_COLOR_NAMES = ['cyan', 'violet', 'magenta', 'ambre', 'indigo', 'turquoise', 'rouge', 'jaune'];
+
+// Training Max input with the same "je connais mon TM" / "calculer" toggle as the
+// onboarding wizard (SetupWizard's methodParams step) — lets her recompute a TM from a
+// recent heavy set (weight x reps -> Brzycki 1RM -> 90%) directly in Réglages instead of
+// only at setup time.
+const TrainingMaxField = ({ trainingMax, onChange }: { trainingMax: number; onChange: (tm: number) => void }) => {
+  const [mode, setMode] = useState<'direct' | 'compute'>('direct');
+  const [weight, setWeight] = useState('');
+  const [reps, setReps] = useState('');
+  const oneRM = estimateOneRepMax(parseFloat(weight) || 0, parseInt(reps) || 0);
+  const computedTm = estimateTrainingMax(oneRM);
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-[10px] text-muted-foreground">Training Max (kg)</span>
+        <button
+          onClick={() => setMode(m => m === 'direct' ? 'compute' : 'direct')}
+          className="text-[10px] text-primary flex items-center gap-1"
+        >
+          <Calculator size={10} /> {mode === 'direct' ? 'Recalculer' : 'Saisie directe'}
+        </button>
+      </div>
+      {mode === 'direct' ? (
+        <input
+          type="number"
+          value={trainingMax || ''}
+          onChange={e => onChange(e.target.value === '' ? 0 : parseFloat(e.target.value))}
+          className="w-full bg-background/60 text-foreground text-lg font-bold rounded-lg px-2 py-2 text-center outline-none"
+        />
+      ) : (
+        <div>
+          <div className="flex items-center gap-2 mb-1.5">
+            <input
+              type="number"
+              value={weight}
+              onChange={e => setWeight(e.target.value)}
+              placeholder="kg"
+              className="flex-1 min-w-0 bg-background/60 text-foreground rounded-lg px-2 py-1.5 text-sm text-center outline-none font-mono"
+            />
+            <span className="text-xs text-muted-foreground">×</span>
+            <input
+              type="number"
+              value={reps}
+              onChange={e => setReps(e.target.value)}
+              placeholder="reps"
+              className="flex-1 min-w-0 bg-background/60 text-foreground rounded-lg px-2 py-1.5 text-sm text-center outline-none font-mono"
+            />
+          </div>
+          {oneRM > 0 && (
+            <p className="text-[10px] text-muted-foreground mb-1.5">
+              1RM estimée : {oneRM} kg → TM (90%) : <span className="text-primary font-bold">{computedTm} kg</span>
+            </p>
+          )}
+          <button
+            onClick={() => { onChange(computedTm); setMode('direct'); }}
+            disabled={computedTm <= 0}
+            className="w-full bg-primary/15 text-primary rounded-lg py-1.5 text-xs font-medium disabled:opacity-40"
+          >
+            Utiliser ce TM
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
 
 interface SettingsPanelProps {
   data: AppData;
@@ -56,7 +123,13 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
           programId: p.id,
         }));
         setPrograms(prev => [...prev, p]);
-        setWorkoutTypes(prev => [...prev, ...duplicated]);
+        // The new program becomes active, so its (empty) sessions go on top and the
+        // previous program's sessions auto-hide — she'll find them again in "Séances
+        // masquées", history/stats untouched, instead of two same-named cards side by side.
+        setWorkoutTypes(prev => [
+          ...duplicated,
+          ...prev.map(t => t.programId === activeProgramId ? { ...t, hidden: true } : t),
+        ]);
         setActiveProgramId(p.id);
       },
     });
@@ -131,7 +204,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
         exercises: parsedExercises,
         programId: activeProgramId ?? undefined,
       };
-      setWorkoutTypes([...workoutTypes, newType]);
+      setWorkoutTypes([newType, ...workoutTypes]);
     }
     setNotesText('');
     setNotesOpen(false);
@@ -231,13 +304,13 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
 
   const addWorkoutType = () => {
     const colorIdx = workoutTypes.length % WORKOUT_COLORS.length;
-    setWorkoutTypes([...workoutTypes, {
+    setWorkoutTypes([{
       id: `wt${Date.now()}`,
       name: '',
       color: WORKOUT_COLORS[colorIdx],
       exercises: [],
       programId: activeProgramId ?? undefined,
-    }]);
+    }, ...workoutTypes]);
   };
 
   const toggleHide = (index: number) => {
@@ -454,12 +527,42 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                   ))}
                 </div>
                 {type.exercises.length === 0 && (
-                  <button
-                    onClick={() => { setNotesTargetId(type.id); setNotesOpen(true); }}
-                    className="w-full flex items-center justify-center gap-1.5 bg-primary/10 text-primary rounded-lg py-2 text-xs font-medium mb-3"
-                  >
-                    <FileText size={12} /> Remplir depuis mes notes
-                  </button>
+                  notesOpen && notesTargetId === type.id ? (
+                    <div className="mb-3 bg-secondary/40 rounded-xl p-3">
+                      <pre className="text-[10px] text-muted-foreground whitespace-pre-wrap bg-secondary rounded-lg p-2.5 mb-2">
+                        {NOTES_SYNTAX_HELP_FILL}
+                      </pre>
+                      <textarea
+                        autoFocus
+                        value={notesText}
+                        onChange={e => setNotesText(e.target.value)}
+                        placeholder={'Développé couché : 3x8\nDéveloppé militaire 4x12 à 10kg'}
+                        rows={6}
+                        className="w-full bg-secondary text-foreground rounded-xl px-3 py-2.5 text-sm outline-none font-mono mb-2"
+                      />
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          onClick={() => { setNotesOpen(false); setNotesText(''); setNotesTargetId(null); }}
+                          className="bg-secondary text-secondary-foreground rounded-xl py-2.5 text-sm font-medium active:scale-95 transition-transform"
+                        >
+                          Annuler
+                        </button>
+                        <button
+                          onClick={handleParseNotes}
+                          className="bg-primary text-primary-foreground rounded-xl py-2.5 text-sm font-medium active:scale-95 transition-transform"
+                        >
+                          Remplir la séance
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => { setNotesTargetId(type.id); setNotesOpen(true); }}
+                      className="w-full flex items-center justify-center gap-1.5 bg-primary/10 text-primary rounded-lg py-2 text-xs font-medium mb-3"
+                    >
+                      <FileText size={12} /> Remplir depuis mes notes
+                    </button>
+                  )
                 )}
                 <div className="space-y-1.5">
                   {(() => {
@@ -629,18 +732,10 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                   </div>
                                   <div className="grid grid-cols-2 gap-2">
                                     <div>
-                                      <label className="text-[10px] text-muted-foreground block mb-1">
-                                        Training Max (kg)
-                                        <input
-                                          type="number"
-                                          value={method531.trainingMax || ''}
-                                          onChange={e => updateExerciseMethod(ti, exIdx, {
-                                            ...method531,
-                                            trainingMax: e.target.value === '' ? 0 : parseFloat(e.target.value),
-                                          })}
-                                          className="w-full bg-background/60 text-foreground text-lg font-bold rounded-lg px-2 py-2 text-center outline-none mt-1"
-                                        />
-                                      </label>
+                                      <TrainingMaxField
+                                        trainingMax={method531.trainingMax}
+                                        onChange={tm => updateExerciseMethod(ti, exIdx, { ...method531, trainingMax: tm })}
+                                      />
                                     </div>
                                     <div>
                                       <label className="text-[10px] text-muted-foreground block mb-1">
@@ -714,18 +809,10 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                     </button>
                                   </div>
                                   <div>
-                                    <label className="text-[10px] text-muted-foreground block mb-1">
-                                      Training Max (kg)
-                                      <input
-                                        type="number"
-                                        value={methodCluster.trainingMax || ''}
-                                        onChange={e => updateExerciseMethod(ti, exIdx, {
-                                          ...methodCluster,
-                                          trainingMax: e.target.value === '' ? 0 : parseFloat(e.target.value),
-                                        })}
-                                        className="w-full bg-background/60 text-foreground text-lg font-bold rounded-lg px-2 py-2 text-center outline-none mt-1"
-                                      />
-                                    </label>
+                                    <TrainingMaxField
+                                      trainingMax={methodCluster.trainingMax}
+                                      onChange={tm => updateExerciseMethod(ti, exIdx, { ...methodCluster, trainingMax: tm })}
+                                    />
                                   </div>
                                   {(() => {
                                     const config = getClusterConfig(methodCluster);
@@ -870,18 +957,10 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                     </button>
                                   </div>
                                   <div>
-                                    <label className="text-[10px] text-muted-foreground block mb-1">
-                                      Training Max (kg)
-                                      <input
-                                        type="number"
-                                        value={methodEmom.trainingMax || ''}
-                                        onChange={e => updateExerciseMethod(ti, exIdx, {
-                                          ...methodEmom,
-                                          trainingMax: e.target.value === '' ? 0 : parseFloat(e.target.value),
-                                        })}
-                                        className="w-full bg-background/60 text-foreground text-lg font-bold rounded-lg px-2 py-2 text-center outline-none mt-1"
-                                      />
-                                    </label>
+                                    <TrainingMaxField
+                                      trainingMax={methodEmom.trainingMax}
+                                      onChange={tm => updateExerciseMethod(ti, exIdx, { ...methodEmom, trainingMax: tm })}
+                                    />
                                   </div>
                                   {(() => {
                                     const config = getEmomConfig(methodEmom);
@@ -1008,7 +1087,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                   <div className="w-3 h-3 rounded-full" style={{ backgroundColor: `hsl(${type.color})` }} />
                   <span className="text-foreground text-sm flex-1">{type.name || 'Sans nom'}</span>
                   <button onClick={() => toggleHide(ti)} className="text-primary p-1 touch-target" title="Restaurer" aria-label={`Restaurer ${type.name || 'cette séance'}`}>
-                    <RotateCcw size={16} />
+                    <Eye size={16} />
                   </button>
                   <button onClick={() => deleteType(ti)} className="text-destructive p-1 touch-target" title="Supprimer définitivement" aria-label={`Supprimer définitivement ${type.name || 'cette séance'}`}>
                     <Trash2 size={16} />
@@ -1035,28 +1114,21 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
         >
           <FileText size={16} /> Créer une séance depuis des notes
         </button>
-        {notesOpen && (
+        {notesOpen && !notesTargetId && (
           <div className="mt-3">
-            {notesTargetId && (
-              <p className="text-xs text-primary font-medium mb-2">
-                Remplit "{workoutTypes.find(t => t.id === notesTargetId)?.name || 'cette séance'}"
-              </p>
-            )}
             <pre className="text-[10px] text-muted-foreground whitespace-pre-wrap bg-secondary rounded-lg p-2.5 mb-2">
               {NOTES_SYNTAX_HELP}
             </pre>
             <textarea
               value={notesText}
               onChange={e => setNotesText(e.target.value)}
-              placeholder={notesTargetId
-                ? 'Développé couché : 3x8\nDéveloppé militaire 4x12 à 10kg'
-                : 'Push\nDéveloppé couché : 3x8\nDéveloppé militaire 4x12 à 10kg'}
+              placeholder={'Push\nDéveloppé couché : 3x8\nDéveloppé militaire 4x12 à 10kg'}
               rows={6}
               className="w-full bg-secondary text-foreground rounded-xl px-3 py-2.5 text-sm outline-none font-mono mb-2"
             />
             <div className="grid grid-cols-2 gap-2">
               <button
-                onClick={() => { setNotesOpen(false); setNotesText(''); setNotesTargetId(null); }}
+                onClick={() => { setNotesOpen(false); setNotesText(''); }}
                 className="bg-secondary text-secondary-foreground rounded-xl py-2.5 text-sm font-medium active:scale-95 transition-transform"
               >
                 Annuler
@@ -1065,7 +1137,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                 onClick={handleParseNotes}
                 className="bg-primary text-primary-foreground rounded-xl py-2.5 text-sm font-medium active:scale-95 transition-transform"
               >
-                {notesTargetId ? 'Remplir la séance' : 'Créer la séance'}
+                Créer la séance
               </button>
             </div>
           </div>

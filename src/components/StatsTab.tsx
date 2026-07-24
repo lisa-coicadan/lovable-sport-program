@@ -16,6 +16,7 @@ const RPE_CUTOFF = '2026-06-01';
 
 type PR = { name: string; e1rm: number; weight: number; reps: number; date: string };
 type DotRenderProps = { cx: number; cy: number; index: number; payload: { programName?: string } };
+type E1rmDotProps = { cx: number; cy: number; index: number; payload: { date: number; e1rm: number; weight: number; reps: number } };
 
 const daysAgo = (dateStr: string) => {
   const d = new Date(dateStr + 'T00:00:00');
@@ -80,6 +81,7 @@ const StatsTab = ({ data }: StatsTabProps) => {
   const [weeklyTimeRange, setWeeklyTimeRange] = useState<RangeFilter>('all');
   const [monthlyTimeRange, setMonthlyTimeRange] = useState<RangeFilter>('all');
   const [e1rmOpen, setE1rmOpen] = useState(false);
+  const [selectedE1rmPoint, setSelectedE1rmPoint] = useState<Record<string, E1rmDotProps['payload']>>({});
 
   // All PRs, grouped by normalized name -> best e1rm ever
   const prByName = useMemo(() => {
@@ -124,19 +126,19 @@ const StatsTab = ({ data }: StatsTabProps) => {
   // an active 5/3/1 / Cluster / EMOM method — one line chart each so she can see whether
   // the structured programming is actually driving progress.
   const methodE1rmEvolution = useMemo(() => {
-    const byName: Record<string, { date: string; e1rm: number }[]> = {};
+    const byName: Record<string, { date: string; e1rm: number; weight: number; reps: number }[]> = {};
     methodExerciseNames.forEach(name => { byName[name] = []; });
     data.sessions.forEach(session => {
-      const bestByName: Record<string, number> = {};
+      const bestByName: Record<string, { e1rm: number; weight: number; reps: number }> = {};
       session.sets.forEach(s => {
         if (!s.completed || s.weight <= 0 || s.reps <= 0) return;
         const canon = normalizeExerciseName(s.exerciseName);
         if (!methodExerciseNames.has(canon)) return;
         const e1 = calculate1RM(s.weight, s.reps);
-        if (!bestByName[canon] || e1 > bestByName[canon]) bestByName[canon] = e1;
+        if (!bestByName[canon] || e1 > bestByName[canon].e1rm) bestByName[canon] = { e1rm: e1, weight: s.weight, reps: s.reps };
       });
-      Object.entries(bestByName).forEach(([name, e1rm]) => {
-        byName[name].push({ date: session.date, e1rm });
+      Object.entries(bestByName).forEach(([name, best]) => {
+        byName[name].push({ date: session.date, ...best });
       });
     });
     return Object.entries(byName)
@@ -145,7 +147,7 @@ const StatsTab = ({ data }: StatsTabProps) => {
         name,
         points: points
           .sort((a, b) => a.date.localeCompare(b.date))
-          .map(p => ({ date: new Date(p.date).getTime(), e1rm: p.e1rm })),
+          .map(p => ({ date: new Date(p.date).getTime(), e1rm: p.e1rm, weight: p.weight, reps: p.reps })),
       }));
   }, [methodExerciseNames, data.sessions]);
 
@@ -382,11 +384,26 @@ const StatsTab = ({ data }: StatsTabProps) => {
                       dataKey="e1rm"
                       stroke="hsl(322 100% 60%)"
                       strokeWidth={2.5}
-                      dot={{ r: 2, fill: 'hsl(322 100% 60%)' }}
+                      dot={(props: E1rmDotProps) => (
+                        <circle
+                          key={`e1rm-dot-${name}-${props.index}`}
+                          cx={props.cx}
+                          cy={props.cy}
+                          r={2}
+                          fill="hsl(322 100% 60%)"
+                          onClick={() => setSelectedE1rmPoint(prev => ({ ...prev, [name]: props.payload }))}
+                          style={{ cursor: 'pointer' }}
+                        />
+                      )}
                       style={{ filter: 'drop-shadow(0 0 5px hsl(322 100% 60% / 0.7))' }}
                     />
                   </LineChart>
                 </ResponsiveContainer>
+                {selectedE1rmPoint[name] && (
+                  <p className="text-[10px] text-primary font-medium text-center mt-1">
+                    {new Date(selectedE1rmPoint[name].date).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })} : {selectedE1rmPoint[name].weight} kg × {selectedE1rmPoint[name].reps}
+                  </p>
+                )}
               </div>
             ))}
           </div>

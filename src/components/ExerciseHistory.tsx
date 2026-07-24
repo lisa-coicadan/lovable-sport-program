@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { AppData, calculate1RM } from '@/lib/types';
 import { splitEquipmentVariant } from '@/lib/exerciseNormalize';
 import { ArrowLeft } from 'lucide-react';
@@ -22,6 +22,8 @@ interface VariantGroup {
   label: string | null; // null = no equipment specified ("Sans précision")
   history: HistoryEntry[];
 }
+
+type DotProps = { cx: number; cy: number; index: number; payload: { date: number; e1rm: number; weight: number; reps: number } };
 
 const chartStyle = { fontSize: 10, fill: 'hsl(240 12% 72%)' };
 const tooltipStyle = {
@@ -98,18 +100,21 @@ const ExerciseHistory = ({ exerciseName, data, onClose }: ExerciseHistoryProps) 
 
 const VariantSection = ({ group, showHeader }: { group: VariantGroup; showHeader: boolean }) => {
   const [range, setRange] = useState<RangeFilter>('3m');
+  const [selected, setSelected] = useState<DotProps['payload'] | null>(null);
 
   const chartData = useMemo(() => {
     const cutoff = rangeCutoffDate(range);
-    const byDate: Record<string, number> = {};
+    const byDate: Record<string, HistoryEntry> = {};
     group.history.forEach(h => {
       if (cutoff && new Date(h.date + 'T00:00:00') < cutoff) return;
-      if (!byDate[h.date] || h.e1rm > byDate[h.date]) byDate[h.date] = h.e1rm;
+      if (!byDate[h.date] || h.e1rm > byDate[h.date].e1rm) byDate[h.date] = h;
     });
-    return Object.entries(byDate)
-      .map(([date, e1rm]) => ({ date: new Date(date + 'T00:00:00').getTime(), e1rm }))
+    return Object.values(byDate)
+      .map(h => ({ date: new Date(h.date + 'T00:00:00').getTime(), e1rm: h.e1rm, weight: h.weight, reps: h.reps }))
       .sort((a, b) => a.date - b.date);
   }, [group.history, range]);
+
+  useEffect(() => setSelected(null), [range]);
 
   const groupedByDate = useMemo(() => {
     const map: Record<string, HistoryEntry[]> = {};
@@ -160,13 +165,28 @@ const VariantSection = ({ group, showHeader }: { group: VariantGroup; showHeader
                 dataKey="e1rm"
                 stroke="hsl(322 100% 60%)"
                 strokeWidth={2.5}
-                dot={{ r: 3, fill: 'hsl(322 100% 60%)' }}
+                dot={(props: DotProps) => (
+                  <circle
+                    key={`dot-${props.index}`}
+                    cx={props.cx}
+                    cy={props.cy}
+                    r={3}
+                    fill="hsl(322 100% 60%)"
+                    onClick={() => setSelected(props.payload)}
+                    style={{ cursor: 'pointer' }}
+                  />
+                )}
                 style={{ filter: 'drop-shadow(0 0 5px hsl(322 100% 60% / 0.6))' }}
               />
             </LineChart>
           </ResponsiveContainer>
           ) : (
             <p className="text-xs text-muted-foreground text-center py-6">Pas assez de données sur cette période</p>
+          )}
+          {selected && (
+            <p className="text-xs text-primary font-medium text-center mt-2">
+              {new Date(selected.date).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })} : {selected.weight} kg × {selected.reps} (1RM {selected.e1rm} kg)
+            </p>
           )}
         </div>
       )}

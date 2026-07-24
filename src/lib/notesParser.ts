@@ -154,12 +154,21 @@ export function parseSessionNotes(text: string): ParseNotesResult {
 }
 
 // Help text shown in the UI next to the notes input.
-export const NOTES_SYNTAX_HELP =
+const NOTES_SYNTAX_BASE =
   `Une ligne par exercice, possibilité de l'écrire comme\n\n` +
   `  Développé couché : 3x8\n` +
   `  3x8 développé couché\n` +
   `  Développé militaire 4x12 à 10kg\n` +
   `  3x12 Développé militaire+ 10 Élévations latérales\n\n` +
-  `(le "+" permet de créer un superset)\n\n` +
-  `La première ligne doit être le nom de la séance\n\n` +
+  `(le "+" permet de créer un superset)\n\n`;
+const NOTES_SYNTAX_FOOTER =
   `Une ligne non reconnue n'est pas incluse et reste éditable à la main`;
+
+export const NOTES_SYNTAX_HELP =
+  NOTES_SYNTAX_BASE +
+  `La première ligne doit être le nom de la séance\n\n` +
+  NOTES_SYNTAX_FOOTER;
+
+// Same help text minus the "first line = session name" rule — used when filling an
+// existing (empty) session shell, whose name is already fixed and shouldn't be retyped.
+export const NOTES_SYNTAX_HELP_FILL = NOTES_SYNTAX_BASE + NOTES_SYNTAX_FOOTER;
