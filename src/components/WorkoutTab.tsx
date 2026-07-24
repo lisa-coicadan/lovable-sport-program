@@ -91,7 +91,7 @@ const MethodPickerRow = ({ active, onSelect }: { active: 'cluster' | 'emom' | 'n
       <button
         key={opt}
         onClick={() => onSelect(opt)}
-        className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-all ${
+        className={`flex-1 min-h-11 flex items-center justify-center rounded-lg text-xs font-medium transition-all ${
           active === opt ? METHOD_OPT_HUE[opt] : 'bg-secondary text-muted-foreground'
         }`}
       >
@@ -826,7 +826,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                       {seriesIdx < numSeries - 1 && (
                         <button
                           onClick={() => restTimerRef.current?.startWithDuration(restSeries)}
-                          className="text-[10px] text-primary font-medium flex items-center gap-1"
+                          className="touch-target text-[10px] text-primary font-medium flex items-center gap-1"
                         >
                           <Timer size={10} /> Repos {formatRestLabel(restSeries)}
                         </button>
@@ -837,7 +837,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                         <div key={s.globalIdx} className="flex items-center gap-1.5 flex-1">
                           <button
                             onClick={() => onTapMiniSeries(s.globalIdx, seriesIdx, miniIdx)}
-                            className={`flex-1 rounded-lg py-2 text-xs font-mono font-medium transition-colors ${
+                            className={`flex-1 min-h-11 flex items-center justify-center rounded-lg text-xs font-mono font-medium transition-colors ${
                               sets[s.globalIdx].completed ? 'bg-success text-success-foreground' : 'bg-background/60 text-foreground'
                             }`}
                             aria-pressed={sets[s.globalIdx].completed}
@@ -847,7 +847,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                           {miniIdx < seriesSets.length - 1 && (
                             <button
                               onClick={() => restTimerRef.current?.startWithDuration(restMiniSeries)}
-                              className="text-muted-foreground p-1.5 active:text-primary shrink-0"
+                              className="touch-target inline-flex items-center justify-center text-muted-foreground active:text-primary shrink-0"
                               title={`Repos ${formatRestLabel(restMiniSeries)}`}
                               aria-label={`Repos ${formatRestLabel(restMiniSeries)}`}
                             >
@@ -889,7 +889,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                 <button
                   key={s.globalIdx}
                   onClick={() => toggleSet(s.globalIdx)}
-                  className={`rounded-lg py-2 text-[11px] font-mono font-medium transition-colors ${
+                  className={`min-h-11 rounded-lg py-2 text-[11px] font-mono font-medium transition-colors ${
                     sets[s.globalIdx].completed ? 'bg-success text-success-foreground' : 'bg-secondary/50 text-foreground'
                   }`}
                 >
@@ -1035,7 +1035,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                 ) : (
                   <button
                     onClick={() => { setHistoryExercise(name); setMode('history'); }}
-                    className="flex items-center gap-1.5 group"
+                    className="min-h-11 flex items-center gap-1.5 group"
                   >
                     <h3 className="text-sm font-semibold text-foreground group-active:text-primary transition-colors">{name}</h3>
                     <History size={12} className="text-muted-foreground group-active:text-primary" />
@@ -1093,7 +1093,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                       />
                       <button
                         onClick={() => removeSet(globalIdx)}
-                        className="text-muted-foreground p-1 active:text-destructive"
+                        className="touch-target inline-flex items-center justify-center text-muted-foreground active:text-destructive"
                         aria-label={`Supprimer la série ${localIdx + 1}`}
                       >
                         <Trash2 size={14} />
@@ -1114,7 +1114,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
               </div>
               <button
                 onClick={() => addSetToExercise(exerciseId, name)}
-                className="flex items-center gap-1 text-primary text-xs font-medium py-1.5 mt-2"
+                className="min-h-11 flex items-center gap-1 text-primary text-xs font-medium mt-2"
               >
                 <Plus size={12} /> Ajouter une série
               </button>

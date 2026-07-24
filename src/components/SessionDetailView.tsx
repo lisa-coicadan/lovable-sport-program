@@ -172,16 +172,69 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
 
   // --- Share as image via canvas ---
   const handleShare = async () => {
+    // Read the live theme tokens instead of hardcoding a parallel palette, so the one
+    // artifact that leaves the app (a shared PNG) never drifts from the in-app neon
+    // identity the way the old Apple-system-gray version had.
+    const token = (name: string) => `hsl(${getComputedStyle(document.documentElement).getPropertyValue(name).trim()})`;
+    const bgColor = token('--background');
+    const fgColor = token('--foreground');
+    const mutedColor = token('--muted-foreground');
+    const borderColor = token('--border');
+    const successColor = token('--success');
+    const destructiveColor = token('--destructive');
+
+    // The app's fixed brand hues (same trio BrandMark.tsx draws) — a stable identity
+    // constant, not a themeable token, so hardcoded here exactly as there.
+    const brandMarkSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+      <defs>
+        <linearGradient id="flow" x1="10" y1="10" x2="90" y2="90" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stop-color="hsl(189 94% 55%)" />
+          <stop offset="50%" stop-color="hsl(262 83% 66%)" />
+          <stop offset="100%" stop-color="hsl(322 100% 60%)" />
+        </linearGradient>
+        <linearGradient id="bar" x1="19" y1="50" x2="81" y2="50" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stop-color="hsl(189 94% 55%)" />
+          <stop offset="100%" stop-color="hsl(322 100% 60%)" />
+        </linearGradient>
+      </defs>
+      <circle cx="50" cy="50" r="46" fill="none" stroke="url(#flow)" stroke-width="3" stroke-linecap="round" stroke-dasharray="0.1 9.4" opacity="0.85" />
+      <circle cx="50" cy="4.3" r="2.8" fill="hsl(189 94% 55%)" />
+      <circle cx="90.5" cy="65" r="2.8" fill="hsl(322 100% 60%)" />
+      <path d="M 30 48 C 35 23, 46 13, 50 30 C 54 13, 65 23, 70 48" fill="none" stroke="url(#flow)" stroke-width="4.5" stroke-linecap="round" />
+      <rect x="28" y="47" width="44" height="6" rx="3" fill="url(#bar)" />
+      <rect x="15" y="41" width="6" height="18" rx="2.5" fill="hsl(189 94% 55%)" opacity="0.65" />
+      <rect x="19" y="36" width="9" height="28" rx="3" fill="hsl(189 94% 55%)" />
+      <rect x="72" y="36" width="9" height="28" rx="3" fill="hsl(322 100% 60%)" />
+      <rect x="79" y="41" width="6" height="18" rx="2.5" fill="hsl(322 100% 60%)" opacity="0.65" />
+    </svg>`;
+    const loadImage = (src: string) => new Promise<HTMLImageElement>((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = src;
+    });
+    const [logoImg] = await Promise.all([
+      loadImage(`data:image/svg+xml;base64,${btoa(brandMarkSvg)}`),
+      document.fonts.ready,
+    ]);
+
     const canvas = document.createElement('canvas');
     const w = 1080;
     const ctx = canvas.getContext('2d')!;
     const padding = 60;
     const lineH = 36;
     const color = getColorForType();
+    const accentBarGradient = (x0: number, x1: number, y: number) => {
+      const grad = ctx.createLinearGradient(x0, y, x1, y);
+      grad.addColorStop(0, 'hsl(189 94% 55%)');
+      grad.addColorStop(0.5, 'hsl(262 83% 66%)');
+      grad.addColorStop(1, 'hsl(322 100% 60%)');
+      return grad;
+    };
 
     // Pre-calculate height
     let totalLines = 0;
-    totalLines += 5; // header area (app name, session name, date, type, spacing)
+    totalLines += 5; // header area (logo + wordmark, session name, date, type, spacing)
     totalLines += 1; // divider
     groupedExercises.forEach(([, sets]) => {
       totalLines += 2; // exercise name + 1rm
@@ -200,41 +253,51 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
     canvas.height = h;
 
     // Background
-    ctx.fillStyle = '#111114';
+    ctx.fillStyle = bgColor;
     ctx.fillRect(0, 0, w, h);
 
-    // Subtle gradient overlay at top
+    // Subtle gradient overlay at top, in the workout type's own accent hue
     const grad = ctx.createLinearGradient(0, 0, 0, 300);
-    grad.addColorStop(0, `hsla(${color}, 0.12)`);
+    grad.addColorStop(0, `hsl(${color} / 0.12)`);
     grad.addColorStop(1, 'transparent');
     ctx.fillRect(0, 0, w, 300);
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, w, 300);
 
+    // Top accent strip: the app's cyan -> violet -> magenta identity trio
+    ctx.fillStyle = accentBarGradient(0, w, 0);
+    ctx.fillRect(0, 0, w, 6);
+
     let y = padding + 20;
     const left = padding;
     const right = w - padding;
 
-    // App name
-    ctx.font = '600 28px -apple-system, BlinkMacSystemFont, sans-serif';
+    // Logo mark + wordmark
+    const logoSize = 44;
+    ctx.save();
+    ctx.shadowColor = `hsl(${color})`;
+    ctx.shadowBlur = 18;
+    ctx.drawImage(logoImg, left, y - logoSize + 6, logoSize, logoSize);
+    ctx.restore();
+    ctx.font = "600 30px 'Space Grotesk', -apple-system, sans-serif";
     ctx.fillStyle = `hsl(${color})`;
-    ctx.fillText('MUSCULISA', left, y);
-    y += lineH + 10;
+    ctx.fillText('MUSCULISA', left + logoSize + 16, y);
+    y += lineH + 14;
 
     // Session name
-    ctx.font = 'bold 48px -apple-system, BlinkMacSystemFont, sans-serif';
-    ctx.fillStyle = '#f2f2f2';
+    ctx.font = "bold 48px 'Space Grotesk', -apple-system, sans-serif";
+    ctx.fillStyle = fgColor;
     ctx.fillText(session.workoutTypeName, left, y);
     y += 54;
 
     // Date
-    ctx.font = '400 28px -apple-system, BlinkMacSystemFont, sans-serif';
-    ctx.fillStyle = '#8a8a8e';
+    ctx.font = "400 28px 'Space Grotesk', -apple-system, sans-serif";
+    ctx.fillStyle = mutedColor;
     ctx.fillText(sessionDate, left, y);
     y += lineH + 20;
 
     // Divider
-    ctx.fillStyle = '#2a2a2e';
+    ctx.fillStyle = borderColor;
     ctx.fillRect(left, y, right - left, 1);
     y += 30;
 
@@ -245,11 +308,11 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
       const prog = progressions[name];
 
       // Exercise name + 1RM
-      ctx.font = '600 30px -apple-system, BlinkMacSystemFont, sans-serif';
-      ctx.fillStyle = '#f2f2f2';
+      ctx.font = "600 30px 'Space Grotesk', -apple-system, sans-serif";
+      ctx.fillStyle = fgColor;
       ctx.fillText(name, left, y);
       if (e1rm > 0) {
-        ctx.font = '600 26px -apple-system, BlinkMacSystemFont, sans-serif';
+        ctx.font = "600 26px 'Space Grotesk', -apple-system, sans-serif";
         ctx.fillStyle = `hsl(${color})`;
         const rmText = `1RM: ${e1rm} kg`;
         ctx.fillText(rmText, right - ctx.measureText(rmText).width, y);
@@ -258,11 +321,11 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
 
       // Sets
       sets.forEach((s, i) => {
-        ctx.font = '400 26px -apple-system, BlinkMacSystemFont, sans-serif';
-        ctx.fillStyle = '#8a8a8e';
+        ctx.font = "400 26px 'Space Grotesk', -apple-system, sans-serif";
+        ctx.fillStyle = mutedColor;
         ctx.fillText(`  Série ${i + 1}`, left, y);
-        ctx.fillStyle = '#d1d1d6';
-        ctx.font = '500 26px -apple-system, BlinkMacSystemFont, monospace';
+        ctx.fillStyle = fgColor;
+        ctx.font = "500 26px 'JetBrains Mono', monospace";
         const setText = `${s.weight} kg × ${s.reps}`;
         ctx.fillText(setText, right - ctx.measureText(setText).width, y);
         y += lineH;
@@ -270,15 +333,15 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
 
       // Progression
       if (prog) {
-        ctx.font = '500 24px -apple-system, BlinkMacSystemFont, sans-serif';
+        ctx.font = "500 24px 'Space Grotesk', -apple-system, sans-serif";
         if (prog.e1rmPct > 0) {
-          ctx.fillStyle = '#34c759';
+          ctx.fillStyle = successColor;
           ctx.fillText(`↑ +${prog.e1rmPct}% vs séance précédente`, left + 16, y);
         } else if (prog.e1rmPct < 0) {
-          ctx.fillStyle = '#ff453a';
+          ctx.fillStyle = destructiveColor;
           ctx.fillText(`↓ ${prog.e1rmPct}% vs séance précédente`, left + 16, y);
         } else {
-          ctx.fillStyle = '#8a8a8e';
+          ctx.fillStyle = mutedColor;
           ctx.fillText('= Identique à la séance précédente', left + 16, y);
         }
         y += lineH;
@@ -287,15 +350,15 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
     });
 
     // Divider
-    ctx.fillStyle = '#2a2a2e';
+    ctx.fillStyle = borderColor;
     ctx.fillRect(left, y, right - left, 1);
     y += 30;
 
     // Tonnage
-    ctx.font = '500 28px -apple-system, BlinkMacSystemFont, sans-serif';
-    ctx.fillStyle = '#f2f2f2';
+    ctx.font = "500 28px 'Space Grotesk', -apple-system, sans-serif";
+    ctx.fillStyle = fgColor;
     ctx.fillText('Tonnage total', left, y);
-    ctx.font = 'bold 28px -apple-system, BlinkMacSystemFont, monospace';
+    ctx.font = "bold 28px 'JetBrains Mono', monospace";
     ctx.fillStyle = `hsl(${color})`;
     const tonText = `${Math.round(totalVolume)} kg`;
     ctx.fillText(tonText, right - ctx.measureText(tonText).width, y);
@@ -303,11 +366,11 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
 
     // Duration
     if (session.duration) {
-      ctx.font = '500 28px -apple-system, BlinkMacSystemFont, sans-serif';
-      ctx.fillStyle = '#f2f2f2';
+      ctx.font = "500 28px 'Space Grotesk', -apple-system, sans-serif";
+      ctx.fillStyle = fgColor;
       ctx.fillText('Durée', left, y);
-      ctx.font = '500 28px -apple-system, BlinkMacSystemFont, monospace';
-      ctx.fillStyle = '#d1d1d6';
+      ctx.font = "500 28px 'JetBrains Mono', monospace";
+      ctx.fillStyle = fgColor;
       const durText = `${session.duration} min`;
       ctx.fillText(durText, right - ctx.measureText(durText).width, y);
       y += lineH + 4;
@@ -315,11 +378,11 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
 
     // RPE
     if (session.difficulty) {
-      ctx.font = '500 28px -apple-system, BlinkMacSystemFont, sans-serif';
-      ctx.fillStyle = '#f2f2f2';
+      ctx.font = "500 28px 'Space Grotesk', -apple-system, sans-serif";
+      ctx.fillStyle = fgColor;
       ctx.fillText('RPE', left, y);
-      ctx.font = '500 28px -apple-system, BlinkMacSystemFont, monospace';
-      ctx.fillStyle = '#d1d1d6';
+      ctx.font = "500 28px 'JetBrains Mono', monospace";
+      ctx.fillStyle = fgColor;
       const rpeText = `${session.difficulty}/5`;
       ctx.fillText(rpeText, right - ctx.measureText(rpeText).width, y);
       y += lineH + 4;
@@ -328,8 +391,8 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
     // Notes
     if (session.notes) {
       y += 10;
-      ctx.font = 'italic 24px -apple-system, BlinkMacSystemFont, sans-serif';
-      ctx.fillStyle = '#8a8a8e';
+      ctx.font = "italic 24px 'Space Grotesk', -apple-system, sans-serif";
+      ctx.fillStyle = mutedColor;
       const maxW = right - left;
       const words = session.notes.split(' ');
       let line = '';
@@ -349,27 +412,31 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
     // Overall comparison
     if (overallComparison) {
       y += 16;
-      ctx.fillStyle = '#2a2a2e';
+      ctx.fillStyle = borderColor;
       ctx.fillRect(left, y, right - left, 1);
       y += 24;
 
-      ctx.font = '600 26px -apple-system, BlinkMacSystemFont, sans-serif';
+      ctx.font = "600 26px 'Space Grotesk', -apple-system, sans-serif";
       if (overallComparison.verdict === 'better') {
-        ctx.fillStyle = '#34c759';
+        ctx.fillStyle = successColor;
         ctx.fillText('📈 Meilleure que la précédente', left, y);
       } else if (overallComparison.verdict === 'below') {
-        ctx.fillStyle = '#ff453a';
+        ctx.fillStyle = destructiveColor;
         ctx.fillText('📉 En dessous de la précédente', left, y);
       } else {
-        ctx.fillStyle = '#8a8a8e';
+        ctx.fillStyle = mutedColor;
         ctx.fillText('📊 Similaire à la précédente', left, y);
       }
       y += lineH;
 
-      ctx.font = '400 22px -apple-system, BlinkMacSystemFont, sans-serif';
-      ctx.fillStyle = '#6e6e73';
+      ctx.font = "400 22px 'Space Grotesk', -apple-system, sans-serif";
+      ctx.fillStyle = mutedColor;
       ctx.fillText(`Volume : ${overallComparison.volDiff > 0 ? '+' : ''}${overallComparison.volDiff}%  •  1RM moy. : ${overallComparison.avg1RMDiff > 0 ? '+' : ''}${overallComparison.avg1RMDiff}%`, left, y);
     }
+
+    // Bottom accent strip, mirroring the top one
+    ctx.fillStyle = accentBarGradient(0, w, h - 6);
+    ctx.fillRect(0, h - 6, w, 6);
 
     // Convert to blob and share
     canvas.toBlob(async (blob) => {

@@ -91,7 +91,7 @@ const RangeButtons = ({ value, onChange }: { value: RangeFilter; onChange: (v: R
       <button
         key={opt.value}
         onClick={() => onChange(opt.value)}
-        className={`px-2 py-1 rounded-lg text-[10px] font-medium transition-colors ${
+        className={`touch-target inline-flex items-center justify-center px-2 rounded-lg text-[10px] font-medium transition-colors ${
           value === opt.value ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
         }`}
       >
@@ -417,7 +417,7 @@ const StatsTab = ({ data }: StatsTabProps) => {
           <div className="flex gap-1 mb-3 flex-wrap">
             <button
               onClick={() => setVolumeFilter(null)}
-              className={`px-2 py-1 rounded-lg text-[10px] font-medium transition-colors ${
+              className={`touch-target inline-flex items-center justify-center px-2 rounded-lg text-[10px] font-medium transition-colors ${
                 !volumeFilter ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
               }`}
             >
@@ -427,7 +427,7 @@ const StatsTab = ({ data }: StatsTabProps) => {
               <button
                 key={t.id}
                 onClick={() => setVolumeFilter(t.id)}
-                className={`px-2 py-1 rounded-lg text-[10px] font-medium transition-colors ${
+                className={`touch-target inline-flex items-center justify-center px-2 rounded-lg text-[10px] font-medium transition-colors ${
                   volumeFilter === t.id ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
                 }`}
               >
@@ -468,7 +468,7 @@ const StatsTab = ({ data }: StatsTabProps) => {
           <div className="flex gap-1 mb-3 flex-wrap">
             <button
               onClick={() => setDifficultyFilter(null)}
-              className={`px-2 py-1 rounded-lg text-[10px] font-medium transition-colors ${
+              className={`touch-target inline-flex items-center justify-center px-2 rounded-lg text-[10px] font-medium transition-colors ${
                 !difficultyFilter ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
               }`}
             >
@@ -478,7 +478,7 @@ const StatsTab = ({ data }: StatsTabProps) => {
               <button
                 key={t.id}
                 onClick={() => setDifficultyFilter(t.id)}
-                className={`px-2 py-1 rounded-lg text-[10px] font-medium transition-colors ${
+                className={`touch-target inline-flex items-center justify-center px-2 rounded-lg text-[10px] font-medium transition-colors ${
                   difficultyFilter === t.id ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
                 }`}
               >
