@@ -11,6 +11,7 @@ const Index = () => {
   const [data, setData] = useState<AppData>(loadData);
   const [activeTab, setActiveTab] = useState(1);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [sessionProgress, setSessionProgress] = useState<number | null>(null);
 
   useEffect(() => {
     saveData(data);
@@ -66,10 +67,11 @@ const Index = () => {
           onSaveSession={handleSaveSession}
           onUpdateData={handleUpdateData}
           selectedDate={selectedDate}
+          onProgressChange={setSessionProgress}
         />
       </div>
       {activeTab === 2 && <StatsTab data={data} />}
-      <BottomTabBar activeTab={activeTab} onTabChange={(tab) => { setActiveTab(tab); }} />
+      <BottomTabBar activeTab={activeTab} onTabChange={(tab) => { setActiveTab(tab); }} sessionProgress={sessionProgress} />
     </div>
   );
 };

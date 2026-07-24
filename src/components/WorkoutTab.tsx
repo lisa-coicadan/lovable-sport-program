@@ -19,6 +19,9 @@ interface WorkoutTabProps {
   onSaveSession: (session: SessionLog) => void;
   onUpdateData: (partial: Partial<AppData>) => void;
   selectedDate?: string | null;
+  // Reports the live session's completed-sets fraction (0-1), or null when no session is
+  // in progress — lets BottomTabBar show a progress strip even while she's on another tab.
+  onProgressChange?: (progress: number | null) => void;
 }
 
 type Mode = 'select' | 'recap' | 'summary' | 'settings' | 'history';
@@ -101,7 +104,7 @@ const MethodPickerRow = ({ active, onSelect }: { active: 'cluster' | 'emom' | 'n
   </div>
 );
 
-const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: WorkoutTabProps) => {
+const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgressChange }: WorkoutTabProps) => {
   const [mode, setMode] = useState<Mode>('select');
   const [selectedType, setSelectedType] = useState<WorkoutType | null>(null);
   const [sets, setSets] = useState<SetLog[]>([]);
@@ -164,6 +167,15 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
     const id = setInterval(() => setNowTick(Date.now()), 1000);
     return () => clearInterval(id);
   }, [mode]);
+
+  useEffect(() => {
+    if (!onProgressChange) return;
+    if (mode !== 'recap' || sets.length === 0) {
+      onProgressChange(null);
+      return;
+    }
+    onProgressChange(sets.filter(s => s.completed).length / sets.length);
+  }, [mode, sets, onProgressChange]);
 
   const activeProgramId = data.activeProgramId ?? null;
   const activeTypes = data.workoutTypes.filter(t =>
@@ -1005,7 +1017,13 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                         ].map(row => (
                           <div key={row.role} className="flex items-center gap-2 py-1">
                             <span className="text-[10px] font-bold text-primary w-4">{row.role}</span>
-                            <span className="text-xs text-foreground/80 flex-1 truncate">{row.name}</span>
+                            <button
+                              onClick={() => { setHistoryExercise(row.name); setMode('history'); }}
+                              className="min-h-11 flex items-center gap-1 flex-1 min-w-0 group"
+                            >
+                              <span className="text-xs text-foreground/80 truncate group-active:text-primary transition-colors">{row.name}</span>
+                              <History size={11} className="text-muted-foreground/70 group-active:text-primary shrink-0" />
+                            </button>
                             <input
                               type="number"
                               value={sets[row.idx].weight || ''}
@@ -1102,7 +1120,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                         placeholder="kg"
                         aria-label={`Poids série ${localIdx + 1}, ${name} (kg)`}
                       />
-                      <span className="text-muted-foreground text-xs">kg ×</span>
+                      <span className="text-muted-foreground text-xs shrink-0 whitespace-nowrap">kg ×</span>
                       <input
                         type="number"
                         value={sets[globalIdx].reps || ''}
