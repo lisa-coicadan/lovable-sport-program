@@ -379,6 +379,8 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
       date: sessionDate,
       workoutTypeId: selectedType.id,
       workoutTypeName: selectedType.name,
+      programId: selectedType.programId,
+      programName: data.programs?.find(p => p.id === selectedType.programId)?.name,
       sets: finalSets,
       startTime,
       endTime,

@@ -40,14 +40,19 @@ function migrateLegacyFiveThreeOne(data: AppData): AppData {
 
 // If the loaded data doesn't have any program yet, create a default "Mon programme"
 // that owns every existing workoutType, and mark it as active. Idempotent — a second
-// pass with programs already present is a no-op. Never touches sessions (history).
+// pass with programs already present is a no-op beyond the orphan sweep below. Never
+// touches sessions (history).
 function migrateToPrograms(data: AppData): AppData {
   const hasPrograms = Array.isArray(data.programs) && data.programs.length > 0;
   if (hasPrograms) {
     // Ensure activeProgramId is valid; fallback to first program.
     const stillValid = data.activeProgramId && data.programs!.some(p => p.id === data.activeProgramId);
-    if (stillValid) return data;
-    return { ...data, activeProgramId: data.programs![0].id };
+    const activeProgramId = stillValid ? data.activeProgramId! : data.programs![0].id;
+    // Sweep any workoutType still missing a programId (bug, edge case, legacy data) onto
+    // the active program — otherwise it would silently show up under every program instead
+    // of belonging to exactly one (see WorkoutTab's `!t.programId` fallback in its filter).
+    const workoutTypes = data.workoutTypes.map(t => t.programId ? t : { ...t, programId: activeProgramId });
+    return { ...data, activeProgramId, workoutTypes };
   }
   if (!data.setupComplete && (!data.workoutTypes || data.workoutTypes.length === 0)) {
     // No prior program, no prior workouts — SetupWizard will create both.
@@ -58,12 +63,30 @@ function migrateToPrograms(data: AppData): AppData {
   return { ...data, programs: [defaultProgram], activeProgramId: defaultProgram.id, workoutTypes };
 }
 
+// Backfills a permanent snapshot of the program name onto each session, taken from the
+// workout type it was logged under (workoutTypeId -> workoutType.programId -> program name).
+// Best-effort for sessions logged before this field existed; every session logged from
+// now on gets an accurate snapshot at creation time (see WorkoutTab.finishWorkout).
+// Idempotent — never overwrites a session that already has a programName.
+function migrateSessionProgramNames(data: AppData): AppData {
+  if (!data.sessions.some(s => !s.programName)) return data;
+  const programNameById = new Map((data.programs || []).map(p => [p.id, p.name]));
+  const typeById = new Map(data.workoutTypes.map(t => [t.id, t]));
+  const sessions = data.sessions.map(s => {
+    if (s.programName) return s;
+    const programId = typeById.get(s.workoutTypeId)?.programId;
+    const programName = programId ? programNameById.get(programId) : undefined;
+    return programId && programName ? { ...s, programId, programName } : s;
+  });
+  return { ...data, sessions };
+}
+
 export function loadData(): AppData {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return { ...DEFAULT_APP_DATA };
     const parsed = { ...DEFAULT_APP_DATA, ...JSON.parse(raw) };
-    return migrateToPrograms(migrateLegacyFiveThreeOne(parsed));
+    return migrateSessionProgramNames(migrateToPrograms(migrateLegacyFiveThreeOne(parsed)));
   } catch {
     return { ...DEFAULT_APP_DATA };
   }

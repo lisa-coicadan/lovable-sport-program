@@ -88,6 +88,8 @@ export interface SessionLog {
   date: string; // YYYY-MM-DD
   workoutTypeId: string;
   workoutTypeName: string;
+  programId?: string;
+  programName?: string; // snapshot at log time, mirrors workoutTypeName's pattern
   sets: SetLog[];
   startTime: number;
   endTime?: number;

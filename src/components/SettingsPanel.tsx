@@ -29,23 +29,48 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
   const [weeklyGoal, setWeeklyGoal] = useState(data.weeklyGoal);
   const [notesOpen, setNotesOpen] = useState(false);
   const [notesText, setNotesText] = useState('');
+  const [notesTargetId, setNotesTargetId] = useState<string | null>(null);
+  // window.prompt() is silently disabled by iOS Safari in standalone (home-screen) PWAs —
+  // it never shows anything and returns null, so "Nouveau"/"Renommer" would do nothing on
+  // her phone. This in-app modal replaces it for both flows.
+  const [namePrompt, setNamePrompt] = useState<{ title: string; onSubmit: (name: string) => void } | null>(null);
+  const [namePromptValue, setNamePromptValue] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Program management ----------------------------------------------------------
   const createProgram = () => {
-    const name = window.prompt('Nom du nouveau programme', 'Nouveau programme');
-    if (!name || !name.trim()) return;
-    const p: Program = { id: `p${Date.now()}`, name: name.trim() };
-    setPrograms(prev => [...prev, p]);
-    setActiveProgramId(p.id);
+    setNamePromptValue('Nouveau programme');
+    setNamePrompt({
+      title: 'Nom du nouveau programme',
+      onSubmit: name => {
+        const p: Program = { id: `p${Date.now()}`, name };
+        // Recreate the active program's session names (empty, same color) so she only has
+        // to fill in exercises for the new program instead of retyping every session title.
+        const previousSessions = workoutTypes.filter(t => t.programId === activeProgramId && !t.hidden);
+        const duplicated: WorkoutType[] = previousSessions.map((t, i) => ({
+          id: `t${Date.now()}_${i}`,
+          name: t.name,
+          color: t.color,
+          exercises: [],
+          programId: p.id,
+        }));
+        setPrograms(prev => [...prev, p]);
+        setWorkoutTypes(prev => [...prev, ...duplicated]);
+        setActiveProgramId(p.id);
+      },
+    });
   };
 
   const renameActiveProgram = () => {
     const current = programs.find(p => p.id === activeProgramId);
     if (!current) return;
-    const name = window.prompt('Renommer le programme', current.name);
-    if (!name || !name.trim()) return;
-    setPrograms(prev => prev.map(p => p.id === activeProgramId ? { ...p, name: name.trim() } : p));
+    setNamePromptValue(current.name);
+    setNamePrompt({
+      title: 'Renommer le programme',
+      onSubmit: name => {
+        setPrograms(prev => prev.map(p => p.id === activeProgramId ? { ...p, name } : p));
+      },
+    });
   };
 
   const deleteActiveProgram = () => {
@@ -54,18 +79,24 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
       return;
     }
     const current = programs.find(p => p.id === activeProgramId);
-    const owned = workoutTypes.filter(t => t.programId === activeProgramId).length;
-    if (!window.confirm(`Supprimer le programme "${current?.name}" ? Ses ${owned} séance(s) seront masquées (non supprimées, tu pourras les réassocier à un autre programme).`)) return;
+    const owned = workoutTypes.filter(t => t.programId === activeProgramId && !t.hidden).length;
+    if (!window.confirm(`Supprimer le programme "${current?.name}" ? Ses ${owned} séance(s) seront masquées (non supprimées, tu retrouveras leur historique dans Calendrier/Stats).`)) return;
     setPrograms(prev => prev.filter(p => p.id !== activeProgramId));
-    // Detach owned workoutTypes so they don't disappear entirely — reassign to first remaining program.
+    // Hide owned workoutTypes rather than deleting them — history/stats keep referencing
+    // them by id unaffected, they just stop being offered anywhere as selectable.
     const fallback = programs.find(p => p.id !== activeProgramId)!;
-    setWorkoutTypes(prev => prev.map(t => t.programId === activeProgramId ? { ...t, programId: fallback.id } : t));
+    setWorkoutTypes(prev => prev.map(t => t.programId === activeProgramId ? { ...t, hidden: true } : t));
     setActiveProgramId(fallback.id);
   };
 
 
   const handleParseNotes = () => {
-    const result = parseSessionNotes(notesText);
+    // parseSessionNotes always treats line 1 as the session title — when filling an
+    // existing shell she shouldn't have to (and if she doesn't, her first real exercise
+    // line would be swallowed as the title instead). Prepend the target's own name as a
+    // throwaway title line so every line she typed is parsed as an exercise.
+    const targetName = notesTargetId ? workoutTypes.find(t => t.id === notesTargetId)?.name : null;
+    const result = parseSessionNotes(targetName ? `${targetName}\n${notesText}` : notesText);
     if (result.exercises.length === 0) {
       toast({
         title: 'Aucun exercice reconnu',
@@ -74,32 +105,43 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
       });
       return;
     }
-    const colorIdx = workoutTypes.length % WORKOUT_COLORS.length;
-    const newType: WorkoutType = {
-      id: `wt${Date.now()}`,
-      name: result.sessionName || 'Nouvelle séance',
-      color: WORKOUT_COLORS[colorIdx],
-      exercises: result.exercises.map((e, i) => ({
-        id: `e${Date.now()}-${i}`,
-        name: e.name,
-        sets: e.sets,
-        reps: e.reps,
-        weight: e.weight,
-        supersetGroupId: e.supersetGroupId,
-        supersetRole: e.supersetRole,
-      })),
-    };
-    setWorkoutTypes([...workoutTypes, newType]);
+    const parsedExercises: Exercise[] = result.exercises.map((e, i) => ({
+      id: `e${Date.now()}-${i}`,
+      name: e.name,
+      sets: e.sets,
+      reps: e.reps,
+      weight: e.weight,
+      supersetGroupId: e.supersetGroupId,
+      supersetRole: e.supersetRole,
+    }));
+
+    // Filling in an existing empty session shell (e.g. one auto-duplicated when creating
+    // a new program) updates it in place instead of creating a second session with the
+    // same name.
+    if (notesTargetId) {
+      setWorkoutTypes(prev => prev.map(t => t.id === notesTargetId ? { ...t, exercises: parsedExercises } : t));
+      setNotesTargetId(null);
+    } else {
+      const colorIdx = workoutTypes.length % WORKOUT_COLORS.length;
+      const newType: WorkoutType = {
+        id: `wt${Date.now()}`,
+        name: result.sessionName || 'Nouvelle séance',
+        color: WORKOUT_COLORS[colorIdx],
+        exercises: parsedExercises,
+        programId: activeProgramId ?? undefined,
+      };
+      setWorkoutTypes([...workoutTypes, newType]);
+    }
     setNotesText('');
     setNotesOpen(false);
     if (result.unrecognizedLines.length > 0) {
       toast({
-        title: `Séance créée (${result.exercises.length} exercice${result.exercises.length > 1 ? 's' : ''})`,
+        title: `Séance ${notesTargetId ? 'complétée' : 'créée'} (${result.exercises.length} exercice${result.exercises.length > 1 ? 's' : ''})`,
         description: `${result.unrecognizedLines.length} ligne(s) non reconnue(s), à ajouter à la main : ${result.unrecognizedLines.join(' / ')}`,
       });
     } else {
       toast({
-        title: 'Séance créée',
+        title: notesTargetId ? 'Séance complétée' : 'Séance créée',
         description: `${result.exercises.length} exercice${result.exercises.length > 1 ? 's' : ''} ajouté${result.exercises.length > 1 ? 's' : ''} depuis tes notes.`,
       });
     }
@@ -270,6 +312,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
   const hiddenTypes = workoutTypes.filter(t => t.hidden);
 
   return (
+    <>
     <div className="px-4 pt-12 pb-24 animate-slide-up">
       <div className="flex items-center gap-3 mb-6">
         <button onClick={onClose} className="text-muted-foreground touch-target p-1" aria-label="Fermer les réglages">
@@ -384,6 +427,11 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                     className="bg-transparent text-foreground font-semibold outline-none flex-1"
                     placeholder="Nom de la séance"
                   />
+                  {programs.length > 1 && (
+                    <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-secondary text-muted-foreground shrink-0">
+                      {programs.find(p => p.id === type.programId)?.name ?? '—'}
+                    </span>
+                  )}
                   <button onClick={() => toggleHide(ti)} className="text-muted-foreground p-1 touch-target" title="Masquer" aria-label={`Masquer ${type.name || 'cette séance'}`}>
                     <EyeOff size={16} />
                   </button>
@@ -404,6 +452,14 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                     />
                   ))}
                 </div>
+                {type.exercises.length === 0 && (
+                  <button
+                    onClick={() => { setNotesTargetId(type.id); setNotesOpen(true); }}
+                    className="w-full flex items-center justify-center gap-1.5 bg-primary/10 text-primary rounded-lg py-2 text-xs font-medium mb-3"
+                  >
+                    <FileText size={12} /> Remplir depuis mes notes
+                  </button>
+                )}
                 <div className="space-y-1.5">
                   {(() => {
                     const blocks = buildExerciseBlocks(type.exercises);
@@ -963,26 +1019,33 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
       {/* Create a session from freeform notes */}
       <div className="glass-card p-4 mb-6">
         <button
-          onClick={() => setNotesOpen(v => !v)}
+          onClick={() => { setNotesOpen(v => !v); setNotesTargetId(null); }}
           className="w-full flex items-center justify-center gap-2 text-primary text-sm font-medium"
         >
           <FileText size={16} /> Créer une séance depuis des notes
         </button>
         {notesOpen && (
           <div className="mt-3">
+            {notesTargetId && (
+              <p className="text-xs text-primary font-medium mb-2">
+                Remplit "{workoutTypes.find(t => t.id === notesTargetId)?.name || 'cette séance'}"
+              </p>
+            )}
             <pre className="text-[10px] text-muted-foreground whitespace-pre-wrap bg-secondary rounded-lg p-2.5 mb-2">
               {NOTES_SYNTAX_HELP}
             </pre>
             <textarea
               value={notesText}
               onChange={e => setNotesText(e.target.value)}
-              placeholder={'Push\nDéveloppé couché : 3x8\nDéveloppé militaire 4x12 à 10kg'}
+              placeholder={notesTargetId
+                ? 'Développé couché : 3x8\nDéveloppé militaire 4x12 à 10kg'
+                : 'Push\nDéveloppé couché : 3x8\nDéveloppé militaire 4x12 à 10kg'}
               rows={6}
               className="w-full bg-secondary text-foreground rounded-xl px-3 py-2.5 text-sm outline-none font-mono mb-2"
             />
             <div className="grid grid-cols-2 gap-2">
               <button
-                onClick={() => { setNotesOpen(false); setNotesText(''); }}
+                onClick={() => { setNotesOpen(false); setNotesText(''); setNotesTargetId(null); }}
                 className="bg-secondary text-secondary-foreground rounded-xl py-2.5 text-sm font-medium active:scale-95 transition-transform"
               >
                 Annuler
@@ -991,7 +1054,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                 onClick={handleParseNotes}
                 className="bg-primary text-primary-foreground rounded-xl py-2.5 text-sm font-medium active:scale-95 transition-transform"
               >
-                Créer la séance
+                {notesTargetId ? 'Remplir la séance' : 'Créer la séance'}
               </button>
             </div>
           </div>
@@ -1053,6 +1116,53 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
         Enregistrer les réglages
       </button>
     </div>
+
+    {/* Rendered outside the animated wrapper above — same reason RestTimer moved out in
+        WorkoutTab: an animated `transform` ancestor makes iOS Safari treat `fixed`
+        descendants as if they were `absolute` to that ancestor instead of the viewport. */}
+    {namePrompt && (
+      <div
+        className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-6 animate-fade-in"
+        onClick={() => setNamePrompt(null)}
+      >
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="name-prompt-title"
+          className="glass-card p-6 max-w-sm w-full"
+          onClick={e => e.stopPropagation()}
+        >
+          <h3 id="name-prompt-title" className="text-lg font-bold text-foreground mb-3">{namePrompt.title}</h3>
+          <input
+            autoFocus
+            value={namePromptValue}
+            onChange={e => setNamePromptValue(e.target.value)}
+            className="w-full bg-secondary text-foreground rounded-xl px-3 py-2.5 text-sm outline-none mb-4"
+            placeholder="Nom du programme"
+          />
+          <div className="flex gap-3">
+            <button
+              onClick={() => setNamePrompt(null)}
+              className="flex-1 bg-secondary text-secondary-foreground font-medium py-2.5 rounded-xl text-sm touch-target"
+            >
+              Annuler
+            </button>
+            <button
+              onClick={() => {
+                const trimmed = namePromptValue.trim();
+                if (!trimmed) return;
+                namePrompt.onSubmit(trimmed);
+                setNamePrompt(null);
+              }}
+              className="flex-1 btn-neon font-medium py-2.5 rounded-xl text-sm touch-target"
+            >
+              Valider
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 };
 

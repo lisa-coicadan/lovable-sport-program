@@ -667,6 +667,11 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
           >
             {session.workoutTypeName}
           </span>
+          {(data.programs?.length ?? 0) > 1 && session.programName && (
+            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-secondary text-muted-foreground">
+              {session.programName}
+            </span>
+          )}
         </div>
       </div>
 

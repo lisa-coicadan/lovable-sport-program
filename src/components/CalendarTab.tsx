@@ -177,6 +177,11 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession }: Ca
                 <div className="flex items-center gap-3 mb-1">
                   <div className="w-3 h-3 rounded-full" style={{ backgroundColor: `hsl(${getColorForType(session.workoutTypeId)})` }} />
                   <span className="text-foreground font-semibold text-sm">{session.workoutTypeName}</span>
+                  {(data.programs?.length ?? 0) > 1 && session.programName && (
+                    <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-secondary text-muted-foreground">
+                      {session.programName}
+                    </span>
+                  )}
                 </div>
                 <div className="flex gap-4 text-xs text-muted-foreground ml-6">
                   {session.duration && <span>{session.duration} min</span>}

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { AppData, calculate1RM } from '@/lib/types';
+import { AppData, calculate1RM, WORKOUT_COLORS } from '@/lib/types';
 import { normalizeExerciseName } from '@/lib/exerciseNormalize';
 import { Trophy, Scale, Crown, ChevronDown } from 'lucide-react';
 import {
@@ -14,6 +14,7 @@ interface StatsTabProps {
 const RPE_CUTOFF = '2026-06-01';
 
 type PR = { name: string; e1rm: number; weight: number; reps: number; date: string };
+type DotRenderProps = { cx: number; cy: number; index: number; payload: { programName?: string } };
 
 const daysAgo = (dateStr: string) => {
   const d = new Date(dateStr + 'T00:00:00');
@@ -196,11 +197,14 @@ const StatsTab = ({ data }: StatsTabProps) => {
     });
   }, [data.sessions, data.weeklyGoal, weeklyRange]);
 
-  // Tonnage per session (filterable by workout type + time range)
+  // Tonnage per session (filterable by session NAME + time range — grouped by name rather
+  // than by workoutTypeId so that e.g. "Push" from an older program and "Push" from the
+  // current one land under the same filter button and can be compared, each point still
+  // carrying its own programName for the tooltip/dot color below).
   const volumeData = useMemo(() => {
     const cutoff = rangeCutoffDate(volumeRange);
     return data.sessions
-      .filter(s => !volumeFilter || s.workoutTypeId === volumeFilter)
+      .filter(s => !volumeFilter || s.workoutTypeName === volumeFilter)
       .filter(s => !cutoff || new Date(s.date + 'T00:00:00') >= cutoff)
       .sort((a, b) => a.date.localeCompare(b.date))
       .map(s => {
@@ -209,9 +213,23 @@ const StatsTab = ({ data }: StatsTabProps) => {
           date: new Date(s.date).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' }),
           volume,
           type: s.workoutTypeName,
+          programName: s.programName,
         };
       });
   }, [data.sessions, volumeFilter, volumeRange]);
+
+  // Assigns a stable color per distinct programName encountered (in order of first
+  // appearance) so points from different programs are visually distinguishable at a glance.
+  const programColorFor = (points: { programName?: string }[]) => {
+    const colors = new Map<string, string>();
+    points.forEach(p => {
+      if (p.programName && !colors.has(p.programName)) {
+        colors.set(p.programName, WORKOUT_COLORS[colors.size % WORKOUT_COLORS.length]);
+      }
+    });
+    return colors;
+  };
+  const volumeProgramColors = useMemo(() => programColorFor(volumeData), [volumeData]);
 
   // Difficulty over time — only sessions from June 2026 onward (RPE /5 scale)
   const difficultyData = useMemo(() => {
@@ -219,15 +237,17 @@ const StatsTab = ({ data }: StatsTabProps) => {
     return data.sessions
       .filter(s => s.date >= RPE_CUTOFF)
       .filter(s => s.difficulty && s.difficulty > 0)
-      .filter(s => !difficultyFilter || s.workoutTypeId === difficultyFilter)
+      .filter(s => !difficultyFilter || s.workoutTypeName === difficultyFilter)
       .filter(s => !cutoff || new Date(s.date + 'T00:00:00') >= cutoff)
       .sort((a, b) => a.date.localeCompare(b.date))
       .map(s => ({
         date: new Date(s.date).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' }),
         difficulty: s.difficulty || 0,
         type: s.workoutTypeName,
+        programName: s.programName,
       }));
   }, [data.sessions, difficultyFilter, difficultyRange]);
+  const difficultyProgramColors = useMemo(() => programColorFor(difficultyData), [difficultyData]);
 
   // Weekly training time — include empty weeks
   const weeklyTimeData = useMemo(() => {
@@ -277,6 +297,9 @@ const StatsTab = ({ data }: StatsTabProps) => {
   };
   const noData = data.sessions.length === 0;
   const activeTypes = data.workoutTypes.filter(t => !t.hidden);
+  // Deduplicated by name for the Tonnage/RPE filter buttons: a session name reused across
+  // programs (e.g. "Push") should offer a single filter button, not one per program.
+  const activeTypeNames = Array.from(new Set(activeTypes.map(t => t.name))).filter(Boolean);
 
   return (
     <div className="px-4 pt-12 pb-24 animate-slide-up">
@@ -444,15 +467,15 @@ const StatsTab = ({ data }: StatsTabProps) => {
             >
               Tout
             </button>
-            {activeTypes.map(t => (
+            {activeTypeNames.map(name => (
               <button
-                key={t.id}
-                onClick={() => setVolumeFilter(t.id)}
+                key={name}
+                onClick={() => setVolumeFilter(name)}
                 className={`touch-target inline-flex items-center justify-center px-2 rounded-lg text-[10px] font-medium transition-colors ${
-                  volumeFilter === t.id ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
+                  volumeFilter === name ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
                 }`}
               >
-                {t.name}
+                {name}
               </button>
             ))}
           </div>
@@ -462,13 +485,28 @@ const StatsTab = ({ data }: StatsTabProps) => {
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 12% 20%)" />
                 <XAxis dataKey="date" tick={chartStyle} axisLine={false} tickLine={false} />
                 <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={45} />
-                <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: 'hsl(0 0% 95%)' }} />
+                <Tooltip
+                  content={({ active, payload, label }) => {
+                    if (!active || !payload?.length) return null;
+                    const p = payload[0].payload as { volume: number; programName?: string };
+                    return (
+                      <div style={tooltipStyle} className="px-3 py-2">
+                        <p style={{ color: 'hsl(0 0% 95%)' }} className="text-xs mb-0.5">{label}</p>
+                        <p className="text-sm font-semibold" style={{ color: 'hsl(322 100% 60%)' }}>{p.volume} kg</p>
+                        {p.programName && <p className="text-[10px] text-muted-foreground mt-0.5">{p.programName}</p>}
+                      </div>
+                    );
+                  }}
+                />
                 <Line
                   type="monotone"
                   dataKey="volume"
                   stroke="hsl(322 100% 60%)"
                   strokeWidth={2.5}
-                  dot={{ r: 3, fill: 'hsl(322 100% 60%)' }}
+                  dot={(props: DotRenderProps) => {
+                    const color = volumeProgramColors.get(props.payload.programName) || '322 100% 60%';
+                    return <circle key={`vdot-${props.index}`} cx={props.cx} cy={props.cy} r={3} fill={`hsl(${color})`} />;
+                  }}
                   style={{ filter: 'drop-shadow(0 0 5px hsl(322 100% 60% / 0.6))' }}
                 />
               </LineChart>
@@ -495,15 +533,15 @@ const StatsTab = ({ data }: StatsTabProps) => {
             >
               Tout
             </button>
-            {activeTypes.map(t => (
+            {activeTypeNames.map(name => (
               <button
-                key={t.id}
-                onClick={() => setDifficultyFilter(t.id)}
+                key={name}
+                onClick={() => setDifficultyFilter(name)}
                 className={`touch-target inline-flex items-center justify-center px-2 rounded-lg text-[10px] font-medium transition-colors ${
-                  difficultyFilter === t.id ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
+                  difficultyFilter === name ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
                 }`}
               >
-                {t.name}
+                {name}
               </button>
             ))}
           </div>
@@ -512,13 +550,28 @@ const StatsTab = ({ data }: StatsTabProps) => {
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 12% 20%)" />
               <XAxis dataKey="date" tick={chartStyle} axisLine={false} tickLine={false} />
               <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={30} domain={[0, 5]} />
-              <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: 'hsl(0 0% 95%)' }} />
+              <Tooltip
+                content={({ active, payload, label }) => {
+                  if (!active || !payload?.length) return null;
+                  const p = payload[0].payload as { difficulty: number; programName?: string };
+                  return (
+                    <div style={tooltipStyle} className="px-3 py-2">
+                      <p style={{ color: 'hsl(0 0% 95%)' }} className="text-xs mb-0.5">{label}</p>
+                      <p className="text-sm font-semibold" style={{ color: 'hsl(262 83% 66%)' }}>RPE {p.difficulty}/5</p>
+                      {p.programName && <p className="text-[10px] text-muted-foreground mt-0.5">{p.programName}</p>}
+                    </div>
+                  );
+                }}
+              />
               <Line
                 type="monotone"
                 dataKey="difficulty"
                 stroke="hsl(262 83% 66%)"
                 strokeWidth={2.5}
-                dot={{ r: 3, fill: 'hsl(262 83% 66%)' }}
+                dot={(props: DotRenderProps) => {
+                  const color = difficultyProgramColors.get(props.payload.programName) || '262 83% 66%';
+                  return <circle key={`ddot-${props.index}`} cx={props.cx} cy={props.cy} r={3} fill={`hsl(${color})`} />;
+                }}
                 style={{ filter: 'drop-shadow(0 0 5px hsl(262 83% 66% / 0.6))' }}
               />
             </LineChart>
