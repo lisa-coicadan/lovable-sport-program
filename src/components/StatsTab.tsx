@@ -149,6 +149,35 @@ const StatsTab = ({ data }: StatsTabProps) => {
       .slice(0, 5);
   }, [prByName, methodExerciseNames]);
 
+  // Evolution of the best e1RM reached in each session, for every exercise that has
+  // an active 5/3/1 / Cluster / EMOM method — one line chart each so she can see whether
+  // the structured programming is actually driving progress.
+  const methodE1rmEvolution = useMemo(() => {
+    const byName: Record<string, { date: string; e1rm: number }[]> = {};
+    methodExerciseNames.forEach(name => { byName[name] = []; });
+    data.sessions.forEach(session => {
+      const bestByName: Record<string, number> = {};
+      session.sets.forEach(s => {
+        if (!s.completed || s.weight <= 0 || s.reps <= 0) return;
+        const canon = normalizeExerciseName(s.exerciseName);
+        if (!methodExerciseNames.has(canon)) return;
+        const e1 = calculate1RM(s.weight, s.reps);
+        if (!bestByName[canon] || e1 > bestByName[canon]) bestByName[canon] = e1;
+      });
+      Object.entries(bestByName).forEach(([name, e1rm]) => {
+        byName[name].push({ date: session.date, e1rm });
+      });
+    });
+    return Object.entries(byName)
+      .filter(([, points]) => points.length >= 2)
+      .map(([name, points]) => ({
+        name,
+        points: points
+          .sort((a, b) => a.date.localeCompare(b.date))
+          .map(p => ({ date: new Date(p.date).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' }), e1rm: p.e1rm })),
+      }));
+  }, [methodExerciseNames, data.sessions]);
+
   // Weekly frequency — include empty weeks
   const weeklyData = useMemo(() => {
     const countByWeek = new Map<string, number>();
@@ -308,6 +337,34 @@ const StatsTab = ({ data }: StatsTabProps) => {
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {/* 1RM evolution per exercise with an active method */}
+      {methodE1rmEvolution.length > 0 && (
+        <div className="glass-card p-4 mb-4">
+          <h3 className="text-sm font-semibold text-foreground mb-3">Progression 1RM (méthodes)</h3>
+          <div className="space-y-4">
+            {methodE1rmEvolution.map(({ name, points }) => (
+              <div key={name}>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-medium text-foreground">{name}</span>
+                  <span className="text-[10px] text-muted-foreground">
+                    {points[0].e1rm} → <span className="text-warning font-bold">{points[points.length - 1].e1rm}</span> kg
+                  </span>
+                </div>
+                <ResponsiveContainer width="100%" height={100}>
+                  <LineChart data={points} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 12% 20%)" />
+                    <XAxis dataKey="date" tick={chartStyle} axisLine={false} tickLine={false} />
+                    <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={30} domain={['auto', 'auto']} />
+                    <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: 'hsl(0 0% 95%)' }} formatter={(v: number) => [`${v} kg`, '1RM']} />
+                    <Line type="monotone" dataKey="e1rm" stroke="hsl(45 93% 55%)" strokeWidth={2} dot={{ r: 2, fill: 'hsl(45 93% 55%)' }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            ))}
           </div>
         </div>
       )}

@@ -16,6 +16,7 @@ export interface ClusterMiniSeries {
 
 // Defaults (4 series x [2,2,2 reps @ 90%], 20s/3min rest) live in src/lib/cluster.ts
 // and apply whenever a field below is missing — keeps old saved data (TM-only) working.
+// `parametrizeAtSession` = true : no default pattern persisted, all params live in-session.
 export interface ClusterMethod {
   type: 'cluster';
   trainingMax: number;
@@ -23,6 +24,7 @@ export interface ClusterMethod {
   miniSeries?: ClusterMiniSeries[]; // structure of one series, repeated numSeries times
   restMiniSeries?: number; // seconds, between mini-series within a series
   restSeries?: number; // seconds, between series
+  parametrizeAtSession?: boolean;
 }
 
 // Defaults (10min, 2 reps/min, %TM from a duration/reps formula) live in src/lib/emom.ts
@@ -33,9 +35,12 @@ export interface EMOMMethod {
   durationMinutes?: number;
   repsPerMinute?: number;
   percentage?: number; // fraction of TM
+  parametrizeAtSession?: boolean;
 }
 
 export type ExerciseMethod = FiveThreeOneMethod | ClusterMethod | EMOMMethod;
+
+export type ExerciseEquipment = 'barre' | 'halteres' | 'machine' | 'smith' | 'poulie';
 
 export interface Exercise {
   id: string;
@@ -46,6 +51,8 @@ export interface Exercise {
   supersetGroupId?: string; // shared id between the 2 partners
   supersetRole?: 'A' | 'B';
   method?: ExerciseMethod; // optional per-exercise training method (5/3/1, later cluster/EMOM)
+  unilateral?: boolean; // display-only attribute (execution mode)
+  equipment?: ExerciseEquipment; // display-only attribute (equipment tag)
 }
 
 export interface WorkoutType {
@@ -54,6 +61,15 @@ export interface WorkoutType {
   color: string;
   exercises: Exercise[];
   hidden?: boolean;
+  programId?: string; // multi-program grouping; migrated on load if absent
+}
+
+// A training program groups workout types together so switching program shows only
+// its own list of sessions. Sessions (history) are never filtered by program — they
+// stay visible across programs so the history is always intact.
+export interface Program {
+  id: string;
+  name: string;
 }
 
 export interface SetLog {
@@ -101,6 +117,8 @@ export interface AppData {
   setupComplete: boolean;
   restDuration: number; // seconds
   bodyWeightLogs: BodyWeightLog[];
+  programs?: Program[]; // multi-program support; migrated on load if absent
+  activeProgramId?: string | null;
   // @deprecated legacy fields — migrated into a per-exercise `method` on load (see
   // src/lib/storage.ts). New AppData never sets these; only present on old stored JSON.
   fiveThreeOne?: FiveThreeOneConfig;
@@ -125,6 +143,8 @@ export const DEFAULT_APP_DATA: AppData = {
   setupComplete: false,
   restDuration: 90,
   bodyWeightLogs: [],
+  programs: [],
+  activeProgramId: null,
 };
 
 export function calculate1RM(weight: number, reps: number): number {

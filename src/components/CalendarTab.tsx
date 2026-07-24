@@ -300,12 +300,14 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession }: Ca
       </div>
 
       <div className="flex flex-wrap gap-3 mt-6">
-        {data.workoutTypes.filter(t => !t.hidden).map(wt => (
-          <div key={wt.id} className="flex items-center gap-1.5">
-            <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: `hsl(${wt.color})` }} />
-            <span className="text-xs text-muted-foreground">{wt.name}</span>
-          </div>
-        ))}
+        {data.workoutTypes
+          .filter(t => !t.hidden && (!data.activeProgramId || !t.programId || t.programId === data.activeProgramId))
+          .map(wt => (
+            <div key={wt.id} className="flex items-center gap-1.5">
+              <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: `hsl(${wt.color})` }} />
+              <span className="text-xs text-muted-foreground">{wt.name}</span>
+            </div>
+          ))}
       </div>
     </div>
   );

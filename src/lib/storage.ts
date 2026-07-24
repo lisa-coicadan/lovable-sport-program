@@ -38,12 +38,32 @@ function migrateLegacyFiveThreeOne(data: AppData): AppData {
   return { ...cleaned, workoutTypes };
 }
 
+// If the loaded data doesn't have any program yet, create a default "Mon programme"
+// that owns every existing workoutType, and mark it as active. Idempotent — a second
+// pass with programs already present is a no-op. Never touches sessions (history).
+function migrateToPrograms(data: AppData): AppData {
+  const hasPrograms = Array.isArray(data.programs) && data.programs.length > 0;
+  if (hasPrograms) {
+    // Ensure activeProgramId is valid; fallback to first program.
+    const stillValid = data.activeProgramId && data.programs!.some(p => p.id === data.activeProgramId);
+    if (stillValid) return data;
+    return { ...data, activeProgramId: data.programs![0].id };
+  }
+  if (!data.setupComplete && (!data.workoutTypes || data.workoutTypes.length === 0)) {
+    // No prior program, no prior workouts — SetupWizard will create both.
+    return { ...data, programs: [], activeProgramId: null };
+  }
+  const defaultProgram = { id: `p${Date.now()}`, name: 'Mon programme' };
+  const workoutTypes = (data.workoutTypes || []).map(t => t.programId ? t : { ...t, programId: defaultProgram.id });
+  return { ...data, programs: [defaultProgram], activeProgramId: defaultProgram.id, workoutTypes };
+}
+
 export function loadData(): AppData {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return { ...DEFAULT_APP_DATA };
     const parsed = { ...DEFAULT_APP_DATA, ...JSON.parse(raw) };
-    return migrateLegacyFiveThreeOne(parsed);
+    return migrateToPrograms(migrateLegacyFiveThreeOne(parsed));
   } catch {
     return { ...DEFAULT_APP_DATA };
   }

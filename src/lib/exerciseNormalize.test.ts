@@ -9,6 +9,19 @@ describe('normalizeExerciseName', () => {
     expect(normalizeExerciseName('SQUAT')).toBe('Squat');
   });
 
+  it('isolates Squat variants as distinct analytical entities (never merged with Squat)', () => {
+    expect(normalizeExerciseName('Front Squat')).toBe('Front Squat');
+    expect(normalizeExerciseName('front squat')).toBe('Front Squat');
+    expect(normalizeExerciseName('Hack Squat')).toBe('Hack Squat');
+    expect(normalizeExerciseName('Split Squat')).toBe('Split Squat');
+    expect(normalizeExerciseName('Bulgarian Split Squat')).toBe('Bulgarian Split Squat');
+    expect(normalizeExerciseName('Goblet Squat')).toBe('Goblet Squat');
+    // and none of them collapses to plain Squat
+    expect(normalizeExerciseName('front squat')).not.toBe('Squat');
+    expect(normalizeExerciseName('hack squat')).not.toBe('Squat');
+  });
+
+
   it('maps barbell-qualified variants to the canonical (barbell) name', () => {
     expect(normalizeExerciseName('Développé couché barre')).toBe('Développé couché');
     expect(normalizeExerciseName('bench press bb')).toBe('Développé couché');

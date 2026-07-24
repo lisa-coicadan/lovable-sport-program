@@ -77,11 +77,44 @@ interface NormalizationRule {
 }
 
 const RULES: NormalizationRule[] = [
+  // Isolated Squat variants — each is its own analytical entity, NEVER merged with Squat.
+  // Order matters: more specific patterns (bulgarian, split, front, hack, goblet) must
+  // match BEFORE the plain "squat" rule below, otherwise a generic keyword would win.
+  {
+    canonical: 'Bulgarian Split Squat',
+    baseLabel: 'Bulgarian Split Squat',
+    prTracked: false,
+    keywords: ['bulgarian split squat', 'bulgarian squat', 'squat bulgare'],
+  },
+  {
+    canonical: 'Split Squat',
+    baseLabel: 'Split Squat',
+    prTracked: false,
+    keywords: ['split squat'],
+  },
+  {
+    canonical: 'Front Squat',
+    baseLabel: 'Front Squat',
+    prTracked: false,
+    keywords: ['front squat', 'squat avant'],
+  },
+  {
+    canonical: 'Hack Squat',
+    baseLabel: 'Hack Squat',
+    prTracked: false,
+    keywords: ['hack squat'],
+  },
+  {
+    canonical: 'Goblet Squat',
+    baseLabel: 'Goblet Squat',
+    prTracked: false,
+    keywords: ['goblet squat', 'squat goblet'],
+  },
   {
     canonical: 'Squat',
     baseLabel: 'Squat',
     prTracked: true,
-    keywords: ['squat', '5/3/1 squat', '531 squat', 'back squat', 'front squat'],
+    keywords: ['squat', '5/3/1 squat', '531 squat', 'back squat'],
   },
   {
     canonical: 'Développé couché',
