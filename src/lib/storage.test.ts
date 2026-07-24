@@ -101,6 +101,9 @@ describe('loadData — legacy 5/3/1 migration', () => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(modern));
 
     const data = loadData();
-    expect(data.workoutTypes).toEqual(modern.workoutTypes);
+    // migrateToPrograms assigns a default programId to legacy workoutTypes; strip it for the comparison.
+    expect(data.workoutTypes.map(({ programId, ...rest }) => rest)).toEqual(modern.workoutTypes);
+    expect(data.programs?.length).toBe(1);
+    expect(data.activeProgramId).toBe(data.programs![0].id);
   });
 });
