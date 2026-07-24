@@ -266,8 +266,14 @@ const StatsTab = ({ data }: StatsTabProps) => {
   const prevWeekTime = weeklyTimeData.length > 1 ? weeklyTimeData[weeklyTimeData.length - 2]?.minutes || 0 : 0;
   const latestBodyWeight = (data.bodyWeightLogs || []).sort((a, b) => b.date.localeCompare(a.date))[0];
 
-  const chartStyle = { fontSize: 10, fill: 'hsl(240 8% 58%)' };
-  const tooltipStyle = { background: 'hsl(240 14% 9%)', border: '1px solid hsl(240 12% 20%)', borderRadius: 10, fontSize: 12 };
+  const chartStyle = { fontSize: 10, fill: 'hsl(240 12% 72%)' };
+  const tooltipStyle = {
+    background: 'hsl(240 16% 12%)',
+    border: '1px solid hsl(189 94% 55% / 0.35)',
+    borderRadius: 10,
+    fontSize: 12,
+    boxShadow: '0 0 24px -8px hsl(189 94% 55% / 0.35)',
+  };
   const noData = data.sessions.length === 0;
   const activeTypes = data.workoutTypes.filter(t => !t.hidden);
 
@@ -288,7 +294,7 @@ const StatsTab = ({ data }: StatsTabProps) => {
           <div>
             <p className="text-2xl font-bold text-foreground">{latestBodyWeight.weight} kg</p>
             <p className="text-[10px] text-muted-foreground">
-              Bodyweight — {new Date(latestBodyWeight.date).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })}
+              Poids corporel — {new Date(latestBodyWeight.date).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })}
             </p>
           </div>
         </div>
@@ -296,16 +302,16 @@ const StatsTab = ({ data }: StatsTabProps) => {
 
       {/* PRs for exercises with an active training method — isolated, one card each */}
       {methodPRs.map(pr => (
-        <div key={pr.name} className="glass-card p-4 mb-4 border border-warning/40 bg-warning/5">
+        <div key={pr.name} className="glass-card record-card p-4 mb-4">
           <div className="flex items-center gap-2 mb-2">
             <span className="relative inline-flex w-4 h-4 items-center justify-center">
-              <span className="absolute inset-0 bg-warning/50 rounded-full blur-sm animate-pulse-glow" />
-              <Crown size={16} className="relative text-warning" />
+              <span className="absolute inset-0 bg-primary/50 rounded-full blur-sm animate-pulse-glow" />
+              <Crown size={16} className="relative text-primary" />
             </span>
             <h3 className="text-sm font-semibold text-foreground">Record — {pr.name}</h3>
           </div>
           <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-bold text-warning">{pr.e1rm} kg</span>
+            <span className="text-3xl font-bold text-primary text-glow-primary">{pr.e1rm} kg</span>
             <span className="text-sm text-muted-foreground">1RM théorique</span>
           </div>
           <p className="text-xs text-muted-foreground mt-1">
@@ -318,20 +324,20 @@ const StatsTab = ({ data }: StatsTabProps) => {
       {otherPRs.length > 0 && (
         <div className="glass-card p-4 mb-4">
           <div className="flex items-center gap-2 mb-3">
-            <Trophy size={16} className="text-warning" />
+            <Trophy size={16} className="text-primary" />
             <h3 className="text-sm font-semibold text-foreground">Derniers records</h3>
           </div>
           <div className="space-y-2">
             {otherPRs.map(pr => {
               const d = daysAgo(pr.date);
               return (
-                <div key={pr.name} className="flex items-center justify-between bg-secondary rounded-lg px-3 py-2">
+                <div key={pr.name} className="flex items-center justify-between bg-secondary rounded-lg px-3 py-2 border border-primary/15">
                   <div className="min-w-0 flex-1">
                     <p className="text-sm text-foreground truncate">{pr.name}</p>
                     <p className="text-[10px] text-muted-foreground">Il y a {d} jour{d > 1 ? 's' : ''}</p>
                   </div>
                   <div className="text-right shrink-0 ml-2">
-                    <span className="text-sm font-bold text-warning">{pr.reps} × {pr.weight} kg</span>
+                    <span className="text-sm font-bold text-primary">{pr.reps} × {pr.weight} kg</span>
                     <p className="text-[10px] text-muted-foreground">1RM {pr.e1rm} kg</p>
                   </div>
                 </div>
@@ -351,7 +357,7 @@ const StatsTab = ({ data }: StatsTabProps) => {
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-xs font-medium text-foreground">{name}</span>
                   <span className="text-[10px] text-muted-foreground">
-                    {points[0].e1rm} → <span className="text-warning font-bold">{points[points.length - 1].e1rm}</span> kg
+                    {points[0].e1rm} → <span className="text-primary font-bold">{points[points.length - 1].e1rm}</span> kg
                   </span>
                 </div>
                 <ResponsiveContainer width="100%" height={100}>
@@ -360,7 +366,14 @@ const StatsTab = ({ data }: StatsTabProps) => {
                     <XAxis dataKey="date" tick={chartStyle} axisLine={false} tickLine={false} />
                     <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={30} domain={['auto', 'auto']} />
                     <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: 'hsl(0 0% 95%)' }} formatter={(v: number) => [`${v} kg`, '1RM']} />
-                    <Line type="monotone" dataKey="e1rm" stroke="hsl(45 93% 55%)" strokeWidth={2} dot={{ r: 2, fill: 'hsl(45 93% 55%)' }} />
+                    <Line
+                      type="monotone"
+                      dataKey="e1rm"
+                      stroke="hsl(322 100% 60%)"
+                      strokeWidth={2.5}
+                      dot={{ r: 2, fill: 'hsl(322 100% 60%)' }}
+                      style={{ filter: 'drop-shadow(0 0 5px hsl(322 100% 60% / 0.7))' }}
+                    />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -383,7 +396,12 @@ const StatsTab = ({ data }: StatsTabProps) => {
               <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={30} allowDecimals={false} />
               <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: 'hsl(0 0% 95%)' }} />
               <ReferenceLine y={data.weeklyGoal} stroke="hsl(38 92% 55%)" strokeDasharray="4 4" strokeWidth={1.5} />
-              <Bar dataKey="sessions" fill="hsl(189 94% 55%)" radius={[4, 4, 0, 0]} />
+              <Bar
+                dataKey="sessions"
+                fill="hsl(189 94% 55%)"
+                radius={[4, 4, 0, 0]}
+                style={{ filter: 'drop-shadow(0 0 5px hsl(189 94% 55% / 0.55))' }}
+              />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -424,7 +442,14 @@ const StatsTab = ({ data }: StatsTabProps) => {
                 <XAxis dataKey="date" tick={chartStyle} axisLine={false} tickLine={false} />
                 <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={45} />
                 <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: 'hsl(0 0% 95%)' }} />
-                <Line type="monotone" dataKey="volume" stroke="hsl(322 100% 60%)" strokeWidth={2.5} dot={{ r: 3, fill: 'hsl(322 100% 60%)' }} />
+                <Line
+                  type="monotone"
+                  dataKey="volume"
+                  stroke="hsl(322 100% 60%)"
+                  strokeWidth={2.5}
+                  dot={{ r: 3, fill: 'hsl(322 100% 60%)' }}
+                  style={{ filter: 'drop-shadow(0 0 5px hsl(322 100% 60% / 0.6))' }}
+                />
               </LineChart>
             </ResponsiveContainer>
           ) : (
@@ -467,7 +492,14 @@ const StatsTab = ({ data }: StatsTabProps) => {
               <XAxis dataKey="date" tick={chartStyle} axisLine={false} tickLine={false} />
               <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={30} domain={[0, 5]} />
               <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: 'hsl(0 0% 95%)' }} />
-              <Line type="monotone" dataKey="difficulty" stroke="hsl(262 83% 66%)" strokeWidth={2.5} dot={{ r: 3, fill: 'hsl(262 83% 66%)' }} />
+              <Line
+                type="monotone"
+                dataKey="difficulty"
+                stroke="hsl(262 83% 66%)"
+                strokeWidth={2.5}
+                dot={{ r: 3, fill: 'hsl(262 83% 66%)' }}
+                style={{ filter: 'drop-shadow(0 0 5px hsl(262 83% 66% / 0.6))' }}
+              />
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -496,7 +528,12 @@ const StatsTab = ({ data }: StatsTabProps) => {
               <XAxis dataKey="week" tick={chartStyle} axisLine={false} tickLine={false} />
               <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={35} />
               <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: 'hsl(0 0% 95%)' }} formatter={(value: number) => [formatHM(value), 'Temps']} />
-              <Bar dataKey="minutes" fill="hsl(174 80% 48%)" radius={[4, 4, 0, 0]} />
+              <Bar
+                dataKey="minutes"
+                fill="hsl(174 80% 48%)"
+                radius={[4, 4, 0, 0]}
+                style={{ filter: 'drop-shadow(0 0 5px hsl(174 80% 48% / 0.55))' }}
+              />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -515,7 +552,12 @@ const StatsTab = ({ data }: StatsTabProps) => {
               <XAxis dataKey="month" tick={chartStyle} axisLine={false} tickLine={false} />
               <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={35} />
               <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: 'hsl(0 0% 95%)' }} formatter={(value: number) => [formatHM(value), 'Temps']} />
-              <Bar dataKey="minutes" fill="hsl(38 92% 55%)" radius={[4, 4, 0, 0]} />
+              <Bar
+                dataKey="minutes"
+                fill="hsl(38 92% 55%)"
+                radius={[4, 4, 0, 0]}
+                style={{ filter: 'drop-shadow(0 0 5px hsl(38 92% 55% / 0.5))' }}
+              />
             </BarChart>
           </ResponsiveContainer>
         </div>

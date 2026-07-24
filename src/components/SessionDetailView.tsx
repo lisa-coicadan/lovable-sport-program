@@ -633,7 +633,7 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
                 <div className="flex items-center justify-between mb-1">
                   <h3 className="text-sm font-semibold text-foreground">{name}</h3>
                   {e1rm > 0 && (
-                    <span className="text-xs text-warning font-medium">1RM: {e1rm} kg</span>
+                    <span className="text-xs text-primary font-medium">1RM: {e1rm} kg</span>
                   )}
                 </div>
                 {lastPerf && (

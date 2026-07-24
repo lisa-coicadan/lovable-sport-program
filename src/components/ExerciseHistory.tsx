@@ -22,7 +22,14 @@ interface VariantGroup {
   history: HistoryEntry[];
 }
 
-const chartStyle = { fontSize: 10, fill: 'hsl(240 8% 58%)' };
+const chartStyle = { fontSize: 10, fill: 'hsl(240 12% 72%)' };
+const tooltipStyle = {
+  background: 'hsl(240 16% 12%)',
+  border: '1px solid hsl(189 94% 55% / 0.35)',
+  borderRadius: 10,
+  fontSize: 12,
+  boxShadow: '0 0 24px -8px hsl(189 94% 55% / 0.35)',
+};
 
 const ExerciseHistory = ({ exerciseName, data, onClose }: ExerciseHistoryProps) => {
   // Group by base exercise (equipment-agnostic) so e.g. "Développé couché", "Développé
@@ -70,7 +77,7 @@ const ExerciseHistory = ({ exerciseName, data, onClose }: ExerciseHistoryProps) 
         <div>
           <h1 className="text-xl font-bold text-foreground">{base}</h1>
           {overallPR > 0 && (
-            <p className="text-xs text-warning font-medium">Record : {overallPR} kg (1RM est.)</p>
+            <p className="text-xs text-primary font-medium">Record : {overallPR} kg (1RM est.)</p>
           )}
         </div>
       </div>
@@ -116,7 +123,7 @@ const VariantSection = ({ group, showHeader }: { group: VariantGroup; showHeader
       {showHeader && (
         <div className="flex items-center justify-between mb-2 px-1">
           <h3 className="text-sm font-semibold text-foreground">{group.label ?? 'Sans précision'}</h3>
-          {pr > 0 && <span className="text-xs text-warning font-medium">Record : {pr} kg</span>}
+          {pr > 0 && <span className="text-xs text-primary font-medium">Record : {pr} kg</span>}
         </div>
       )}
 
@@ -129,10 +136,17 @@ const VariantSection = ({ group, showHeader }: { group: VariantGroup; showHeader
               <XAxis dataKey="date" tick={chartStyle} axisLine={false} tickLine={false} />
               <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={40} />
               <Tooltip
-                contentStyle={{ background: 'hsl(240 14% 9%)', border: '1px solid hsl(240 12% 20%)', borderRadius: 10, fontSize: 12 }}
+                contentStyle={tooltipStyle}
                 labelStyle={{ color: 'hsl(0 0% 95%)' }}
               />
-              <Line type="monotone" dataKey="e1rm" stroke="hsl(38 92% 55%)" strokeWidth={2.5} dot={{ r: 3, fill: 'hsl(38 92% 55%)' }} />
+              <Line
+                type="monotone"
+                dataKey="e1rm"
+                stroke="hsl(322 100% 60%)"
+                strokeWidth={2.5}
+                dot={{ r: 3, fill: 'hsl(322 100% 60%)' }}
+                style={{ filter: 'drop-shadow(0 0 5px hsl(322 100% 60% / 0.6))' }}
+              />
             </LineChart>
           </ResponsiveContainer>
         </div>

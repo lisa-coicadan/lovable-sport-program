@@ -126,6 +126,17 @@
     pointer-events: none;
   }
 
+  /* Records get the full trio as a bolder border + outer glow, one step up from the
+     ambient .glass-card gradient — the one moment on Stats that pulls the whole identity
+     gradient rather than a single chart's accent hue. Composes with .glass-card; only
+     overrides its ::before background (same specificity, later in source wins). */
+  .record-card::before {
+    background: linear-gradient(135deg, hsl(var(--accent-blue) / 0.9), hsl(var(--accent-purple) / 0.9) 50%, hsl(var(--primary) / 0.9));
+  }
+  .record-card {
+    box-shadow: 0 0 28px -10px hsl(var(--primary) / 0.4), 0 0 22px -10px hsl(var(--accent-blue) / 0.3);
+  }
+
   .touch-target {
     @apply min-h-[44px] min-w-[44px];
   }

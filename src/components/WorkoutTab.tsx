@@ -746,7 +746,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                       </span>
                     )}
                     {realE1rm > 0 && sets[globalIdx].completed && (
-                      <span className="text-[10px] text-warning ml-1">{realE1rm}kg</span>
+                      <span className="text-[10px] text-primary ml-1">{realE1rm}kg</span>
                     )}
                     <span className="text-[10px] text-muted-foreground ml-auto">
                       {Math.round((weekSetsForDisplay[localIdx]?.percentage || 0) * 100)}%
@@ -1056,7 +1056,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                   )}
                   {absRecord && (
                     <p className="text-[10px] text-muted-foreground">
-                      Max: <span className="text-warning font-medium">{absRecord.weight}kg × {absRecord.reps}</span>
+                      Max: <span className="text-primary font-medium">{absRecord.weight}kg × {absRecord.reps}</span>
                     </p>
                   )}
                 </div>
