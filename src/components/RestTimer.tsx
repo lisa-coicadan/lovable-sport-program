@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, forwardRef, useImperativeHandle } from 'react';
+import { createPortal } from 'react-dom';
 import { Pause, Play, RotateCcw, X, Timer } from 'lucide-react';
 import { getSharedAudioContext, scheduleBeep, cancelBeep } from '@/lib/beep';
 import OrbitRing from './OrbitRing';
@@ -143,9 +144,16 @@ const RestTimer = forwardRef<RestTimerHandle, RestTimerProps>(({ defaultSeconds 
   const mins = Math.floor(seconds / 60);
   const secs = seconds % 60;
 
+  // Rendered via a portal straight into document.body — a `position: fixed` element
+  // still resolves relative to any ANCESTOR that has an active/lingering `transform`
+  // (this is spec behavior, not a bug in one engine), and iOS Safari standalone-PWA mode
+  // has repeatedly proven more sensitive to this than desktop browsers even when no such
+  // ancestor is visible on inspection. A portal sidesteps the question entirely: the DOM
+  // node is a direct child of <body>, so no intermediate ancestor can ever hijack it.
+
   // Floating button when collapsed
   if (!expanded) {
-    return (
+    return createPortal(
       <div className="fixed bottom-24 right-4 z-40">
         {isRunning && <div className="absolute inset-0 bg-primary/40 rounded-full blur-xl animate-pulse-glow" />}
         <button
@@ -160,11 +168,12 @@ const RestTimer = forwardRef<RestTimerHandle, RestTimerProps>(({ defaultSeconds 
             <Timer size={20} />
           )}
         </button>
-      </div>
+      </div>,
+      document.body
     );
   }
 
-  return (
+  return createPortal(
     <div className="fixed bottom-24 right-4 z-40 glass-card p-4 shadow-2xl w-72">
       <div className="flex items-center justify-between mb-3">
         <span className="text-sm font-medium text-muted-foreground">Minuteur de repos</span>
@@ -211,7 +220,8 @@ const RestTimer = forwardRef<RestTimerHandle, RestTimerProps>(({ defaultSeconds 
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 });
 
