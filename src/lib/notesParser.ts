@@ -137,7 +137,7 @@ export function parseSessionNotes(text: string): ParseNotesResult {
   }
 
   const [firstLine, ...rest] = lines;
-  const sessionName = firstLine.replace(SESSION_LABEL_RE, '').trim() || firstLine;
+  const sessionName = firstLine.replace(SESSION_LABEL_RE, '').replace(EDGE_PUNCT_RE, '').trim() || firstLine;
 
   const exercises: ParsedExercise[] = [];
   const unrecognizedLines: string[] = [];
@@ -151,6 +151,33 @@ export function parseSessionNotes(text: string): ParseNotesResult {
   }
 
   return { sessionName, exercises, unrecognizedLines };
+}
+
+// Splits a paste containing several sessions back-to-back into one ParseNotesResult per
+// session, so a single paste can create multiple WorkoutTypes at once. A line is only
+// treated as a NEW session's start when it matches SESSION_LABEL_RE ("Séance", "Séance 2",
+// "Séance : ", ...) — this is the same marker parseSessionNotes already strips from a
+// single session's title, just reused here as an explicit boundary. If fewer than two such
+// marker lines are found, the whole text is treated as one session (existing behavior),
+// so ordinary single-session pastes (first line just "Push", no "Séance" prefix) are
+// unaffected.
+export function parseMultiSessionNotes(text: string): ParseNotesResult[] {
+  const lines = text.split('\n').map(stripArtifacts).filter(line => line.length > 0);
+  if (lines.length === 0) return [];
+
+  const sessionStarts = lines.reduce<number[]>((acc, line, i) => {
+    if (SESSION_LABEL_RE.test(line)) acc.push(i);
+    return acc;
+  }, []);
+
+  if (sessionStarts.length < 2) {
+    return [parseSessionNotes(text)];
+  }
+
+  return sessionStarts.map((start, i) => {
+    const end = i + 1 < sessionStarts.length ? sessionStarts[i + 1] : lines.length;
+    return parseSessionNotes(lines.slice(start, end).join('\n'));
+  });
 }
 
 // Help text shown in the UI next to the notes input.
@@ -167,6 +194,7 @@ const NOTES_SYNTAX_FOOTER =
 export const NOTES_SYNTAX_HELP =
   NOTES_SYNTAX_BASE +
   `La première ligne doit être le nom de la séance\n\n` +
+  `Pour créer plusieurs séances d'un coup, démarre chacune par "Séance : Nom" (ex. Séance 1 : Push)\n\n` +
   NOTES_SYNTAX_FOOTER;
 
 // Same help text minus the "first line = session name" rule — used when filling an

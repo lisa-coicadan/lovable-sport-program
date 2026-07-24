@@ -3,7 +3,7 @@ import { AppData, WorkoutType, Exercise, ExerciseMethod, FiveThreeOneMethod, Clu
 import { CLUSTER_PRESETS } from '@/lib/cluster';
 import { getDefaultEmomPercentage } from '@/lib/emom';
 import { estimateOneRepMax, estimateTrainingMax } from '@/lib/trainingMax';
-import { parseSessionNotes, NOTES_SYNTAX_HELP } from '@/lib/notesParser';
+import { parseMultiSessionNotes, NOTES_SYNTAX_HELP } from '@/lib/notesParser';
 import { Plus, Trash2, ChevronRight, ChevronLeft, Check, Zap, Timer, Clock, FileText, X, Calculator } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import BrandMark from './BrandMark';
@@ -166,8 +166,12 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
   };
 
   const parseNotes = () => {
-    const result = parseSessionNotes(notesText);
-    if (result.exercises.length === 0) {
+    // A single paste can contain several sessions back-to-back, each starting with a
+    // "Séance : Nom" line — parseMultiSessionNotes splits those into one result per
+    // session; an ordinary single-session paste still comes back as a 1-element array.
+    const results = parseMultiSessionNotes(notesText);
+    const totalExercises = results.reduce((sum, r) => sum + r.exercises.length, 0);
+    if (totalExercises === 0) {
       toast({
         title: 'Aucun exercice reconnu',
         description: 'Vérifie le format (voir l\'aide juste au-dessus) et réessaie.',
@@ -175,26 +179,44 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
       });
       return;
     }
-    const color = WORKOUT_COLORS[workoutTypes.length % WORKOUT_COLORS.length];
-    const exercises: Exercise[] = result.exercises.map((e, i) => ({
-      id: `e${Date.now()}-${i}`,
-      name: e.name,
-      sets: e.sets,
-      reps: e.reps,
-      weight: e.weight,
-      supersetGroupId: e.supersetGroupId,
-      supersetRole: e.supersetRole,
-    }));
-    setWorkoutTypes(prev => [...prev, { id: `t${Date.now()}`, name: result.sessionName || 'Nouvelle séance', color, exercises }]);
-    setEditingIndex(workoutTypes.length);
+    const baseIndex = workoutTypes.length;
+    const newTypes: WorkoutType[] = results
+      .filter(r => r.exercises.length > 0)
+      .map((r, i) => ({
+        id: `t${Date.now()}_${i}`,
+        name: r.sessionName || 'Nouvelle séance',
+        color: WORKOUT_COLORS[(baseIndex + i) % WORKOUT_COLORS.length],
+        exercises: r.exercises.map((e, ei) => ({
+          id: `e${Date.now()}-${i}-${ei}`,
+          name: e.name,
+          sets: e.sets,
+          reps: e.reps,
+          weight: e.weight,
+          supersetGroupId: e.supersetGroupId,
+          supersetRole: e.supersetRole,
+        })),
+      }));
+    setWorkoutTypes(prev => [...prev, ...newTypes]);
     setNotesText('');
-    if (result.unrecognizedLines.length > 0) {
+    const unrecognizedLines = results.flatMap(r => r.unrecognizedLines);
+    if (newTypes.length > 1) {
       toast({
-        title: `Séance créée (${result.exercises.length} exercice${result.exercises.length > 1 ? 's' : ''})`,
-        description: `${result.unrecognizedLines.length} ligne(s) non reconnue(s), à ajouter à la main : ${result.unrecognizedLines.join(' / ')}`,
+        title: `${newTypes.length} séances créées`,
+        description: unrecognizedLines.length > 0
+          ? `${unrecognizedLines.length} ligne(s) non reconnue(s), à ajouter à la main : ${unrecognizedLines.join(' / ')}`
+          : undefined,
       });
+      setStep('list');
+    } else {
+      setEditingIndex(baseIndex);
+      if (unrecognizedLines.length > 0) {
+        toast({
+          title: `Séance créée (${newTypes[0].exercises.length} exercice${newTypes[0].exercises.length > 1 ? 's' : ''})`,
+          description: `${unrecognizedLines.length} ligne(s) non reconnue(s), à ajouter à la main : ${unrecognizedLines.join(' / ')}`,
+        });
+      }
+      setStep('build');
     }
-    setStep('build');
   };
 
   // ---- Method-params step helpers ----

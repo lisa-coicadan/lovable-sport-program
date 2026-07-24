@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseSessionNotes } from './notesParser';
+import { parseSessionNotes, parseMultiSessionNotes } from './notesParser';
 
 describe('parseSessionNotes', () => {
   it('parses the session name from the first non-exercise line', () => {
@@ -10,6 +10,10 @@ describe('parseSessionNotes', () => {
   it('strips a "séance N :" prefix from the session name', () => {
     expect(parseSessionNotes('séance 1 : Push\nDéveloppé couché : 3x8').sessionName).toBe('Push');
     expect(parseSessionNotes('Séance : Pull\nTractions : 3x8').sessionName).toBe('Pull');
+  });
+
+  it('strips a trailing colon from a "séance N Nom :" title too', () => {
+    expect(parseSessionNotes('séance 1 push :\nDéveloppé couché : 3x8').sessionName).toBe('push');
   });
 
   it('always treats the first non-blank line as the session name, even if it looks like an exercise', () => {
@@ -105,5 +109,37 @@ describe('parseSessionNotes', () => {
       { name: 'Développé couché', sets: 3, reps: 8 },
       { name: 'Dips', sets: 3, reps: 10 },
     ]);
+  });
+});
+
+describe('parseMultiSessionNotes', () => {
+  it('splits a paste of several "Séance : Nom" blocks into one result per session', () => {
+    const results = parseMultiSessionNotes(
+      'Séance 1 Push :\nDéveloppé couché : 3x8\n\nSéance 2 Pull :\nTractions : 3x8'
+    );
+    expect(results).toHaveLength(2);
+    expect(results[0].sessionName).toBe('Push');
+    expect(results[0].exercises).toEqual([{ name: 'Développé couché', sets: 3, reps: 8 }]);
+    expect(results[1].sessionName).toBe('Pull');
+    expect(results[1].exercises).toEqual([{ name: 'Tractions', sets: 3, reps: 8 }]);
+  });
+
+  it('falls back to a single session when there is no "Séance" marker (existing single-paste behavior)', () => {
+    const results = parseMultiSessionNotes('Push\nDéveloppé couché : 3x8');
+    expect(results).toHaveLength(1);
+    expect(results[0].sessionName).toBe('Push');
+  });
+
+  it('falls back to a single session when only one "Séance" marker is present', () => {
+    const results = parseMultiSessionNotes('Séance : Push\nDéveloppé couché : 3x8');
+    expect(results).toHaveLength(1);
+    expect(results[0].sessionName).toBe('Push');
+  });
+
+  it('handles three or more sessions in one paste', () => {
+    const results = parseMultiSessionNotes(
+      'Séance : Push\nDips : 3x10\nSéance : Pull\nTractions : 3x8\nSéance : Legs\nSquat : 3x5'
+    );
+    expect(results.map(r => r.sessionName)).toEqual(['Push', 'Pull', 'Legs']);
   });
 });

@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react';
 import { AppData, WorkoutType, Exercise, ExerciseMethod, Program, WORKOUT_COLORS, BodyWeightLog, DEFAULT_APP_DATA } from '@/lib/types';
 import { linkSuperset, unlinkSuperset, buildExerciseBlocks, flattenBlocks, ExerciseBlock } from '@/lib/superset';
-import { parseSessionNotes, NOTES_SYNTAX_HELP, NOTES_SYNTAX_HELP_FILL } from '@/lib/notesParser';
+import { parseSessionNotes, parseMultiSessionNotes, NOTES_SYNTAX_HELP, NOTES_SYNTAX_HELP_FILL } from '@/lib/notesParser';
 import { getEmomConfig, getEmomWeight, getDefaultEmomPercentage } from '@/lib/emom';
 import { getClusterConfig, getMiniSeriesWeight, CLUSTER_PRESETS } from '@/lib/cluster';
 import { estimateOneRepMax, estimateTrainingMax } from '@/lib/trainingMax';
@@ -175,13 +175,55 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
 
 
   const handleParseNotes = () => {
-    // parseSessionNotes always treats line 1 as the session title — when filling an
-    // existing shell she shouldn't have to (and if she doesn't, her first real exercise
-    // line would be swallowed as the title instead). Prepend the target's own name as a
-    // throwaway title line so every line she typed is parsed as an exercise.
-    const targetName = notesTargetId ? workoutTypes.find(t => t.id === notesTargetId)?.name : null;
-    const result = parseSessionNotes(targetName ? `${targetName}\n${notesText}` : notesText);
-    if (result.exercises.length === 0) {
+    if (notesTargetId) {
+      // Filling in an existing empty session shell (e.g. one auto-duplicated when
+      // creating a new program) — always a single session, updated in place instead of
+      // creating a second session with the same name. parseSessionNotes always treats
+      // line 1 as the title, so prepend the target's own name as a throwaway title line
+      // so every line she typed is parsed as an exercise instead of being swallowed.
+      const targetName = workoutTypes.find(t => t.id === notesTargetId)?.name;
+      const result = parseSessionNotes(targetName ? `${targetName}\n${notesText}` : notesText);
+      if (result.exercises.length === 0) {
+        toast({
+          title: 'Aucun exercice reconnu',
+          description: 'Vérifie le format (voir l\'aide juste au-dessus) et réessaie.',
+          variant: 'destructive',
+        });
+        return;
+      }
+      const parsedExercises: Exercise[] = result.exercises.map((e, i) => ({
+        id: `e${Date.now()}-${i}`,
+        name: e.name,
+        sets: e.sets,
+        reps: e.reps,
+        weight: e.weight,
+        supersetGroupId: e.supersetGroupId,
+        supersetRole: e.supersetRole,
+      }));
+      setWorkoutTypes(prev => prev.map(t => t.id === notesTargetId ? { ...t, exercises: parsedExercises } : t));
+      setNotesTargetId(null);
+      setNotesText('');
+      setNotesOpen(false);
+      if (result.unrecognizedLines.length > 0) {
+        toast({
+          title: `Séance complétée (${result.exercises.length} exercice${result.exercises.length > 1 ? 's' : ''})`,
+          description: `${result.unrecognizedLines.length} ligne(s) non reconnue(s), à ajouter à la main : ${result.unrecognizedLines.join(' / ')}`,
+        });
+      } else {
+        toast({
+          title: 'Séance complétée',
+          description: `${result.exercises.length} exercice${result.exercises.length > 1 ? 's' : ''} ajouté${result.exercises.length > 1 ? 's' : ''} depuis tes notes.`,
+        });
+      }
+      return;
+    }
+
+    // Creating new session(s) — a single paste can contain several sessions back-to-back,
+    // each starting with a "Séance : Nom" line; an ordinary single-session paste still
+    // comes back as a 1-element array.
+    const results = parseMultiSessionNotes(notesText);
+    const totalExercises = results.reduce((sum, r) => sum + r.exercises.length, 0);
+    if (totalExercises === 0) {
       toast({
         title: 'Aucun exercice reconnu',
         description: 'Vérifie le format (voir l\'aide juste au-dessus) et réessaie.',
@@ -189,44 +231,39 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
       });
       return;
     }
-    const parsedExercises: Exercise[] = result.exercises.map((e, i) => ({
-      id: `e${Date.now()}-${i}`,
-      name: e.name,
-      sets: e.sets,
-      reps: e.reps,
-      weight: e.weight,
-      supersetGroupId: e.supersetGroupId,
-      supersetRole: e.supersetRole,
-    }));
-
-    // Filling in an existing empty session shell (e.g. one auto-duplicated when creating
-    // a new program) updates it in place instead of creating a second session with the
-    // same name.
-    if (notesTargetId) {
-      setWorkoutTypes(prev => prev.map(t => t.id === notesTargetId ? { ...t, exercises: parsedExercises } : t));
-      setNotesTargetId(null);
-    } else {
-      const colorIdx = workoutTypes.length % WORKOUT_COLORS.length;
-      const newType: WorkoutType = {
-        id: `wt${Date.now()}`,
-        name: result.sessionName || 'Nouvelle séance',
-        color: WORKOUT_COLORS[colorIdx],
-        exercises: parsedExercises,
+    const baseIndex = workoutTypes.length;
+    const newTypes: WorkoutType[] = results
+      .filter(r => r.exercises.length > 0)
+      .map((r, i) => ({
+        id: `wt${Date.now()}_${i}`,
+        name: r.sessionName || 'Nouvelle séance',
+        color: WORKOUT_COLORS[(baseIndex + i) % WORKOUT_COLORS.length],
+        exercises: r.exercises.map((e, ei) => ({
+          id: `e${Date.now()}-${i}-${ei}`,
+          name: e.name,
+          sets: e.sets,
+          reps: e.reps,
+          weight: e.weight,
+          supersetGroupId: e.supersetGroupId,
+          supersetRole: e.supersetRole,
+        })),
         programId: activeProgramId ?? undefined,
-      };
-      setWorkoutTypes([newType, ...workoutTypes]);
-    }
+      }));
+    setWorkoutTypes([...newTypes, ...workoutTypes]);
     setNotesText('');
     setNotesOpen(false);
-    if (result.unrecognizedLines.length > 0) {
+    const unrecognizedLines = results.flatMap(r => r.unrecognizedLines);
+    if (unrecognizedLines.length > 0) {
       toast({
-        title: `Séance ${notesTargetId ? 'complétée' : 'créée'} (${result.exercises.length} exercice${result.exercises.length > 1 ? 's' : ''})`,
-        description: `${result.unrecognizedLines.length} ligne(s) non reconnue(s), à ajouter à la main : ${result.unrecognizedLines.join(' / ')}`,
+        title: newTypes.length > 1 ? `${newTypes.length} séances créées` : 'Séance créée',
+        description: `${unrecognizedLines.length} ligne(s) non reconnue(s), à ajouter à la main : ${unrecognizedLines.join(' / ')}`,
       });
     } else {
       toast({
-        title: notesTargetId ? 'Séance complétée' : 'Séance créée',
-        description: `${result.exercises.length} exercice${result.exercises.length > 1 ? 's' : ''} ajouté${result.exercises.length > 1 ? 's' : ''} depuis tes notes.`,
+        title: newTypes.length > 1 ? `${newTypes.length} séances créées` : 'Séance créée',
+        description: newTypes.length === 1
+          ? `${newTypes[0].exercises.length} exercice${newTypes[0].exercises.length > 1 ? 's' : ''} ajouté${newTypes[0].exercises.length > 1 ? 's' : ''} depuis tes notes.`
+          : undefined,
       });
     }
   };
