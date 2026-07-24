@@ -1,10 +1,10 @@
 import { useState, useRef } from 'react';
-import { AppData, WorkoutType, Exercise, ExerciseMethod, WORKOUT_COLORS, BodyWeightLog, DEFAULT_APP_DATA } from '@/lib/types';
+import { AppData, WorkoutType, Exercise, ExerciseMethod, Program, WORKOUT_COLORS, BodyWeightLog, DEFAULT_APP_DATA } from '@/lib/types';
 import { linkSuperset, unlinkSuperset, buildExerciseBlocks, flattenBlocks, ExerciseBlock } from '@/lib/superset';
 import { parseSessionNotes, NOTES_SYNTAX_HELP } from '@/lib/notesParser';
 import { getEmomConfig, getEmomWeight, getDefaultEmomPercentage } from '@/lib/emom';
 import { getClusterConfig, getMiniSeriesWeight, CLUSTER_PRESETS } from '@/lib/cluster';
-import { ArrowLeft, Plus, Trash2, EyeOff, RotateCcw, Scale, Link2, Link2Off, Download, Upload, Database, AlertTriangle, FileText, Zap, Timer, Clock } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, EyeOff, RotateCcw, Scale, Link2, Link2Off, Download, Upload, Database, AlertTriangle, FileText, Zap, Timer, Clock, Layers, Check } from 'lucide-react';
 import { SortableList, DragHandle } from './SortableBlock';
 import { loadData, saveData } from '@/lib/storage';
 import { toast } from '@/hooks/use-toast';
@@ -23,11 +23,46 @@ interface SettingsPanelProps {
 
 const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
   const [workoutTypes, setWorkoutTypes] = useState<WorkoutType[]>([...data.workoutTypes]);
+  const [programs, setPrograms] = useState<Program[]>(data.programs && data.programs.length > 0 ? [...data.programs] : []);
+  const [activeProgramId, setActiveProgramId] = useState<string | null>(data.activeProgramId ?? (programs[0]?.id ?? null));
   const [bodyWeight, setBodyWeight] = useState('');
   const [weeklyGoal, setWeeklyGoal] = useState(data.weeklyGoal);
   const [notesOpen, setNotesOpen] = useState(false);
   const [notesText, setNotesText] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Program management ----------------------------------------------------------
+  const createProgram = () => {
+    const name = window.prompt('Nom du nouveau programme', 'Nouveau programme');
+    if (!name || !name.trim()) return;
+    const p: Program = { id: `p${Date.now()}`, name: name.trim() };
+    setPrograms(prev => [...prev, p]);
+    setActiveProgramId(p.id);
+  };
+
+  const renameActiveProgram = () => {
+    const current = programs.find(p => p.id === activeProgramId);
+    if (!current) return;
+    const name = window.prompt('Renommer le programme', current.name);
+    if (!name || !name.trim()) return;
+    setPrograms(prev => prev.map(p => p.id === activeProgramId ? { ...p, name: name.trim() } : p));
+  };
+
+  const deleteActiveProgram = () => {
+    if (!activeProgramId || programs.length <= 1) {
+      toast({ title: 'Impossible', description: 'Garde au moins un programme.', variant: 'destructive' });
+      return;
+    }
+    const current = programs.find(p => p.id === activeProgramId);
+    const owned = workoutTypes.filter(t => t.programId === activeProgramId).length;
+    if (!window.confirm(`Supprimer le programme "${current?.name}" ? Ses ${owned} séance(s) seront masquées (non supprimées, tu pourras les réassocier à un autre programme).`)) return;
+    setPrograms(prev => prev.filter(p => p.id !== activeProgramId));
+    // Detach owned workoutTypes so they don't disappear entirely — reassign to first remaining program.
+    const fallback = programs.find(p => p.id !== activeProgramId)!;
+    setWorkoutTypes(prev => prev.map(t => t.programId === activeProgramId ? { ...t, programId: fallback.id } : t));
+    setActiveProgramId(fallback.id);
+  };
+
 
   const handleParseNotes = () => {
     const result = parseSessionNotes(notesText);
@@ -136,7 +171,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
 
 
   const save = () => {
-    const partial: Partial<AppData> = { workoutTypes, weeklyGoal };
+    const partial: Partial<AppData> = { workoutTypes, weeklyGoal, programs, activeProgramId };
 
     // Add body weight log if entered
     if (bodyWeight) {
@@ -158,6 +193,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
       name: '',
       color: WORKOUT_COLORS[colorIdx],
       exercises: [],
+      programId: activeProgramId ?? undefined,
     }]);
   };
 
@@ -242,7 +278,55 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
         <h1 className="text-xl font-bold text-foreground">Réglages</h1>
       </div>
 
-      {/* Body Weight */}
+      {/* Programme actif — multi-program grouping. Sessions history is never filtered
+          by program (it stays intact across switches); only the list of active
+          workoutTypes shown below and in the Workout tab is filtered. */}
+      {programs.length > 0 && (
+        <div className="glass-card p-4 mb-6">
+          <div className="flex items-center gap-2 mb-3">
+            <Layers size={16} className="text-primary" />
+            <h3 className="text-sm font-bold text-foreground">Programme actif</h3>
+          </div>
+          <div className="flex flex-wrap gap-1.5 mb-3">
+            {programs.map(p => (
+              <button
+                key={p.id}
+                onClick={() => setActiveProgramId(p.id)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                  activeProgramId === p.id ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
+                }`}
+              >
+                {p.name}
+              </button>
+            ))}
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <button
+              onClick={createProgram}
+              className="flex items-center justify-center gap-1 bg-secondary text-foreground rounded-lg py-2 text-[11px] font-medium active:scale-95 transition-transform"
+            >
+              <Plus size={12} /> Nouveau
+            </button>
+            <button
+              onClick={renameActiveProgram}
+              disabled={!activeProgramId}
+              className="bg-secondary text-foreground rounded-lg py-2 text-[11px] font-medium active:scale-95 transition-transform disabled:opacity-40"
+            >
+              Renommer
+            </button>
+            <button
+              onClick={deleteActiveProgram}
+              disabled={!activeProgramId || programs.length <= 1}
+              className="bg-secondary text-destructive rounded-lg py-2 text-[11px] font-medium active:scale-95 transition-transform disabled:opacity-40"
+            >
+              Supprimer
+            </button>
+          </div>
+          <p className="text-[10px] text-muted-foreground mt-2">
+            Seules les séances du programme actif sont affichées dans l'onglet Séance. L'historique reste intact.
+          </p>
+        </div>
+      )}
       <div className="glass-card p-4 mb-6">
         <div className="flex items-center gap-2 mb-3">
           <Scale size={16} className="text-primary" />
