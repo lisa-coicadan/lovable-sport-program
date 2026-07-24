@@ -16,6 +16,7 @@ export interface ClusterMiniSeries {
 
 // Defaults (4 series x [2,2,2 reps @ 90%], 20s/3min rest) live in src/lib/cluster.ts
 // and apply whenever a field below is missing — keeps old saved data (TM-only) working.
+// `parametrizeAtSession` = true : no default pattern persisted, all params live in-session.
 export interface ClusterMethod {
   type: 'cluster';
   trainingMax: number;
@@ -23,6 +24,7 @@ export interface ClusterMethod {
   miniSeries?: ClusterMiniSeries[]; // structure of one series, repeated numSeries times
   restMiniSeries?: number; // seconds, between mini-series within a series
   restSeries?: number; // seconds, between series
+  parametrizeAtSession?: boolean;
 }
 
 // Defaults (10min, 2 reps/min, %TM from a duration/reps formula) live in src/lib/emom.ts
@@ -33,6 +35,7 @@ export interface EMOMMethod {
   durationMinutes?: number;
   repsPerMinute?: number;
   percentage?: number; // fraction of TM
+  parametrizeAtSession?: boolean;
 }
 
 export type ExerciseMethod = FiveThreeOneMethod | ClusterMethod | EMOMMethod;
