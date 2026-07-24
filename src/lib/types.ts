@@ -117,6 +117,8 @@ export interface AppData {
   setupComplete: boolean;
   restDuration: number; // seconds
   bodyWeightLogs: BodyWeightLog[];
+  programs?: Program[]; // multi-program support; migrated on load if absent
+  activeProgramId?: string | null;
   // @deprecated legacy fields — migrated into a per-exercise `method` on load (see
   // src/lib/storage.ts). New AppData never sets these; only present on old stored JSON.
   fiveThreeOne?: FiveThreeOneConfig;
@@ -141,6 +143,8 @@ export const DEFAULT_APP_DATA: AppData = {
   setupComplete: false,
   restDuration: 90,
   bodyWeightLogs: [],
+  programs: [],
+  activeProgramId: null,
 };
 
 export function calculate1RM(weight: number, reps: number): number {
