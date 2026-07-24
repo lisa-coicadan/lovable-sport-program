@@ -11,6 +11,10 @@ import { toast } from '@/hooks/use-toast';
 
 
 
+// French names for WORKOUT_COLORS, same order, so color-swatch buttons can carry a
+// distinguishing aria-label instead of the identical "Choisir une couleur" for all eight.
+const WORKOUT_COLOR_NAMES = ['cyan', 'violet', 'magenta', 'ambre', 'indigo', 'turquoise', 'rouge', 'jaune'];
+
 interface SettingsPanelProps {
   data: AppData;
   onUpdateData: (partial: Partial<AppData>) => void;
@@ -232,7 +236,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
   return (
     <div className="px-4 pt-12 pb-24 animate-slide-up">
       <div className="flex items-center gap-3 mb-6">
-        <button onClick={onClose} className="text-muted-foreground touch-target p-1">
+        <button onClick={onClose} className="text-muted-foreground touch-target p-1" aria-label="Fermer les réglages">
           <ArrowLeft size={20} />
         </button>
         <h1 className="text-xl font-bold text-foreground">Réglages</h1>
@@ -242,7 +246,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
       <div className="glass-card p-4 mb-6">
         <div className="flex items-center gap-2 mb-3">
           <Scale size={16} className="text-primary" />
-          <h3 className="text-sm font-bold text-foreground">Bodyweight</h3>
+          <h3 className="text-sm font-bold text-foreground">Poids corporel</h3>
         </div>
         <div className="flex items-center gap-3">
           <input
@@ -251,6 +255,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
             onChange={e => setBodyWeight(e.target.value)}
             className="flex-1 bg-secondary text-foreground rounded-xl px-3 py-2.5 text-sm outline-none font-mono text-center"
             placeholder="ex. 75"
+            aria-label="Poids corporel (kg)"
           />
           <span className="text-sm text-muted-foreground">kg</span>
         </div>
@@ -269,6 +274,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
         </div>
         <input
           type="range"
+          aria-label="Objectif hebdomadaire de séances"
           min={1}
           max={7}
           value={weeklyGoal}
@@ -294,22 +300,23 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                     className="bg-transparent text-foreground font-semibold outline-none flex-1"
                     placeholder="Nom de la séance"
                   />
-                  <button onClick={() => toggleHide(ti)} className="text-muted-foreground p-1 touch-target" title="Masquer">
+                  <button onClick={() => toggleHide(ti)} className="text-muted-foreground p-1 touch-target" title="Masquer" aria-label={`Masquer ${type.name || 'cette séance'}`}>
                     <EyeOff size={16} />
                   </button>
-                  <button onClick={() => deleteType(ti)} className="text-destructive p-1 touch-target" title="Supprimer">
+                  <button onClick={() => deleteType(ti)} className="text-destructive p-1 touch-target" title="Supprimer" aria-label={`Supprimer ${type.name || 'cette séance'}`}>
                     <Trash2 size={16} />
                   </button>
                 </div>
                 <div className="flex items-center gap-1.5 mb-3 flex-wrap">
                   <span className="text-[10px] text-muted-foreground mr-1">Couleur</span>
-                  {WORKOUT_COLORS.map(c => (
+                  {WORKOUT_COLORS.map((c, ci) => (
                     <button
                       key={c}
                       onClick={() => updateTypeColor(ti, c)}
                       className={`w-6 h-6 rounded-full border-2 transition-transform ${type.color === c ? 'border-foreground scale-110' : 'border-transparent'}`}
                       style={{ backgroundColor: `hsl(${c})` }}
-                      aria-label="Choisir une couleur"
+                      aria-label={`Couleur ${WORKOUT_COLOR_NAMES[ci] || ci + 1}`}
+                      aria-pressed={type.color === c}
                     />
                   ))}
                 </div>
@@ -347,6 +354,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                   onChange={e => updateExercise(ti, ei, 'sets', e.target.value === '' ? '' as any : parseInt(e.target.value) || 0)}
                                   className="w-10 bg-secondary text-foreground rounded-lg px-1 py-1.5 text-sm text-center outline-none"
                                   placeholder="S"
+                                  aria-label={`Séries, ${ex.name || 'exercice'}`}
                                 />
                               )}
                               <span className="text-muted-foreground text-xs">×</span>
@@ -356,6 +364,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                 onChange={e => updateExercise(ti, ei, 'reps', e.target.value === '' ? '' as any : parseInt(e.target.value) || 0)}
                                 className="w-10 bg-secondary text-foreground rounded-lg px-1 py-1.5 text-sm text-center outline-none"
                                 placeholder="R"
+                                aria-label={`Répétitions, ${ex.name || 'exercice'}`}
                               />
                               <input
                                 type="number"
@@ -363,10 +372,11 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                 onChange={e => updateExercise(ti, ei, 'weight', e.target.value === '' ? 0 : parseFloat(e.target.value) || 0)}
                                 className="w-12 bg-secondary text-foreground rounded-lg px-1 py-1.5 text-sm text-center outline-none"
                                 placeholder="kg"
+                                aria-label={`Poids, ${ex.name || 'exercice'} (kg)`}
                               />
                             </>
                           )}
-                          <button onClick={() => removeExercise(ti, ei)} className="text-muted-foreground p-1">
+                          <button onClick={() => removeExercise(ti, ei)} className="text-muted-foreground p-1" aria-label={`Supprimer ${ex.name || 'cet exercice'}`}>
                             <Trash2 size={12} />
                           </button>
                         </div>
@@ -403,6 +413,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                           value={a.sets || ''}
                                           onChange={e => updateExercise(ti, aIdx, 'sets', e.target.value === '' ? '' as any : parseInt(e.target.value) || 0)}
                                           className="w-10 bg-secondary text-foreground rounded-md px-1 py-0.5 text-xs text-center outline-none"
+                                          aria-label={`Nombre de séries, superset ${a.name}${b ? ' + ' + b.name : ''}`}
                                         />
                                       </div>
                                     )}
@@ -410,6 +421,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                       onClick={() => unlinkExerciseSuperset(ti, block.key)}
                                       className="text-muted-foreground p-1 active:text-destructive"
                                       title="Dissocier"
+                                      aria-label={`Dissocier le superset ${a.name}${b ? ' + ' + b.name : ''}`}
                                     >
                                       <Link2Off size={13} />
                                     </button>
@@ -476,37 +488,42 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                   </div>
                                   <div className="grid grid-cols-2 gap-2">
                                     <div>
-                                      <label className="text-[10px] text-muted-foreground block mb-1">Training Max (kg)</label>
-                                      <input
-                                        type="number"
-                                        value={method531.trainingMax || ''}
-                                        onChange={e => updateExerciseMethod(ti, exIdx, {
-                                          ...method531,
-                                          trainingMax: e.target.value === '' ? 0 : parseFloat(e.target.value),
-                                        })}
-                                        className="w-full bg-background/60 text-foreground text-lg font-bold rounded-lg px-2 py-2 text-center outline-none"
-                                      />
+                                      <label className="text-[10px] text-muted-foreground block mb-1">
+                                        Training Max (kg)
+                                        <input
+                                          type="number"
+                                          value={method531.trainingMax || ''}
+                                          onChange={e => updateExerciseMethod(ti, exIdx, {
+                                            ...method531,
+                                            trainingMax: e.target.value === '' ? 0 : parseFloat(e.target.value),
+                                          })}
+                                          className="w-full bg-background/60 text-foreground text-lg font-bold rounded-lg px-2 py-2 text-center outline-none mt-1"
+                                        />
+                                      </label>
                                     </div>
                                     <div>
-                                      <label className="text-[10px] text-muted-foreground block mb-1">Incrément / cycle (kg)</label>
-                                      <input
-                                        type="number"
-                                        step="0.5"
-                                        value={method531.increment ?? 2.5}
-                                        onChange={e => updateExerciseMethod(ti, exIdx, {
-                                          ...method531,
-                                          increment: e.target.value === '' ? 0 : parseFloat(e.target.value),
-                                        })}
-                                        className="w-full bg-background/60 text-foreground text-lg font-bold rounded-lg px-2 py-2 text-center outline-none"
-                                      />
+                                      <label className="text-[10px] text-muted-foreground block mb-1">
+                                        Incrément / cycle (kg)
+                                        <input
+                                          type="number"
+                                          step="0.5"
+                                          value={method531.increment ?? 2.5}
+                                          onChange={e => updateExerciseMethod(ti, exIdx, {
+                                            ...method531,
+                                            increment: e.target.value === '' ? 0 : parseFloat(e.target.value),
+                                          })}
+                                          className="w-full bg-background/60 text-foreground text-lg font-bold rounded-lg px-2 py-2 text-center outline-none mt-1"
+                                        />
+                                      </label>
                                     </div>
                                   </div>
                                   <div>
-                                    <label className="text-[10px] text-muted-foreground block mb-1">Cycle actuel</label>
+                                    <span className="text-[10px] text-muted-foreground block mb-1">Cycle actuel</span>
                                     <div className="flex items-center gap-2">
                                       <button
                                         onClick={() => updateExerciseMethod(ti, exIdx, { ...method531, currentCycle: Math.max(1, method531.currentCycle - 1) })}
                                         className="bg-background/60 text-foreground rounded-lg w-9 h-9 text-base font-bold touch-target"
+                                        aria-label="Cycle précédent"
                                       >
                                         -
                                       </button>
@@ -514,13 +531,14 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                       <button
                                         onClick={() => updateExerciseMethod(ti, exIdx, { ...method531, currentCycle: method531.currentCycle + 1 })}
                                         className="bg-background/60 text-foreground rounded-lg w-9 h-9 text-base font-bold touch-target"
+                                        aria-label="Cycle suivant"
                                       >
                                         +
                                       </button>
                                     </div>
                                   </div>
                                   <div>
-                                    <label className="text-[10px] text-muted-foreground block mb-1">Semaine</label>
+                                    <span className="text-[10px] text-muted-foreground block mb-1">Semaine</span>
                                     <div className="flex gap-1">
                                       {[1, 2, 3, 4].map(w => (
                                         <button
@@ -529,6 +547,8 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                           className={`flex-1 py-2 rounded-lg text-xs font-medium transition-all ${
                                             method531.currentWeek === w ? 'bg-primary text-primary-foreground' : 'bg-background/60 text-muted-foreground'
                                           }`}
+                                          aria-label={w === 4 ? 'Semaine 4, deload' : `Semaine ${w}`}
+                                          aria-pressed={method531.currentWeek === w}
                                         >
                                           {w === 4 ? 'D' : `S${w}`}
                                         </button>
@@ -553,16 +573,18 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                     </button>
                                   </div>
                                   <div>
-                                    <label className="text-[10px] text-muted-foreground block mb-1">Training Max (kg)</label>
-                                    <input
-                                      type="number"
-                                      value={methodCluster.trainingMax || ''}
-                                      onChange={e => updateExerciseMethod(ti, exIdx, {
-                                        ...methodCluster,
-                                        trainingMax: e.target.value === '' ? 0 : parseFloat(e.target.value),
-                                      })}
-                                      className="w-full bg-background/60 text-foreground text-lg font-bold rounded-lg px-2 py-2 text-center outline-none"
-                                    />
+                                    <label className="text-[10px] text-muted-foreground block mb-1">
+                                      Training Max (kg)
+                                      <input
+                                        type="number"
+                                        value={methodCluster.trainingMax || ''}
+                                        onChange={e => updateExerciseMethod(ti, exIdx, {
+                                          ...methodCluster,
+                                          trainingMax: e.target.value === '' ? 0 : parseFloat(e.target.value),
+                                        })}
+                                        className="w-full bg-background/60 text-foreground text-lg font-bold rounded-lg px-2 py-2 text-center outline-none mt-1"
+                                      />
+                                    </label>
                                   </div>
                                   {(() => {
                                     const config = getClusterConfig(methodCluster);
@@ -585,11 +607,12 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                           </div>
                                         </div>
                                         <div>
-                                          <label className="text-[10px] text-muted-foreground block mb-1">Nombre de séries</label>
+                                          <span className="text-[10px] text-muted-foreground block mb-1">Nombre de séries</span>
                                           <div className="flex items-center gap-2">
                                             <button
                                               onClick={() => updateExerciseMethod(ti, exIdx, { ...methodCluster, numSeries: Math.max(1, config.numSeries - 1) })}
                                               className="bg-background/60 text-foreground rounded-lg w-8 h-8 text-sm font-bold touch-target"
+                                              aria-label="Une série de moins"
                                             >
                                               -
                                             </button>
@@ -597,6 +620,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                             <button
                                               onClick={() => updateExerciseMethod(ti, exIdx, { ...methodCluster, numSeries: config.numSeries + 1 })}
                                               className="bg-background/60 text-foreground rounded-lg w-8 h-8 text-sm font-bold touch-target"
+                                              aria-label="Une série de plus"
                                             >
                                               +
                                             </button>
@@ -616,6 +640,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                                   }}
                                                   className="w-12 bg-background/60 text-foreground rounded-md px-1.5 py-1.5 text-xs text-center outline-none"
                                                   placeholder="reps"
+                                                  aria-label={`Répétitions, mini-série ${mi + 1}`}
                                                 />
                                                 <span className="text-muted-foreground text-[10px]">reps ×</span>
                                                 <input
@@ -628,6 +653,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                                   }}
                                                   className="w-14 bg-background/60 text-foreground rounded-md px-1.5 py-1.5 text-xs text-center outline-none"
                                                   placeholder="%TM"
+                                                  aria-label={`Pourcentage du Training Max, mini-série ${mi + 1}`}
                                                 />
                                                 <span className="text-muted-foreground text-[10px]">%TM</span>
                                                 <span className="text-[10px] text-primary font-mono ml-auto">
@@ -637,6 +663,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                                   <button
                                                     onClick={() => updateMiniSeries(config.miniSeries.filter((_, i) => i !== mi))}
                                                     className="text-muted-foreground p-1 active:text-destructive"
+                                                    aria-label={`Supprimer la mini-série ${mi + 1}`}
                                                   >
                                                     <Trash2 size={12} />
                                                   </button>
@@ -653,28 +680,32 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                         </div>
                                         <div className="grid grid-cols-2 gap-2">
                                           <div>
-                                            <label className="text-[10px] text-muted-foreground block mb-1">Repos mini-séries (s)</label>
-                                            <input
-                                              type="number"
-                                              value={config.restMiniSeries || ''}
-                                              onChange={e => updateExerciseMethod(ti, exIdx, {
-                                                ...methodCluster,
-                                                restMiniSeries: e.target.value === '' ? 0 : parseInt(e.target.value) || 0,
-                                              })}
-                                              className="w-full bg-background/60 text-foreground rounded-lg px-2 py-1.5 text-sm text-center outline-none"
-                                            />
+                                            <label className="text-[10px] text-muted-foreground block mb-1">
+                                              Repos mini-séries (s)
+                                              <input
+                                                type="number"
+                                                value={config.restMiniSeries || ''}
+                                                onChange={e => updateExerciseMethod(ti, exIdx, {
+                                                  ...methodCluster,
+                                                  restMiniSeries: e.target.value === '' ? 0 : parseInt(e.target.value) || 0,
+                                                })}
+                                                className="w-full bg-background/60 text-foreground rounded-lg px-2 py-1.5 text-sm text-center outline-none mt-1"
+                                              />
+                                            </label>
                                           </div>
                                           <div>
-                                            <label className="text-[10px] text-muted-foreground block mb-1">Repos séries (s)</label>
-                                            <input
-                                              type="number"
-                                              value={config.restSeries || ''}
-                                              onChange={e => updateExerciseMethod(ti, exIdx, {
-                                                ...methodCluster,
-                                                restSeries: e.target.value === '' ? 0 : parseInt(e.target.value) || 0,
-                                              })}
-                                              className="w-full bg-background/60 text-foreground rounded-lg px-2 py-1.5 text-sm text-center outline-none"
-                                            />
+                                            <label className="text-[10px] text-muted-foreground block mb-1">
+                                              Repos séries (s)
+                                              <input
+                                                type="number"
+                                                value={config.restSeries || ''}
+                                                onChange={e => updateExerciseMethod(ti, exIdx, {
+                                                  ...methodCluster,
+                                                  restSeries: e.target.value === '' ? 0 : parseInt(e.target.value) || 0,
+                                                })}
+                                                className="w-full bg-background/60 text-foreground rounded-lg px-2 py-1.5 text-sm text-center outline-none mt-1"
+                                              />
+                                            </label>
                                           </div>
                                         </div>
                                       </>
@@ -698,16 +729,18 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                     </button>
                                   </div>
                                   <div>
-                                    <label className="text-[10px] text-muted-foreground block mb-1">Training Max (kg)</label>
-                                    <input
-                                      type="number"
-                                      value={methodEmom.trainingMax || ''}
-                                      onChange={e => updateExerciseMethod(ti, exIdx, {
-                                        ...methodEmom,
-                                        trainingMax: e.target.value === '' ? 0 : parseFloat(e.target.value),
-                                      })}
-                                      className="w-full bg-background/60 text-foreground text-lg font-bold rounded-lg px-2 py-2 text-center outline-none"
-                                    />
+                                    <label className="text-[10px] text-muted-foreground block mb-1">
+                                      Training Max (kg)
+                                      <input
+                                        type="number"
+                                        value={methodEmom.trainingMax || ''}
+                                        onChange={e => updateExerciseMethod(ti, exIdx, {
+                                          ...methodEmom,
+                                          trainingMax: e.target.value === '' ? 0 : parseFloat(e.target.value),
+                                        })}
+                                        className="w-full bg-background/60 text-foreground text-lg font-bold rounded-lg px-2 py-2 text-center outline-none mt-1"
+                                      />
+                                    </label>
                                   </div>
                                   {(() => {
                                     const config = getEmomConfig(methodEmom);
@@ -715,50 +748,56 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                       <>
                                         <div className="grid grid-cols-2 gap-2">
                                           <div>
-                                            <label className="text-[10px] text-muted-foreground block mb-1">Durée (min)</label>
-                                            <input
-                                              type="number"
-                                              value={config.durationMinutes || ''}
-                                              onChange={e => {
-                                                const durationMinutes = e.target.value === '' ? 0 : parseInt(e.target.value) || 0;
-                                                updateExerciseMethod(ti, exIdx, {
-                                                  ...methodEmom,
-                                                  durationMinutes,
-                                                  percentage: getDefaultEmomPercentage(durationMinutes, config.repsPerMinute),
-                                                });
-                                              }}
-                                              className="w-full bg-background/60 text-foreground rounded-lg px-2 py-1.5 text-sm text-center outline-none"
-                                            />
+                                            <label className="text-[10px] text-muted-foreground block mb-1">
+                                              Durée (min)
+                                              <input
+                                                type="number"
+                                                value={config.durationMinutes || ''}
+                                                onChange={e => {
+                                                  const durationMinutes = e.target.value === '' ? 0 : parseInt(e.target.value) || 0;
+                                                  updateExerciseMethod(ti, exIdx, {
+                                                    ...methodEmom,
+                                                    durationMinutes,
+                                                    percentage: getDefaultEmomPercentage(durationMinutes, config.repsPerMinute),
+                                                  });
+                                                }}
+                                                className="w-full bg-background/60 text-foreground rounded-lg px-2 py-1.5 text-sm text-center outline-none mt-1"
+                                              />
+                                            </label>
                                           </div>
                                           <div>
-                                            <label className="text-[10px] text-muted-foreground block mb-1">Reps / minute</label>
-                                            <input
-                                              type="number"
-                                              value={config.repsPerMinute || ''}
-                                              onChange={e => {
-                                                const repsPerMinute = e.target.value === '' ? 0 : parseInt(e.target.value) || 0;
-                                                updateExerciseMethod(ti, exIdx, {
-                                                  ...methodEmom,
-                                                  repsPerMinute,
-                                                  percentage: getDefaultEmomPercentage(config.durationMinutes, repsPerMinute),
-                                                });
-                                              }}
-                                              className="w-full bg-background/60 text-foreground rounded-lg px-2 py-1.5 text-sm text-center outline-none"
-                                            />
+                                            <label className="text-[10px] text-muted-foreground block mb-1">
+                                              Reps / minute
+                                              <input
+                                                type="number"
+                                                value={config.repsPerMinute || ''}
+                                                onChange={e => {
+                                                  const repsPerMinute = e.target.value === '' ? 0 : parseInt(e.target.value) || 0;
+                                                  updateExerciseMethod(ti, exIdx, {
+                                                    ...methodEmom,
+                                                    repsPerMinute,
+                                                    percentage: getDefaultEmomPercentage(config.durationMinutes, repsPerMinute),
+                                                  });
+                                                }}
+                                                className="w-full bg-background/60 text-foreground rounded-lg px-2 py-1.5 text-sm text-center outline-none mt-1"
+                                              />
+                                            </label>
                                           </div>
                                         </div>
                                         <div>
-                                          <label className="text-[10px] text-muted-foreground block mb-1">% du TM (suggéré automatiquement, modifiable)</label>
-                                          <input
-                                            type="number"
-                                            step="0.5"
-                                            value={config.percentage ? Math.round(config.percentage * 1000) / 10 : ''}
-                                            onChange={e => {
-                                              const pct = e.target.value === '' ? 0 : parseFloat(e.target.value) || 0;
-                                              updateExerciseMethod(ti, exIdx, { ...methodEmom, percentage: pct / 100 });
-                                            }}
-                                            className="w-full bg-background/60 text-foreground rounded-lg px-2 py-1.5 text-sm text-center outline-none"
-                                          />
+                                          <label className="text-[10px] text-muted-foreground block mb-1">
+                                            % du TM (suggéré automatiquement, modifiable)
+                                            <input
+                                              type="number"
+                                              step="0.5"
+                                              value={config.percentage ? Math.round(config.percentage * 1000) / 10 : ''}
+                                              onChange={e => {
+                                                const pct = e.target.value === '' ? 0 : parseFloat(e.target.value) || 0;
+                                                updateExerciseMethod(ti, exIdx, { ...methodEmom, percentage: pct / 100 });
+                                              }}
+                                              className="w-full bg-background/60 text-foreground rounded-lg px-2 py-1.5 text-sm text-center outline-none mt-1"
+                                            />
+                                          </label>
                                         </div>
                                         <p className="text-[10px] text-muted-foreground">
                                           <span className="text-primary font-bold">{getEmomWeight(methodEmom.trainingMax, config.percentage)}kg</span> × {config.repsPerMinute} chaque minute pendant {config.durationMinutes} min
@@ -817,10 +856,10 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                 <div key={type.id} className="glass-card p-3 opacity-60 flex items-center gap-3">
                   <div className="w-3 h-3 rounded-full" style={{ backgroundColor: `hsl(${type.color})` }} />
                   <span className="text-foreground text-sm flex-1">{type.name || 'Sans nom'}</span>
-                  <button onClick={() => toggleHide(ti)} className="text-primary p-1 touch-target" title="Restaurer">
+                  <button onClick={() => toggleHide(ti)} className="text-primary p-1 touch-target" title="Restaurer" aria-label={`Restaurer ${type.name || 'cette séance'}`}>
                     <RotateCcw size={16} />
                   </button>
-                  <button onClick={() => deleteType(ti)} className="text-destructive p-1 touch-target" title="Supprimer définitivement">
+                  <button onClick={() => deleteType(ti)} className="text-destructive p-1 touch-target" title="Supprimer définitivement" aria-label={`Supprimer définitivement ${type.name || 'cette séance'}`}>
                     <Trash2 size={16} />
                   </button>
                 </div>
@@ -927,7 +966,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
         onClick={save}
         className="w-full btn-neon font-semibold py-4 rounded-2xl touch-target text-lg transition-transform active:scale-95"
       >
-        Save Settings
+        Enregistrer les réglages
       </button>
     </div>
   );

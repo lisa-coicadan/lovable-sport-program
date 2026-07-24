@@ -462,6 +462,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
           <button
             onClick={() => setMode('settings')}
             className="touch-target p-2 text-muted-foreground"
+            aria-label="Réglages"
           >
             <Settings size={20} />
           </button>
@@ -494,6 +495,20 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
 
         {/* Session Selection */}
         <p className="text-sm text-muted-foreground mb-3">Choisis une séance</p>
+        {activeTypes.length === 0 ? (
+          <div className="glass-card p-6 text-center">
+            <p className="text-sm text-foreground font-medium mb-1">Aucune séance configurée</p>
+            <p className="text-xs text-muted-foreground mb-4">
+              Crée un type de séance dans les réglages pour pouvoir t'entraîner.
+            </p>
+            <button
+              onClick={() => setMode('settings')}
+              className="btn-neon font-medium py-2.5 px-5 rounded-xl text-sm inline-flex items-center gap-1.5 touch-target transition-transform active:scale-95"
+            >
+              <Settings size={14} /> Aller aux réglages
+            </button>
+          </div>
+        ) : (
         <div className="space-y-2">
           {activeTypes.map(type => (
             <div key={type.id} className="glass-card p-4">
@@ -522,6 +537,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
             </div>
           ))}
         </div>
+        )}
       </div>
     );
   }
@@ -586,10 +602,20 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
     }
   });
 
+  const abandonSession = () => {
+    if (sets.some(s => s.completed) && !window.confirm('Abandonner cette séance ? Les séries déjà cochées seront perdues.')) {
+      return;
+    }
+    setMode('select');
+    setSelectedType(null);
+    setSets([]);
+    setMethodOverrides({});
+  };
+
   return (
     <div className="px-4 pt-12 pb-24 animate-slide-up">
       <div className="flex items-center gap-3 mb-6">
-        <button onClick={() => { setMode('select'); setSelectedType(null); setSets([]); setMethodOverrides({}); }} className="text-muted-foreground touch-target p-1">
+        <button onClick={abandonSession} className="text-muted-foreground touch-target p-1" aria-label="Abandonner la séance">
           <ArrowLeft size={20} />
         </button>
         <h1 className="text-xl font-bold text-foreground">{selectedType?.name}</h1>
@@ -696,6 +722,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                       onChange={e => updateSet(globalIdx, 'weight', e.target.value)}
                       className="w-14 bg-transparent text-foreground text-sm text-center outline-none font-mono"
                       placeholder="kg"
+                      aria-label={`Poids série ${localIdx + 1}, ${ex.name} (kg)`}
                     />
                     <span className="text-muted-foreground text-xs">×</span>
                     {amrap ? (
@@ -706,6 +733,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                           onChange={e => setAmrapReps(prev => ({ ...prev, [globalIdx]: e.target.value === '' ? 0 : parseInt(e.target.value) || 0 }))}
                           className="w-12 bg-primary/10 text-primary text-sm text-center outline-none font-mono rounded-lg py-1 border border-primary/30"
                           placeholder="reps"
+                          aria-label={`Répétitions AMRAP série ${localIdx + 1}, ${ex.name}`}
                         />
                         <span className="text-[10px] text-primary font-bold">AMRAP</span>
                       </div>
@@ -725,6 +753,8 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                       className={`touch-target rounded-lg p-2 transition-colors ${
                         sets[globalIdx].completed ? 'text-success glow-success' : 'text-muted-foreground active:text-success'
                       }`}
+                      aria-label={sets[globalIdx].completed ? `Série ${localIdx + 1} validée` : `Valider la série ${localIdx + 1}`}
+                      aria-pressed={sets[globalIdx].completed}
                     >
                       <Check size={18} />
                     </button>
@@ -807,6 +837,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                             className={`flex-1 rounded-lg py-2 text-xs font-mono font-medium transition-colors ${
                               sets[s.globalIdx].completed ? 'bg-success text-success-foreground' : 'bg-background/60 text-foreground'
                             }`}
+                            aria-pressed={sets[s.globalIdx].completed}
                           >
                             {sets[s.globalIdx].weight}kg × {sets[s.globalIdx].reps}
                           </button>
@@ -815,6 +846,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                               onClick={() => restTimerRef.current?.startWithDuration(restMiniSeries)}
                               className="text-muted-foreground p-1.5 active:text-primary shrink-0"
                               title={`Repos ${formatRestLabel(restMiniSeries)}`}
+                              aria-label={`Repos ${formatRestLabel(restMiniSeries)}`}
                             >
                               <Timer size={12} />
                             </button>
@@ -938,6 +970,8 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                             className={`touch-target rounded-lg p-1.5 transition-colors ${
                               bothDone ? 'text-success glow-success' : 'text-muted-foreground active:text-success'
                             }`}
+                            aria-label={bothDone ? `Série ${localIdx + 1} validée` : `Valider la série ${localIdx + 1}`}
+                            aria-pressed={bothDone}
                           >
                             <Check size={18} />
                           </button>
@@ -956,6 +990,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                               onBlur={() => propagateWeightOnBlur(row.idx)}
                               className="w-14 bg-background/60 rounded-md text-foreground text-sm text-center outline-none font-mono py-1"
                               placeholder="kg"
+                              aria-label={`Poids série ${localIdx + 1}, ${row.name} (kg)`}
                             />
                             <span className="text-muted-foreground text-xs">×</span>
                             <input
@@ -963,6 +998,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                               value={sets[row.idx].reps || ''}
                               onChange={e => updateSet(row.idx, 'reps', e.target.value)}
                               className="w-12 bg-background/60 rounded-md text-foreground text-sm text-center outline-none font-mono py-1"
+                              aria-label={`Répétitions série ${localIdx + 1}, ${row.name}`}
                               placeholder="reps"
                             />
                           </div>
@@ -1041,6 +1077,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                         onBlur={() => propagateWeightOnBlur(globalIdx)}
                         className="w-16 bg-transparent text-foreground text-sm text-center outline-none font-mono"
                         placeholder="kg"
+                        aria-label={`Poids série ${localIdx + 1}, ${name} (kg)`}
                       />
                       <span className="text-muted-foreground text-xs">kg ×</span>
                       <input
@@ -1049,10 +1086,12 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                         onChange={e => updateSet(globalIdx, 'reps', e.target.value)}
                         className="w-12 bg-transparent text-foreground text-sm text-center outline-none font-mono"
                         placeholder="reps"
+                        aria-label={`Répétitions série ${localIdx + 1}, ${name}`}
                       />
                       <button
                         onClick={() => removeSet(globalIdx)}
                         className="text-muted-foreground p-1 active:text-destructive"
+                        aria-label={`Supprimer la série ${localIdx + 1}`}
                       >
                         <Trash2 size={14} />
                       </button>
@@ -1061,6 +1100,8 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate }: Workout
                         className={`touch-target rounded-lg p-2 transition-colors ${
                           sets[globalIdx].completed ? 'text-success glow-success' : 'text-muted-foreground active:text-success'
                         }`}
+                        aria-label={sets[globalIdx].completed ? `Série ${localIdx + 1} validée` : `Valider la série ${localIdx + 1}`}
+                        aria-pressed={sets[globalIdx].completed}
                       >
                         <Check size={18} />
                       </button>
