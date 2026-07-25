@@ -192,3 +192,22 @@
     border-top: none;
   }
 }
+
+/* Portrait-only lock for the installed PWA. iOS gives web apps no real way to lock
+   device rotation — neither the manifest's `orientation: portrait` nor the Screen
+   Orientation API's `.lock()` are honored by WebKit/iOS Safari (long-standing platform
+   limitation, not fixable from app code). This blocks interaction with the actual
+   content instead: scoped to `display-mode: standalone` so it only triggers for the
+   installed home-screen app, never a normal browser tab (where landscape is legitimate
+   desktop/tablet use). Kept out of any @layer, same reasoning as the :focus-visible
+   rule above it in this file — a plain top-level rule always wins over Tailwind's
+   cascade layers regardless of specificity order.
+*/
+.landscape-lock {
+  display: none;
+}
+@media (display-mode: standalone) and (orientation: landscape) {
+  .landscape-lock {
+    display: flex;
+  }
+}

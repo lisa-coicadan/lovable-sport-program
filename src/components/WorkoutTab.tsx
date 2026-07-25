@@ -507,37 +507,55 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
     setDropSetPickerFor(null);
   };
 
+  // RestTimer is rendered alongside EVERY mode below that can be reached mid-session
+  // (not just 'recap') — Réglages/Historique/Récap are each their own early `return`,
+  // and a component that isn't in the returned tree unmounts; RestTimer's cleanup
+  // effect would then silently cancel any scheduled beep and lose the running
+  // countdown. Real bug she hit: open the exercise History mid-rest (now one tap away
+  // via the History icon) and the beep never fires, with no error to explain why.
+  // Keeping RestTimer at the same position (right after the screen's own root) in
+  // every branch lets React's reconciliation preserve the same instance across mode
+  // switches instead of remounting it.
   if (mode === 'summary' && pendingSession) {
     return (
-      <SessionSummary
-        session={pendingSession}
-        previousSessions={data.sessions}
-        workoutTypes={data.workoutTypes}
-        gender={data.gender}
-        bodyWeightLogs={data.bodyWeightLogs}
-        onSave={handleSummaryComplete}
-        onBack={() => setMode(selectedType ? 'recap' : 'select')}
-      />
+      <>
+        <SessionSummary
+          session={pendingSession}
+          previousSessions={data.sessions}
+          workoutTypes={data.workoutTypes}
+          gender={data.gender}
+          bodyWeightLogs={data.bodyWeightLogs}
+          onSave={handleSummaryComplete}
+          onBack={() => setMode(selectedType ? 'recap' : 'select')}
+        />
+        {selectedType && <RestTimer ref={restTimerRef} defaultSeconds={restDuration} />}
+      </>
     );
   }
 
   if (mode === 'settings') {
     return (
-      <SettingsPanel
-        data={data}
-        onUpdateData={onUpdateData}
-        onClose={() => setMode('select')}
-      />
+      <>
+        <SettingsPanel
+          data={data}
+          onUpdateData={onUpdateData}
+          onClose={() => setMode('select')}
+        />
+        {selectedType && <RestTimer ref={restTimerRef} defaultSeconds={restDuration} />}
+      </>
     );
   }
 
   if (mode === 'history' && historyExercise) {
     return (
-      <ExerciseHistory
-        exerciseName={historyExercise}
-        data={data}
-        onClose={() => { setHistoryExercise(null); setMode(selectedType ? 'recap' : 'select'); }}
-      />
+      <>
+        <ExerciseHistory
+          exerciseName={historyExercise}
+          data={data}
+          onClose={() => { setHistoryExercise(null); setMode(selectedType ? 'recap' : 'select'); }}
+        />
+        {selectedType && <RestTimer ref={restTimerRef} defaultSeconds={restDuration} />}
+      </>
     );
   }
 
@@ -1187,13 +1205,13 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
                         before the name, Modifier after it. */}
                     <button
                       onClick={() => { setHistoryExercise(name); setMode('history'); }}
-                      className="touch-target flex items-center justify-end p-1 text-muted-foreground active:text-primary shrink-0"
+                      className="min-h-11 flex items-center p-1 text-muted-foreground active:text-primary shrink-0"
                       aria-label={`Historique de ${name}`}
                       title="Historique"
                     >
                       <History size={14} />
                     </button>
-                    <h3 className="text-sm font-semibold text-foreground truncate min-w-0 flex-1 -ml-2">{name}</h3>
+                    <h3 className="text-sm font-semibold text-foreground truncate min-w-0 flex-1">{name}</h3>
                     <button
                       onClick={() => { setRenamingExerciseId(exerciseId); setRenameValue(name); }}
                       className="touch-target p-1 text-muted-foreground active:text-primary shrink-0"
