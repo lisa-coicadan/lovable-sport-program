@@ -5,12 +5,13 @@ import { getClusterConfig, getMiniSeriesWeight } from '@/lib/cluster';
 import { getEmomConfig, getEmomWeight } from '@/lib/emom';
 import { buildExerciseBlocks } from '@/lib/superset';
 import { isBodyweightOptionalExercise } from '@/lib/exerciseNormalize';
+import { getDropSetConfig, getDropSetStage } from '@/lib/dropset';
 import RestTimer, { RestTimerHandle } from './RestTimer';
 import EmomTimer from './EmomTimer';
 import ExerciseHistory from './ExerciseHistory';
 import SessionSummary from './SessionSummary';
 import SettingsPanel from './SettingsPanel';
-import { Check, ChevronRight, ArrowLeft, Settings, History, Plus, Trash2, ChevronDown, Timer, Pencil } from 'lucide-react';
+import { Check, ChevronRight, ArrowLeft, Settings, History, Plus, Trash2, ChevronDown, Timer, Pencil, TrendingDown } from 'lucide-react';
 import { SortableList, DragHandle } from './SortableBlock';
 import SetDots from './SetDots';
 
@@ -126,6 +127,10 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
   // session-only by construction, no separate override map needed.
   const [renamingExerciseId, setRenamingExerciseId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
+  // Which exercise's "après quelle série ?" drop-set picker is currently open — a drop
+  // set can cascade from ANY regular series, not just the last one, so tapping "Drop
+  // set" opens a small chip picker instead of assuming a fixed anchor.
+  const [dropSetPickerFor, setDropSetPickerFor] = useState<string | null>(null);
   const restTimerRef = useRef<RestTimerHandle>(null);
 
   // Resolves the full method (preset/rest times/duration included, not just TM) that
@@ -245,6 +250,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
     setAmrapReps({});
     setMethodOverrides({});
     setRenamingExerciseId(null);
+    setDropSetPickerFor(null);
 
     const initialWeeks: Record<string, number> = {};
     type.exercises.forEach(ex => {
@@ -287,7 +293,21 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
         // live picker to switch Cluster/EMOM/Normal only appears once inside the session.
         const ex = exerciseMap.get(block.exerciseIds[0])!;
         const lastWeight = lastWeights[ex.id] || 0;
-        initialSets.push(...buildSetsForExercise(ex, ex.method, lastWeight));
+        const exSets = buildSetsForExercise(ex, ex.method, lastWeight);
+        initialSets.push(...exSets);
+        // Pre-configured drop set (Settings): auto-cascade stage 1 below the last
+        // regular set so it's ready without having to tap "+ Drop set" first.
+        if (!ex.method && ex.dropSet) {
+          const anchor = exSets[exSets.length - 1];
+          if (anchor) {
+            const config = getDropSetConfig(ex.dropSet);
+            const { weight, reps } = getDropSetStage(anchor.weight, anchor.reps, 1, config);
+            initialSets.push({
+              exerciseId: ex.id, exerciseName: ex.name, setNumber: anchor.setNumber + 1,
+              reps, weight, completed: false, dropSetStage: 1,
+            });
+          }
+        }
       }
     });
     setSets(initialSets);
@@ -316,7 +336,9 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
     if (currentSet.weight <= 0 && !isBodyweightOptionalExercise(currentSet.exerciseName)) return;
     const updated = [...sets];
     for (let i = index + 1; i < updated.length; i++) {
-      if (updated[i].exerciseId === currentSet.exerciseId && updated[i].weight === 0) {
+      // Drop-set rows keep their own computed (discounted) weight — never overwritten
+      // by the plain propagate-to-empty-sets behavior meant for un-filled regular sets.
+      if (updated[i].exerciseId === currentSet.exerciseId && updated[i].weight === 0 && !updated[i].dropSetStage) {
         updated[i].weight = currentSet.weight;
       }
     }
@@ -343,6 +365,35 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
     
     const updated = [...sets];
     updated.splice(insertIndex, 0, newSet);
+    setSets(updated);
+  };
+
+  // Cascades one more drop-set stage below a SPECIFIC series (anchorIdx) — any series,
+  // not just the last one. Always computed from that anchor's own weight/reps, never
+  // from a previous drop stage, matching getDropSetStage's "always relative to P0/R0"
+  // rule. Stays scoped to that anchor's own cascade even if other series (plain or
+  // another anchor's drops) sit further down the exercise: it only walks forward while
+  // rows are drop-set rows, stopping at the first plain series, which is always the
+  // boundary of this cascade since new rows are only ever inserted right after it.
+  const addDropSet = (exerciseId: string, exerciseName: string, anchorIdx: number) => {
+    const anchor = sets[anchorIdx];
+    if (!anchor) return;
+    let insertIdx = anchorIdx + 1;
+    let stage = 0;
+    while (insertIdx < sets.length && sets[insertIdx].exerciseId === exerciseId && sets[insertIdx].dropSetStage) {
+      stage = Math.max(stage, sets[insertIdx].dropSetStage!);
+      insertIdx++;
+    }
+    stage += 1;
+    const ex = selectedType?.exercises.find(e => e.id === exerciseId);
+    const config = getDropSetConfig(ex?.dropSet);
+    const { weight, reps } = getDropSetStage(anchor.weight, anchor.reps, stage, config);
+    const newSet: SetLog = {
+      exerciseId, exerciseName, setNumber: anchor.setNumber + stage,
+      reps, weight, completed: false, dropSetStage: stage,
+    };
+    const updated = [...sets];
+    updated.splice(insertIdx, 0, newSet);
     setSets(updated);
   };
 
@@ -453,6 +504,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
     setPendingSession(null);
     setMethodOverrides({});
     setRenamingExerciseId(null);
+    setDropSetPickerFor(null);
   };
 
   if (mode === 'summary' && pendingSession) {
@@ -461,6 +513,8 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
         session={pendingSession}
         previousSessions={data.sessions}
         workoutTypes={data.workoutTypes}
+        gender={data.gender}
+        bodyWeightLogs={data.bodyWeightLogs}
         onSave={handleSummaryComplete}
         onBack={() => setMode(selectedType ? 'recap' : 'select')}
       />
@@ -646,6 +700,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
     setSets([]);
     setMethodOverrides({});
     setRenamingExerciseId(null);
+    setDropSetPickerFor(null);
   };
 
   const abandonSession = () => {
@@ -1091,6 +1146,17 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
           const absRecord = getAbsoluteRecord(name);
           const isTemp = exerciseId.startsWith('temp-');
           const methodEx = methodConfigMap.get(exerciseId);
+          // "Série N" numbers only the plain rows, skipping over any interleaved drop-set
+          // rows — a drop set inserted after Série 2 must not bump the plain Série 3 that
+          // follows it to "Série 4". Shared between the row list and the picker chips
+          // below so both always agree.
+          const seriesNumberByGlobalIdx = new Map<number, number>();
+          {
+            let seriesCounter = 0;
+            exerciseSets.forEach(e => {
+              if (!sets[e.globalIdx].dropSetStage) seriesNumberByGlobalIdx.set(e.globalIdx, ++seriesCounter);
+            });
+          }
 
           return (
             <div key={exerciseId} className="glass-card p-4">
@@ -1116,13 +1182,18 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
                   />
                 ) : (
                   <>
+                    {/* History and Modifier kept apart (not two adjacent icons) so a
+                        mid-set thumb doesn't mis-tap one for the other: History sits
+                        before the name, Modifier after it. */}
                     <button
                       onClick={() => { setHistoryExercise(name); setMode('history'); }}
-                      className="min-h-11 flex items-center gap-1.5 group min-w-0"
+                      className="touch-target flex items-center justify-end p-1 text-muted-foreground active:text-primary shrink-0"
+                      aria-label={`Historique de ${name}`}
+                      title="Historique"
                     >
-                      <h3 className="text-sm font-semibold text-foreground group-active:text-primary transition-colors truncate">{name}</h3>
-                      <History size={12} className="text-muted-foreground group-active:text-primary shrink-0" />
+                      <History size={14} />
                     </button>
+                    <h3 className="text-sm font-semibold text-foreground truncate min-w-0 flex-1 -ml-2">{name}</h3>
                     <button
                       onClick={() => { setRenamingExerciseId(exerciseId); setRenameValue(name); }}
                       className="touch-target p-1 text-muted-foreground active:text-primary shrink-0"
@@ -1133,6 +1204,20 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
                     </button>
                   </>
                 )}
+
+                {/* Reveals a "+ Drop set" trigger under each plain series below — lets her
+                    cascade from any of them, not just the last one. */}
+                <button
+                  onClick={() => setDropSetPickerFor(dropSetPickerFor === exerciseId ? null : exerciseId)}
+                  className={`min-h-9 flex items-center gap-1 px-2 shrink-0 ml-auto rounded-lg text-[11px] font-medium transition-colors ${
+                    dropSetPickerFor === exerciseId ? 'bg-warning/20 text-warning' : 'text-warning/70 active:text-warning'
+                  }`}
+                  aria-label="Activer le mode drop set pour cet exercice"
+                  aria-pressed={dropSetPickerFor === exerciseId}
+                  title="Drop set"
+                >
+                  <TrendingDown size={14} /> Drop set
+                </button>
               </div>
 
               {methodEx && <MethodPickerRow active="none" onSelect={opt => applyMethodOverride(methodEx, opt)} />}
@@ -1155,51 +1240,64 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
               )}
 
               <div className="space-y-2">
-                {exerciseSets.map((s, localIdx) => {
+                {exerciseSets.map((s) => {
                   const globalIdx = s.globalIdx;
+                  const stage = sets[globalIdx].dropSetStage;
+                  const rowLabel = stage ? `Drop ${stage}` : `Série ${seriesNumberByGlobalIdx.get(globalIdx)}`;
                   return (
-                    <div
-                      key={globalIdx}
-                      className={`flex items-center gap-2 rounded-xl px-3 py-2.5 transition-all ${
-                        sets[globalIdx].completed ? 'bg-success/10 border border-success/25' : 'bg-secondary/50'
-                      }`}
-                    >
-                      <span className="text-xs text-muted-foreground w-12 shrink-0">Série {localIdx + 1}</span>
-                      <input
-                        type="number"
-                        value={sets[globalIdx].weight || ''}
-                        onChange={e => updateSet(globalIdx, 'weight', e.target.value)}
-                        onBlur={() => propagateWeightOnBlur(globalIdx)}
-                        className="w-16 bg-transparent text-foreground text-sm text-center outline-none font-mono"
-                        placeholder="kg"
-                        aria-label={`Poids série ${localIdx + 1}, ${name} (kg)`}
-                      />
-                      <span className="text-muted-foreground text-xs shrink-0 whitespace-nowrap">kg ×</span>
-                      <input
-                        type="number"
-                        value={sets[globalIdx].reps || ''}
-                        onChange={e => updateSet(globalIdx, 'reps', e.target.value)}
-                        className="w-12 bg-transparent text-foreground text-sm text-center outline-none font-mono"
-                        placeholder="reps"
-                        aria-label={`Répétitions série ${localIdx + 1}, ${name}`}
-                      />
-                      <button
-                        onClick={() => removeSet(globalIdx)}
-                        className="touch-target inline-flex items-center justify-center text-muted-foreground active:text-destructive"
-                        aria-label={`Supprimer la série ${localIdx + 1}`}
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                      <button
-                        onClick={() => toggleSet(globalIdx)}
-                        className={`touch-target rounded-lg p-2 transition-colors ${
-                          sets[globalIdx].completed ? 'text-success glow-success' : 'text-muted-foreground active:text-success'
+                    <div key={globalIdx}>
+                      <div
+                        className={`flex items-center gap-2 rounded-xl px-3 py-2.5 transition-all ${stage ? 'ml-4' : ''} ${
+                          sets[globalIdx].completed ? 'bg-success/10 border border-success/25' : 'bg-secondary/50'
                         }`}
-                        aria-label={sets[globalIdx].completed ? `Série ${localIdx + 1} validée` : `Valider la série ${localIdx + 1}`}
-                        aria-pressed={sets[globalIdx].completed}
                       >
-                        <Check size={18} />
-                      </button>
+                        <span className={`text-xs w-12 shrink-0 ${stage ? 'text-warning font-medium' : 'text-muted-foreground'}`}>
+                          {rowLabel}
+                        </span>
+                        <input
+                          type="number"
+                          value={sets[globalIdx].weight || ''}
+                          onChange={e => updateSet(globalIdx, 'weight', e.target.value)}
+                          onBlur={() => propagateWeightOnBlur(globalIdx)}
+                          className="w-16 bg-transparent text-foreground text-sm text-center outline-none font-mono"
+                          placeholder="kg"
+                          aria-label={`Poids ${rowLabel}, ${name} (kg)`}
+                        />
+                        <span className="text-muted-foreground text-xs shrink-0 whitespace-nowrap">kg ×</span>
+                        <input
+                          type="number"
+                          value={sets[globalIdx].reps || ''}
+                          onChange={e => updateSet(globalIdx, 'reps', e.target.value)}
+                          className="w-12 bg-transparent text-foreground text-sm text-center outline-none font-mono"
+                          placeholder="reps"
+                          aria-label={`Répétitions ${rowLabel}, ${name}`}
+                        />
+                        <button
+                          onClick={() => removeSet(globalIdx)}
+                          className="touch-target inline-flex items-center justify-center text-muted-foreground active:text-destructive"
+                          aria-label={`Supprimer ${rowLabel}`}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                        <button
+                          onClick={() => toggleSet(globalIdx)}
+                          className={`touch-target rounded-lg p-2 transition-colors ${
+                            sets[globalIdx].completed ? 'text-success glow-success' : 'text-muted-foreground active:text-success'
+                          }`}
+                          aria-label={sets[globalIdx].completed ? `${rowLabel} validée` : `Valider ${rowLabel}`}
+                          aria-pressed={sets[globalIdx].completed}
+                        >
+                          <Check size={18} />
+                        </button>
+                      </div>
+                      {dropSetPickerFor === exerciseId && !stage && (
+                        <button
+                          onClick={() => addDropSet(exerciseId, name, globalIdx)}
+                          className="w-full min-h-9 flex items-center justify-center gap-1 text-warning text-[10px] font-medium mt-1"
+                        >
+                          <TrendingDown size={10} /> + Drop set
+                        </button>
+                      )}
                     </div>
                   );
                 })}

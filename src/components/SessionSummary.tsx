@@ -1,18 +1,21 @@
 import { useState, useMemo, useRef } from 'react';
-import { SessionLog, AppData, WorkoutType, calculate1RM } from '@/lib/types';
-import { isBodyweightOptionalExercise } from '@/lib/exerciseNormalize';
-import { ArrowLeft, ChevronRight, Share2, TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { SessionLog, WorkoutType, calculate1RM, Gender, BodyWeightLog } from '@/lib/types';
+import { isBodyweightOptionalExercise, splitEquipmentVariant } from '@/lib/exerciseNormalize';
+import { STANDARD_MOVEMENTS, LEVEL_ORDER, LevelKey, getFranceRecord, getRecordMessage, getLevel, getLevelMessage } from '@/lib/strengthStandards';
+import { ArrowLeft, ChevronRight, Share2, TrendingUp, TrendingDown, Minus, Trophy } from 'lucide-react';
 
 interface SessionSummaryProps {
   session: SessionLog;
   previousSessions?: SessionLog[];
   workoutTypes?: WorkoutType[];
+  gender?: Gender;
+  bodyWeightLogs?: BodyWeightLog[];
   onSave: (session: SessionLog) => void;
   onBack: () => void;
   readOnly?: boolean;
 }
 
-const SessionSummary = ({ session, previousSessions = [], workoutTypes = [], onSave, onBack, readOnly = false }: SessionSummaryProps) => {
+const SessionSummary = ({ session, previousSessions = [], workoutTypes = [], gender, bodyWeightLogs = [], onSave, onBack, readOnly = false }: SessionSummaryProps) => {
   const [duration, setDuration] = useState(session.duration || 0);
   const [difficulty, setDifficulty] = useState(session.difficulty || 3);
   const [notes, setNotes] = useState(session.notes || '');
@@ -102,6 +105,47 @@ const SessionSummary = ({ session, previousSessions = [], workoutTypes = [], onS
     return result;
   }, [lastSameTypeSession, groupedExercises]);
 
+  // Level-up detection (amélioration uniquement) — for each of the 5 movements the
+  // Record de France / niveau feature recognizes (src/lib/strengthStandards.ts), compare
+  // the tier reached BEFORE this session (best e1RM across previousSessions) vs AFTER
+  // (best e1RM including this session's new sets). Only the barbell/no-equipment variant
+  // counts, same rule as the ExerciseHistory panel. Silently produces nothing if she
+  // hasn't set her gender/bodyweight in Réglages yet.
+  const latestBodyweight = useMemo(() => {
+    if (bodyWeightLogs.length === 0) return null;
+    return bodyWeightLogs.slice().sort((a, b) => b.date.localeCompare(a.date))[0].weight;
+  }, [bodyWeightLogs]);
+
+  const levelUps = useMemo(() => {
+    if (!gender || !latestBodyweight) return [];
+    const results: { movement: string; level: LevelKey; record: ReturnType<typeof getFranceRecord>; newPR: number }[] = [];
+    STANDARD_MOVEMENTS.forEach(movement => {
+      const isDefaultVariant = (exerciseName: string) => {
+        const split = splitEquipmentVariant(exerciseName);
+        return split.base === movement && split.variantLabel === null;
+      };
+      const qualifies = (exerciseName: string, completed: boolean, weight: number) =>
+        completed && isDefaultVariant(exerciseName) && (weight > 0 || isBodyweightOptionalExercise(exerciseName));
+
+      const newSets = session.sets.filter(s => qualifies(s.exerciseName, s.completed, s.weight));
+      if (newSets.length === 0) return;
+      const newPR = Math.max(...newSets.map(s => calculate1RM(s.weight, s.reps)));
+
+      const prevSets = previousSessions.flatMap(s => s.sets.filter(x => qualifies(x.exerciseName, x.completed, x.weight)));
+      const previousPR = prevSets.length > 0 ? Math.max(...prevSets.map(s => calculate1RM(s.weight, s.reps))) : 0;
+      if (newPR <= previousPR) return;
+
+      const levelBefore = getLevel(gender, movement, previousPR / latestBodyweight);
+      const levelAfter = getLevel(gender, movement, newPR / latestBodyweight);
+      if (!levelAfter) return;
+      const beforeIdx = levelBefore ? LEVEL_ORDER.indexOf(levelBefore) : -1;
+      if (LEVEL_ORDER.indexOf(levelAfter) <= beforeIdx) return;
+
+      results.push({ movement, level: levelAfter, record: getFranceRecord(gender, latestBodyweight, movement), newPR });
+    });
+    return results;
+  }, [gender, latestBodyweight, session.sets, previousSessions]);
+
   const handleSave = () => {
     onSave({ ...session, duration: duration || 60, difficulty, notes });
   };
@@ -142,6 +186,29 @@ const SessionSummary = ({ session, previousSessions = [], workoutTypes = [], onS
           <Share2 size={18} />
         </button>
       </div>
+
+      {!readOnly && levelUps.length > 0 && (
+        <div className="glass-card p-4 mb-6 border border-primary/40 bg-primary/5">
+          <div className="flex items-center gap-1.5 mb-2">
+            <Trophy size={16} className="text-primary" />
+            <h3 className="text-sm font-bold text-primary">Nouveau niveau !</h3>
+          </div>
+          <div className="space-y-2.5">
+            {levelUps.map(({ movement, level, record, newPR }) => (
+              <div key={movement}>
+                <p className="text-sm text-foreground font-semibold">
+                  {movement} — {getLevelMessage(level)}
+                </p>
+                {record && (
+                  <p className="text-xs text-muted-foreground">
+                    Catégorie {record.categoryLabel} : {getRecordMessage(record, newPR)}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Stats summary */}
       <div className="grid grid-cols-3 gap-3 mb-6">

@@ -42,6 +42,17 @@ export type ExerciseMethod = FiveThreeOneMethod | ClusterMethod | EMOMMethod;
 
 export type ExerciseEquipment = 'barre' | 'halteres' | 'machine' | 'smith' | 'poulie';
 
+// Drop set: not a standing "method" like 531/Cluster/EMOM (those generate every set
+// upfront from a Training Max) — a drop set instead cascades live, in-session, below
+// whichever regular set she's actually doing, computed from ITS actual weight/reps.
+// Presence of this field on an Exercise only pre-configures the step%/step-reps used
+// and auto-adds the first cascade at session start; the "+ Drop set" button itself is
+// always available on any regular exercise card regardless (see dropset.ts).
+export interface DropSetConfig {
+  stepPercentage?: number; // fraction of the base weight shed per stage, default 0.15
+  stepReps?: number; // reps shed per stage (from the base reps), default 2
+}
+
 export interface Exercise {
   id: string;
   name: string;
@@ -53,6 +64,7 @@ export interface Exercise {
   method?: ExerciseMethod; // optional per-exercise training method (5/3/1, later cluster/EMOM)
   unilateral?: boolean; // display-only attribute (execution mode)
   equipment?: ExerciseEquipment; // display-only attribute (equipment tag)
+  dropSet?: DropSetConfig;
 }
 
 export interface WorkoutType {
@@ -81,6 +93,7 @@ export interface SetLog {
   completed: boolean;
   supersetGroupId?: string;
   supersetRole?: 'A' | 'B';
+  dropSetStage?: number; // 1, 2, ... — present only on auto-generated drop-set rows, cascading below their anchor set
 }
 
 export interface SessionLog {
@@ -112,6 +125,8 @@ export interface BodyWeightLog {
   weight: number;
 }
 
+export type Gender = 'F' | 'H';
+
 export interface AppData {
   workoutTypes: WorkoutType[];
   sessions: SessionLog[];
@@ -121,6 +136,11 @@ export interface AppData {
   bodyWeightLogs: BodyWeightLog[];
   programs?: Program[]; // multi-program support; migrated on load if absent
   activeProgramId?: string | null;
+  // Optional profile used only for the "Record de France" / niveau-percentile comparison
+  // (src/lib/strengthStandards.ts) — genuinely optional, no default/migration needed since
+  // every reader already guards on their presence.
+  gender?: Gender;
+  heightCm?: number;
   // @deprecated legacy fields — migrated into a per-exercise `method` on load (see
   // src/lib/storage.ts). New AppData never sets these; only present on old stored JSON.
   fiveThreeOne?: FiveThreeOneConfig;

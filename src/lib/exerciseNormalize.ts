@@ -148,6 +148,15 @@ const RULES: NormalizationRule[] = [
     prTracked: false,
     keywords: ['rdl', 'romanian deadlift', 'souleve roumain', 'souleve de terre roumain'],
   },
+  // Must come AFTER 'RDL' above: "soulevé de terre roumain" also contains "soulevé de
+  // terre" as a bounded substring, so RDL needs first refusal or every RDL set would be
+  // miscounted as a plain deadlift.
+  {
+    canonical: 'Soulevé de terre',
+    baseLabel: 'Soulevé de terre',
+    prTracked: true,
+    keywords: ['soulevé de terre', 'souleve de terre', 'deadlift', 'sdt'],
+  },
 ];
 
 export const PR_TRACKED_CANONICAL = [
@@ -155,6 +164,7 @@ export const PR_TRACKED_CANONICAL = [
   'Dips lestés',
   'Squat',
   'Développé couché',
+  'Soulevé de terre',
 ];
 
 function clean(name: string): string {

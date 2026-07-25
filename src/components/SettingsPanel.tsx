@@ -1,11 +1,11 @@
 import { useState, useRef } from 'react';
-import { AppData, WorkoutType, Exercise, ExerciseMethod, Program, WORKOUT_COLORS, BodyWeightLog, DEFAULT_APP_DATA } from '@/lib/types';
+import { AppData, WorkoutType, Exercise, ExerciseMethod, Program, WORKOUT_COLORS, BodyWeightLog, DEFAULT_APP_DATA, Gender } from '@/lib/types';
 import { linkSuperset, unlinkSuperset, buildExerciseBlocks, flattenBlocks, ExerciseBlock } from '@/lib/superset';
 import { parseSessionNotes, parseMultiSessionNotes, NOTES_SYNTAX_HELP, NOTES_SYNTAX_HELP_FILL } from '@/lib/notesParser';
 import { getEmomConfig, getEmomWeight, getDefaultEmomPercentage } from '@/lib/emom';
 import { getClusterConfig, getMiniSeriesWeight, CLUSTER_PRESETS } from '@/lib/cluster';
 import { estimateOneRepMax, estimateTrainingMax } from '@/lib/trainingMax';
-import { ArrowLeft, Plus, Trash2, EyeOff, Eye, Scale, Link2, Link2Off, Download, Upload, Database, AlertTriangle, FileText, Zap, Timer, Clock, Layers, Check, Calculator } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, EyeOff, Eye, Scale, Link2, Link2Off, Download, Upload, Database, AlertTriangle, FileText, Zap, Timer, Clock, Layers, Check, Calculator, TrendingDown, User } from 'lucide-react';
 import { SortableList, DragHandle } from './SortableBlock';
 import { loadData, saveData } from '@/lib/storage';
 import { toast } from '@/hooks/use-toast';
@@ -93,6 +93,8 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
   const [programs, setPrograms] = useState<Program[]>(data.programs && data.programs.length > 0 ? [...data.programs] : []);
   const [activeProgramId, setActiveProgramId] = useState<string | null>(data.activeProgramId ?? (programs[0]?.id ?? null));
   const [bodyWeight, setBodyWeight] = useState('');
+  const [gender, setGender] = useState<Gender | undefined>(data.gender);
+  const [heightCm, setHeightCm] = useState(data.heightCm ? String(data.heightCm) : '');
   const [weeklyGoal, setWeeklyGoal] = useState(data.weeklyGoal);
   const [notesOpen, setNotesOpen] = useState(false);
   const [notesText, setNotesText] = useState('');
@@ -340,7 +342,11 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
 
 
   const save = () => {
-    const partial: Partial<AppData> = { workoutTypes, weeklyGoal, programs, activeProgramId };
+    const partial: Partial<AppData> = {
+      workoutTypes, weeklyGoal, programs, activeProgramId,
+      gender,
+      heightCm: heightCm === '' ? undefined : parseFloat(heightCm) || undefined,
+    };
 
     // Add body weight log if entered
     if (bodyWeight) {
@@ -503,6 +509,44 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
           </p>
         </div>
       )}
+      {/* Sexe + taille : utilisés uniquement pour la comparaison "Record de France" /
+          niveau-percentile dans l'historique d'exercice (src/lib/strengthStandards.ts).
+          Purement local, jamais envoyé nulle part. La taille n'entre dans aucune formule
+          fournie pour l'instant — stockée pour un usage futur (IMC, etc.). */}
+      <div className="glass-card p-4 mb-6">
+        <div className="flex items-center gap-2 mb-3">
+          <User size={16} className="text-primary" />
+          <h3 className="text-sm font-bold text-foreground">Profil</h3>
+        </div>
+        <div className="flex items-center gap-1.5 mb-3">
+          {(['F', 'H'] as const).map(g => (
+            <button
+              key={g}
+              onClick={() => setGender(gender === g ? undefined : g)}
+              className={`flex-1 py-2 rounded-lg text-xs font-medium transition-all ${
+                gender === g ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
+              }`}
+              aria-pressed={gender === g}
+            >
+              {g === 'F' ? 'Femme' : 'Homme'}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-3">
+          <input
+            type="number"
+            value={heightCm}
+            onChange={e => setHeightCm(e.target.value)}
+            className="flex-1 bg-secondary text-foreground rounded-xl px-3 py-2.5 text-sm outline-none font-mono text-center"
+            placeholder="Taille, ex. 165"
+            aria-label="Taille (cm)"
+          />
+          <span className="text-sm text-muted-foreground">cm</span>
+        </div>
+        <p className="text-[10px] text-muted-foreground mt-2">
+          Utilisés pour comparer tes performances au record de France et à ton niveau (percentile), dans l'historique d'un exercice.
+        </p>
+      </div>
       <div className="glass-card p-4 mb-6">
         <div className="flex items-center gap-2 mb-3">
           <Scale size={16} className="text-primary" />
@@ -1122,6 +1166,41 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                       </button>
                                     </div>
                                   )}
+                                  {/* Drop set isn't a standing method like 531/Cluster/EMOM (TM-driven, generates
+                                      every set upfront) — it cascades live from whichever regular set she's doing.
+                                      This toggle only pre-plans stage 1 at session start; "+ Drop set" in the
+                                      session itself works on any exercise regardless of this flag. */}
+                                  <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                                    <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                                      <input
+                                        type="checkbox"
+                                        checked={!!ex.dropSet}
+                                        onChange={e => updateExercise(ti, exIdx, 'dropSet', e.target.checked ? { stepPercentage: 0.15, stepReps: 2 } : undefined)}
+                                        className="w-3.5 h-3.5 accent-warning"
+                                      />
+                                      <TrendingDown size={10} className="text-warning" /> Drop set
+                                    </label>
+                                    {ex.dropSet && (
+                                      <>
+                                        <input
+                                          type="number"
+                                          value={Math.round((ex.dropSet.stepPercentage ?? 0.15) * 100)}
+                                          onChange={e => updateExercise(ti, exIdx, 'dropSet', { ...ex.dropSet, stepPercentage: (parseFloat(e.target.value) || 0) / 100 })}
+                                          className="w-10 bg-secondary text-foreground rounded-md px-1 py-1 text-[10px] text-center outline-none"
+                                          aria-label={`Pourcentage de réduction par palier de drop set, ${ex.name || 'exercice'}`}
+                                        />
+                                        <span className="text-[10px] text-muted-foreground">% / palier</span>
+                                        <input
+                                          type="number"
+                                          value={ex.dropSet.stepReps ?? 2}
+                                          onChange={e => updateExercise(ti, exIdx, 'dropSet', { ...ex.dropSet, stepReps: parseInt(e.target.value) || 0 })}
+                                          className="w-8 bg-secondary text-foreground rounded-md px-1 py-1 text-[10px] text-center outline-none"
+                                          aria-label={`Répétitions en moins par palier de drop set, ${ex.name || 'exercice'}`}
+                                        />
+                                        <span className="text-[10px] text-muted-foreground">reps / palier</span>
+                                      </>
+                                    )}
+                                  </div>
                                 </div>
                               )}
                             </div>

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AppData, calculate1RM } from '@/lib/types';
 import { splitEquipmentVariant, isBodyweightOptionalExercise } from '@/lib/exerciseNormalize';
-import { ArrowLeft } from 'lucide-react';
+import { STANDARD_MOVEMENTS, StandardMovement, getFranceRecord, getRecordMessage, getLevel, getLevelMessage } from '@/lib/strengthStandards';
+import { ArrowLeft, Trophy } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import RangeButtons, { RangeFilter, rangeCutoffDate } from './RangeButtons';
 
@@ -74,6 +75,21 @@ const ExerciseHistory = ({ exerciseName, data, onClose }: ExerciseHistoryProps) 
 
   const showSubGroups = variantGroups.length > 1;
 
+  // Record de France / niveau-percentile only make sense for the barbell/no-equipment
+  // variant (machine-assisted or elastic-assisted loads aren't comparable to the
+  // standards, which assume free weights or a weighted belt).
+  const isStandardMovement = STANDARD_MOVEMENTS.includes(base as StandardMovement);
+  const defaultVariantPR = useMemo(() => {
+    const defaultGroup = variantGroups.find(g => g.label === null);
+    if (!defaultGroup || defaultGroup.history.length === 0) return 0;
+    return Math.max(...defaultGroup.history.map(h => h.e1rm));
+  }, [variantGroups]);
+  const latestBodyweight = useMemo(() => {
+    const logs = data.bodyWeightLogs || [];
+    if (logs.length === 0) return null;
+    return logs.slice().sort((a, b) => b.date.localeCompare(a.date))[0].weight;
+  }, [data.bodyWeightLogs]);
+
   return (
     <div className="px-4 pt-12 pb-24 animate-slide-up">
       <div className="flex items-center gap-3 mb-6">
@@ -87,6 +103,43 @@ const ExerciseHistory = ({ exerciseName, data, onClose }: ExerciseHistoryProps) 
           )}
         </div>
       </div>
+
+      {isStandardMovement && defaultVariantPR > 0 && (
+        <div className="glass-card p-4 mb-4">
+          <div className="flex items-center gap-1.5 mb-2">
+            <Trophy size={14} className="text-primary" />
+            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Niveau & record de France</h3>
+          </div>
+          {!data.gender || !latestBodyweight ? (
+            <p className="text-xs text-muted-foreground">
+              Renseigne ton sexe et ton poids dans Réglages pour voir ton niveau et ta comparaison au record de France.
+            </p>
+          ) : (() => {
+            const movement = base as StandardMovement;
+            const ratio = defaultVariantPR / latestBodyweight;
+            const level = getLevel(data.gender, movement, ratio);
+            const record = getFranceRecord(data.gender, latestBodyweight, movement);
+            return (
+              <div className="space-y-1.5">
+                {level && (
+                  <p className="text-sm text-primary font-semibold">{getLevelMessage(level)}</p>
+                )}
+                {record && (
+                  <p className="text-[10px] text-muted-foreground">
+                    Catégorie de poids : <span className="text-foreground/80 font-medium">{record.categoryLabel}</span>
+                  </p>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  {record ? getRecordMessage(record, defaultVariantPR) : 'Pas de record de France référencé pour ta catégorie de poids sur cet exercice.'}
+                </p>
+                <p className="text-[10px] text-muted-foreground/70">
+                  Basé sur ton 1RM estimé ({defaultVariantPR} kg) et ton dernier poids enregistré ({latestBodyweight} kg).
+                </p>
+              </div>
+            );
+          })()}
+        </div>
+      )}
 
       {variantGroups.length === 0 ? (
         <div className="glass-card p-8 text-center">
