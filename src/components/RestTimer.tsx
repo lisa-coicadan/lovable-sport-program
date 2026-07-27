@@ -8,13 +8,13 @@ interface RestTimerProps {
   defaultSeconds?: number;
 }
 
-// "1.5m" reads as a decimal, not a duration — mm'ss (like a stopwatch) is the format she
-// actually wants, and it only needs the seconds part when they're non-zero.
+// "1.5m" reads as a decimal, not a duration — "1min30" spells it out unambiguously,
+// and only needs the seconds part when they're non-zero.
 const formatDurationLabel = (totalSeconds: number): string => {
   if (totalSeconds < 60) return `${totalSeconds}s`;
   const m = Math.floor(totalSeconds / 60);
   const s = totalSeconds % 60;
-  return s === 0 ? `${m}m` : `${m}'${s.toString().padStart(2, '0')}`;
+  return s === 0 ? `${m}m` : `${m}min${s.toString().padStart(2, '0')}`;
 };
 
 // Imperative handle so other cards (e.g. the Cluster block) can start a rest countdown

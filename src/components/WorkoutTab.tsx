@@ -756,7 +756,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
             onClick={() => setPreviewOpen(v => !v)}
             className="w-full flex items-center justify-between p-3 touch-target"
           >
-            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Aperçu séance</span>
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Aperçu de la séance prévue</span>
             <ChevronDown
               size={16}
               className={`text-muted-foreground transition-transform ${previewOpen ? 'rotate-180' : ''}`}
