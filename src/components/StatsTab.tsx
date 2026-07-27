@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
-import { AppData, SessionLog, calculate1RM, WORKOUT_COLORS } from '@/lib/types';
+import { AppData, SessionLog, calculate1RM, WORKOUT_COLORS, CardioActivityType } from '@/lib/types';
 import { normalizeExerciseName } from '@/lib/exerciseNormalize';
+import { calculatePaceMinPerKm, formatCardioDuration, formatPace } from '@/lib/cardio';
 import { Trophy, Scale, Crown, ChevronDown, Search, X, Plus } from 'lucide-react';
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -19,7 +20,7 @@ interface StatsTabProps {
 const RPE_CUTOFF = '2026-06-01';
 
 type PR = { name: string; e1rm: number; weight: number; reps: number; date: string };
-type DotRenderProps = { cx: number; cy: number; index: number; payload: { id: string; programName?: string } };
+type DotRenderProps = { cx: number; cy: number; index: number; payload: { id: string; programName?: string; isCardio?: boolean } };
 type E1rmDotProps = { cx: number; cy: number; index: number; payload: { date: number; e1rm: number; weight: number; reps: number } };
 
 const daysAgo = (dateStr: string) => {
@@ -82,6 +83,9 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession }: StatsTabProps) => 
   const [weeklyRange, setWeeklyRange] = useState<RangeFilter>('all');
   const [volumeRange, setVolumeRange] = useState<RangeFilter>('3m');
   const [difficultyRange, setDifficultyRange] = useState<RangeFilter>('3m');
+  const [difficultySourceFilter, setDifficultySourceFilter] = useState<'all' | 'strength' | 'cardio'>('all');
+  const [paceRange, setPaceRange] = useState<RangeFilter>('3m');
+  const [paceActivityFilter, setPaceActivityFilter] = useState<CardioActivityType | null>(null);
   const [weeklyTimeRange, setWeeklyTimeRange] = useState<RangeFilter>('all');
   const [monthlyTimeRange, setMonthlyTimeRange] = useState<RangeFilter>('all');
   const [e1rmOpen, setE1rmOpen] = useState(false);
@@ -215,11 +219,14 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession }: StatsTabProps) => 
 
   // Assigns a stable color per distinct programName encountered (in order of first
   // appearance) so points from different programs are visually distinguishable at a glance.
-  const programColorFor = (points: { programName?: string }[]) => {
+  // `startIndex` lets a caller reserve the first palette slot(s) for something else — the
+  // RPE chart reserves accent-blue (index 0) for cardio, so a program can never coincidentally
+  // land on the exact same hue used for the cardio marker.
+  const programColorFor = (points: { programName?: string }[], startIndex = 0) => {
     const colors = new Map<string, string>();
     points.forEach(p => {
       if (p.programName && !colors.has(p.programName)) {
-        colors.set(p.programName, WORKOUT_COLORS[colors.size % WORKOUT_COLORS.length]);
+        colors.set(p.programName, WORKOUT_COLORS[(startIndex + colors.size) % WORKOUT_COLORS.length]);
       }
     });
     return colors;
@@ -227,22 +234,56 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession }: StatsTabProps) => 
   const volumeProgramColors = useMemo(() => programColorFor(volumeData), [volumeData]);
 
   // Difficulty over time — only sessions from June 2026 onward (RPE /5 scale)
+  // Cardio isn't counted in weeklyGoal/tonnage, but RPE is tracked on the same /5 scale —
+  // worth seeing on the same effort-over-time chart, just visually distinct (cardio's
+  // accent-blue vs a program color) so the two aren't mistaken for each other.
   const difficultyData = useMemo(() => {
     const cutoff = rangeCutoffDate(difficultyRange);
-    return data.sessions
+    const strengthPoints = difficultySourceFilter === 'cardio' ? [] : data.sessions
       .filter(s => s.date >= RPE_CUTOFF)
       .filter(s => s.difficulty && s.difficulty > 0)
       .filter(s => !cutoff || new Date(s.date + 'T00:00:00') >= cutoff)
-      .sort((a, b) => a.date.localeCompare(b.date))
-      .map(s => ({
-        id: s.id,
-        date: new Date(s.date).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' }),
-        difficulty: s.difficulty || 0,
-        type: s.workoutTypeName,
-        programName: s.programName,
+      .map(s => ({ rawDate: s.date, id: s.id, difficulty: s.difficulty || 0, type: s.workoutTypeName, programName: s.programName, isCardio: false }));
+    const cardioPoints = difficultySourceFilter === 'strength' ? [] : (data.cardioSessions || [])
+      .filter(s => s.date >= RPE_CUTOFF)
+      .filter(s => s.difficulty && s.difficulty > 0)
+      .filter(s => !cutoff || new Date(s.date + 'T00:00:00') >= cutoff)
+      .map(s => ({ rawDate: s.date, id: s.id, difficulty: s.difficulty || 0, type: s.activityType, programName: undefined as string | undefined, isCardio: true }));
+    return [...strengthPoints, ...cardioPoints]
+      .sort((a, b) => a.rawDate.localeCompare(b.rawDate))
+      .map(p => ({
+        id: p.id,
+        date: new Date(p.rawDate).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' }),
+        difficulty: p.difficulty,
+        type: p.type,
+        programName: p.programName,
+        isCardio: p.isCardio,
       }));
-  }, [data.sessions, difficultyRange]);
-  const difficultyProgramColors = useMemo(() => programColorFor(difficultyData), [difficultyData]);
+  }, [data.sessions, data.cardioSessions, difficultyRange, difficultySourceFilter]);
+  const difficultyProgramColors = useMemo(() => programColorFor(difficultyData, 1), [difficultyData]);
+
+  const cardioActivityTypesPresent = useMemo(() => {
+    const set = new Set<CardioActivityType>();
+    (data.cardioSessions || []).forEach(s => set.add(s.activityType));
+    return Array.from(set);
+  }, [data.cardioSessions]);
+
+  // Pace only exists for sessions with a distance logged (it's optional) — everything
+  // without one just doesn't have a point on this chart.
+  const paceData = useMemo(() => {
+    const cutoff = rangeCutoffDate(paceRange);
+    return (data.cardioSessions || [])
+      .filter(s => !paceActivityFilter || s.activityType === paceActivityFilter)
+      .filter(s => !cutoff || new Date(s.date + 'T00:00:00') >= cutoff)
+      .map(s => ({ rawDate: s.date, pace: calculatePaceMinPerKm(s.durationMinutes, s.distanceKm), activityType: s.activityType }))
+      .filter((p): p is { rawDate: string; pace: number; activityType: CardioActivityType } => p.pace !== null)
+      .sort((a, b) => a.rawDate.localeCompare(b.rawDate))
+      .map(p => ({
+        date: new Date(p.rawDate).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' }),
+        pace: Math.round(p.pace * 100) / 100,
+        activityType: p.activityType,
+      }));
+  }, [data.cardioSessions, paceRange, paceActivityFilter]);
 
   // Weekly training time — include empty weeks
   const weeklyTimeData = useMemo(() => {
@@ -619,12 +660,29 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession }: StatsTabProps) => 
       )}
 
       {/* Difficulty Over Time */}
-      {difficultyData.length > 0 && (
+      {(data.sessions.some(s => s.date >= RPE_CUTOFF && s.difficulty && s.difficulty > 0) ||
+        (data.cardioSessions || []).some(s => s.date >= RPE_CUTOFF && s.difficulty && s.difficulty > 0)) && (
         <div className="glass-card p-4 mb-4">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-foreground">Effort perçu (RPE /5)</h3>
             <RangeButtons value={difficultyRange} onChange={setDifficultyRange} />
           </div>
+          <div className="flex gap-1 mb-3">
+            {([['all', 'Tout'], ['strength', 'Muscu'], ['cardio', 'Cardio']] as const).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setDifficultySourceFilter(key)}
+                className={`touch-target inline-flex items-center justify-center px-2 rounded-lg text-[10px] font-medium transition-colors ${
+                  difficultySourceFilter === key ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {difficultyData.length === 0 ? (
+            <p className="text-xs text-muted-foreground text-center py-8">Aucune donnée pour ce filtre</p>
+          ) : (
           <div className="relative">
             <ResponsiveContainer width="100%" height={180}>
               <LineChart data={difficultyData}>
@@ -637,7 +695,7 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession }: StatsTabProps) => 
                   stroke="hsl(262 83% 66%)"
                   strokeWidth={2.5}
                   dot={(props: DotRenderProps) => {
-                    const color = difficultyProgramColors.get(props.payload.programName) || '262 83% 66%';
+                    const color = props.payload.isCardio ? '189 94% 55%' : (difficultyProgramColors.get(props.payload.programName) || '262 83% 66%');
                     return (
                       <g
                         key={`ddot-${props.index}`}
@@ -654,9 +712,12 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession }: StatsTabProps) => 
               </LineChart>
             </ResponsiveContainer>
             {previewSessionId?.chart === 'difficulty' && (() => {
-              const session = data.sessions.find(s => s.id === previewSessionId.id);
-              if (!session) return null;
               const point = difficultyData.find(p => p.id === previewSessionId.id);
+              if (!point) return null;
+              const session = point.isCardio ? undefined : data.sessions.find(s => s.id === previewSessionId.id);
+              const cardio = point.isCardio ? (data.cardioSessions || []).find(s => s.id === previewSessionId.id) : undefined;
+              if (!session && !cardio) return null;
+              const dotColor = point.isCardio ? 'hsl(189 94% 55%)' : 'hsl(262 83% 66%)';
               return (
                 <div
                   style={{ left: previewSessionId.cx, top: previewSessionId.cy, transform: 'translate(-50%, calc(-100% - 10px))' }}
@@ -670,26 +731,90 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession }: StatsTabProps) => 
                     >
                       <X size={9} />
                     </button>
-                    <p style={{ color: 'hsl(0 0% 95%)' }} className="text-[11px] mb-0.5">{point?.date}</p>
-                    <p className="text-xs font-semibold mb-1" style={{ color: 'hsl(262 83% 66%)' }}>RPE {point?.difficulty}/5</p>
-                    <div className="flex items-center justify-between gap-1.5">
-                      <div className="min-w-0">
-                        <p className="text-[9px] text-foreground/80 truncate">{session.workoutTypeName}</p>
-                        {session.programName && <p className="text-[8px] text-muted-foreground truncate">{session.programName}</p>}
+                    <p style={{ color: 'hsl(0 0% 95%)' }} className="text-[11px] mb-0.5">{point.date}</p>
+                    <p className="text-xs font-semibold mb-1" style={{ color: dotColor }}>RPE {point.difficulty}/5</p>
+                    {session && (
+                      <div className="flex items-center justify-between gap-1.5">
+                        <div className="min-w-0">
+                          <p className="text-[9px] text-foreground/80 truncate">{session.workoutTypeName}</p>
+                          {session.programName && <p className="text-[8px] text-muted-foreground truncate">{session.programName}</p>}
+                        </div>
+                        <button
+                          onClick={() => { setViewingSession(session); setPreviewSessionId(null); }}
+                          className="shrink-0 w-6 h-6 flex items-center justify-center bg-primary/80 text-primary-foreground rounded-md"
+                          aria-label="Voir la séance complète"
+                        >
+                          <Plus size={12} />
+                        </button>
                       </div>
-                      <button
-                        onClick={() => { setViewingSession(session); setPreviewSessionId(null); }}
-                        className="shrink-0 w-6 h-6 flex items-center justify-center bg-primary/80 text-primary-foreground rounded-md"
-                        aria-label="Voir la séance complète"
-                      >
-                        <Plus size={12} />
-                      </button>
-                    </div>
+                    )}
+                    {cardio && (
+                      <p className="text-[9px] text-foreground/80">
+                        {cardio.activityType === 'Autre' ? (cardio.customActivityLabel || 'Autre') : cardio.activityType} · {formatCardioDuration(cardio.durationMinutes)}
+                        {cardio.distanceKm !== undefined && ` · ${cardio.distanceKm} km`}
+                      </p>
+                    )}
                   </div>
                 </div>
               );
             })()}
           </div>
+          )}
+        </div>
+      )}
+
+      {/* Cardio Pace Over Time — only sessions with a distance logged have a point here */}
+      {cardioActivityTypesPresent.length > 0 && (
+        <div className="glass-card p-4 mb-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-foreground">Allure cardio (min/km)</h3>
+            <RangeButtons value={paceRange} onChange={setPaceRange} />
+          </div>
+          <div className="flex gap-1 mb-3 flex-wrap">
+            <button
+              onClick={() => setPaceActivityFilter(null)}
+              className={`touch-target inline-flex items-center justify-center px-2 rounded-lg text-[10px] font-medium transition-colors ${
+                !paceActivityFilter ? 'bg-accent-blue text-primary-foreground' : 'bg-secondary text-muted-foreground'
+              }`}
+            >
+              Tout
+            </button>
+            {cardioActivityTypesPresent.map(type => (
+              <button
+                key={type}
+                onClick={() => setPaceActivityFilter(type)}
+                className={`touch-target inline-flex items-center justify-center px-2 rounded-lg text-[10px] font-medium transition-colors ${
+                  paceActivityFilter === type ? 'bg-accent-blue text-primary-foreground' : 'bg-secondary text-muted-foreground'
+                }`}
+              >
+                {type}
+              </button>
+            ))}
+          </div>
+          {paceData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={180}>
+              <LineChart data={paceData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 12% 20%)" />
+                <XAxis dataKey="date" tick={chartStyle} axisLine={false} tickLine={false} />
+                <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={35} tickFormatter={(v: number) => v.toFixed(1)} />
+                <Tooltip
+                  contentStyle={tooltipStyle}
+                  labelStyle={{ color: 'hsl(0 0% 95%)' }}
+                  formatter={(v: number) => [formatPace(v), 'Allure']}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="pace"
+                  stroke="hsl(189 94% 55%)"
+                  strokeWidth={2.5}
+                  dot={{ r: 3, fill: 'hsl(189 94% 55%)' }}
+                  style={{ filter: 'drop-shadow(0 0 5px hsl(189 94% 55% / 0.6))' }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            <p className="text-xs text-muted-foreground text-center py-8">Aucune séance avec une distance renseignée pour ce filtre</p>
+          )}
         </div>
       )}
 

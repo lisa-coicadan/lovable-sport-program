@@ -65,6 +65,10 @@ export interface Exercise {
   unilateral?: boolean; // display-only attribute (execution mode)
   equipment?: ExerciseEquipment; // display-only attribute (equipment tag)
   dropSet?: DropSetConfig;
+  // "As many reps as possible" — configured ahead of time in Réglages (like dropSet),
+  // not toggled mid-set: every set built for this exercise starts with no pre-filled
+  // target, she logs whatever she actually got.
+  amrap?: boolean;
 }
 
 export interface WorkoutType {
@@ -94,6 +98,7 @@ export interface SetLog {
   supersetGroupId?: string;
   supersetRole?: 'A' | 'B';
   dropSetStage?: number; // 1, 2, ... — present only on auto-generated drop-set rows, cascading below their anchor set
+  amrap?: boolean; // "as many reps as possible" — no pre-filled target, she logs whatever she actually got
 }
 
 export interface SessionLog {
@@ -125,6 +130,24 @@ export interface BodyWeightLog {
   weight: number;
 }
 
+// Cardio/endurance activities (course, natation, ...) don't fit the sets×reps model at
+// all, so they're logged as their own kind of entry rather than shoehorned into
+// SessionLog/Exercise — a simple after-the-fact log, not an interactive in-session
+// tracker like WorkoutTab. Distance is optional (some sessions are duration-only, e.g.
+// swimming without a tracked distance); pace is derived at display time, never stored.
+export type CardioActivityType = 'Course à pied' | 'Natation' | 'Vélo' | 'Autre';
+
+export interface CardioSession {
+  id: string;
+  date: string; // YYYY-MM-DD
+  activityType: CardioActivityType;
+  customActivityLabel?: string; // only when activityType === 'Autre'
+  durationMinutes: number;
+  distanceKm?: number;
+  difficulty?: number; // RPE /5, same scale as SessionLog.difficulty
+  notes?: string;
+}
+
 export type Gender = 'F' | 'H';
 
 export interface AppData {
@@ -141,6 +164,10 @@ export interface AppData {
   // every reader already guards on their presence.
   gender?: Gender;
   heightCm?: number;
+  // Separate from workoutTypes/sessions on purpose — cardio isn't counted in
+  // `weeklyGoal`/`sessions`'s strength stats, it has its own goal + tracking.
+  cardioSessions?: CardioSession[];
+  cardioWeeklyGoal?: number;
   // @deprecated legacy fields — migrated into a per-exercise `method` on load (see
   // src/lib/storage.ts). New AppData never sets these; only present on old stored JSON.
   fiveThreeOne?: FiveThreeOneConfig;
@@ -167,6 +194,8 @@ export const DEFAULT_APP_DATA: AppData = {
   bodyWeightLogs: [],
   programs: [],
   activeProgramId: null,
+  cardioSessions: [],
+  cardioWeeklyGoal: 2,
 };
 
 export function calculate1RM(weight: number, reps: number): number {

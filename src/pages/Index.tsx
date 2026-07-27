@@ -47,6 +47,13 @@ const Index = () => {
     }));
   }, []);
 
+  const handleDeleteCardioSession = useCallback((cardioSessionId: string) => {
+    setData(prev => ({
+      ...prev,
+      cardioSessions: (prev.cardioSessions || []).filter(s => s.id !== cardioSessionId),
+    }));
+  }, []);
+
   const handleUpdateData = useCallback((partial: Partial<AppData>) => {
     setData(prev => ({ ...prev, ...partial }));
   }, []);
@@ -58,7 +65,7 @@ const Index = () => {
   return (
     <div className="min-h-screen bg-background max-w-lg mx-auto relative">
       {activeTab === 0 && (
-        <CalendarTab data={data} onDaySelect={handleDaySelect} onUpdateSession={handleUpdateSession} onDeleteSession={handleDeleteSession} />
+        <CalendarTab data={data} onDaySelect={handleDaySelect} onUpdateSession={handleUpdateSession} onDeleteSession={handleDeleteSession} onDeleteCardioSession={handleDeleteCardioSession} />
       )}
       {/* WorkoutTab always mounted to preserve session state (timer, entered sets) across tab navigation */}
       <div style={{ display: activeTab === 1 ? 'block' : 'none' }}>

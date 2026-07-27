@@ -1,17 +1,18 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { AppData, WorkoutType, SetLog, SessionLog, FiveThreeOneMethod, ClusterMethod, EMOMMethod, ExerciseMethod, Exercise, calculate1RM } from '@/lib/types';
+import { AppData, WorkoutType, SetLog, SessionLog, FiveThreeOneMethod, ClusterMethod, EMOMMethod, ExerciseMethod, Exercise, calculate1RM, CardioSession, CardioActivityType } from '@/lib/types';
 import { getWeekSets, getWeekLabel } from '@/lib/531';
 import { getClusterConfig, getMiniSeriesWeight } from '@/lib/cluster';
 import { getEmomConfig, getEmomWeight } from '@/lib/emom';
 import { buildExerciseBlocks } from '@/lib/superset';
 import { isBodyweightOptionalExercise, weightFieldValue } from '@/lib/exerciseNormalize';
 import { getDropSetConfig, getDropSetStage } from '@/lib/dropset';
+import { compareCardioSession, formatCardioDuration, formatPace } from '@/lib/cardio';
 import RestTimer, { RestTimerHandle } from './RestTimer';
 import EmomTimer from './EmomTimer';
 import ExerciseHistory from './ExerciseHistory';
 import SessionSummary from './SessionSummary';
 import SettingsPanel from './SettingsPanel';
-import { Check, ChevronRight, ArrowLeft, Settings, History, Plus, Trash2, ChevronDown, Timer, Pencil, TrendingDown } from 'lucide-react';
+import { Check, ChevronRight, ArrowLeft, Settings, History, Plus, Trash2, ChevronDown, Timer, Pencil, TrendingDown, Activity, Footprints, Waves, Bike } from 'lucide-react';
 import { SortableList, DragHandle } from './SortableBlock';
 import SetDots from './SetDots';
 
@@ -26,7 +27,14 @@ interface WorkoutTabProps {
   onProgressChange?: (progress: number | null) => void;
 }
 
-type Mode = 'select' | 'recap' | 'summary' | 'settings' | 'history';
+type Mode = 'select' | 'recap' | 'summary' | 'settings' | 'history' | 'cardio';
+
+const CARDIO_ACTIVITY_TYPES: { type: CardioActivityType; icon: typeof Footprints }[] = [
+  { type: 'Course à pied', icon: Footprints },
+  { type: 'Natation', icon: Waves },
+  { type: 'Vélo', icon: Bike },
+  { type: 'Autre', icon: Activity },
+];
 
 // Cluster/EMOM are session-level techniques, not a standing program like 5/3/1: the
 // exercise's configured method (from Settings) is just the default for a new session,
@@ -77,7 +85,11 @@ const buildSetsForExercise = (ex: Exercise, method: ExerciseMethod | undefined, 
   }
   const result: SetLog[] = [];
   for (let i = 0; i < ex.sets; i++) {
-    result.push({ exerciseId: ex.id, exerciseName: ex.name, setNumber: i + 1, reps: ex.reps, weight: lastWeight, completed: false });
+    result.push({
+      exerciseId: ex.id, exerciseName: ex.name, setNumber: i + 1,
+      reps: ex.amrap ? 0 : ex.reps, weight: lastWeight, completed: false,
+      amrap: ex.amrap || undefined,
+    });
   }
   return result;
 };
@@ -133,6 +145,45 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
   const [dropSetPickerFor, setDropSetPickerFor] = useState<string | null>(null);
   const restTimerRef = useRef<RestTimerHandle>(null);
 
+  // Cardio logging is a simple after-the-fact form (not an interactive session like the
+  // rest of this component) — its own small state block, reset whenever the form closes.
+  const [cardioActivityType, setCardioActivityType] = useState<CardioActivityType>('Course à pied');
+  const [cardioCustomLabel, setCardioCustomLabel] = useState('');
+  const [cardioDurationMin, setCardioDurationMin] = useState('');
+  const [cardioDurationSec, setCardioDurationSec] = useState('');
+  const [cardioDistance, setCardioDistance] = useState('');
+  const [cardioDifficulty, setCardioDifficulty] = useState(3);
+  const [cardioRecapOpen, setCardioRecapOpen] = useState(false);
+
+  const resetCardioForm = () => {
+    setCardioActivityType('Course à pied');
+    setCardioCustomLabel('');
+    setCardioDurationMin('');
+    setCardioDurationSec('');
+    setCardioDistance('');
+    setCardioDifficulty(3);
+    setCardioRecapOpen(false);
+  };
+
+  const cardioDurationMinutes = (parseInt(cardioDurationMin, 10) || 0) + (parseInt(cardioDurationSec, 10) || 0) / 60;
+  const cardioDistanceKm = cardioDistance.trim() === '' ? undefined : parseFloat(cardioDistance) || undefined;
+
+  const saveCardioSession = () => {
+    if (cardioDurationMinutes <= 0) return;
+    const session: CardioSession = {
+      id: `cardio-${Date.now()}`,
+      date: new Date().toISOString().split('T')[0],
+      activityType: cardioActivityType,
+      customActivityLabel: cardioActivityType === 'Autre' ? cardioCustomLabel.trim() || undefined : undefined,
+      durationMinutes: cardioDurationMinutes,
+      distanceKm: cardioDistanceKm,
+      difficulty: cardioDifficulty,
+    };
+    onUpdateData({ cardioSessions: [...(data.cardioSessions || []), session] });
+    resetCardioForm();
+    setMode('select');
+  };
+
   // Resolves the full method (preset/rest times/duration included, not just TM) that
   // applies for a given override choice — reusing the exercise's own configured method
   // whenever its type already matches, so toggling away and back restores it exactly,
@@ -173,6 +224,14 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
       return result;
     });
   };
+
+  // "Ajouter une séance" on a Calendar day sets `selectedDate` and switches to this tab —
+  // she means "let me pick a workout type for that date," not whatever screen (Réglages,
+  // Historique...) this component happened to be parked on from earlier browsing. Only
+  // resets when no session is actually in progress, so it can't silently drop live sets.
+  useEffect(() => {
+    if (selectedDate && !selectedType) setMode('select');
+  }, [selectedDate, selectedType]);
 
   useEffect(() => {
     if (mode !== 'recap') return;
@@ -271,21 +330,23 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
             exerciseId: a.id,
             exerciseName: a.name,
             setNumber: i + 1,
-            reps: a.reps,
+            reps: a.amrap ? 0 : a.reps,
             weight: lastWeights[a.id] || a.weight || 0,
             completed: false,
             supersetGroupId: a.supersetGroupId,
             supersetRole: 'A',
+            amrap: a.amrap || undefined,
           });
           initialSets.push({
             exerciseId: b.id,
             exerciseName: b.name,
             setNumber: i + 1,
-            reps: b.reps,
+            reps: b.amrap ? 0 : b.reps,
             weight: lastWeights[b.id] || b.weight || 0,
             completed: false,
             supersetGroupId: b.supersetGroupId,
             supersetRole: 'B',
+            amrap: b.amrap || undefined,
           });
         }
       } else {
@@ -358,9 +419,10 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
       exerciseId,
       exerciseName,
       setNumber: existingSets.length + 1,
-      reps: lastSet?.reps || 10,
+      reps: lastSet?.amrap ? 0 : (lastSet?.reps || 10),
       weight: lastSet?.weight || 0,
       completed: false,
+      amrap: lastSet?.amrap || undefined,
     };
     
     const updated = [...sets];
@@ -648,6 +710,223 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
           ))}
         </div>
         )}
+
+        {/* Cardio is a simple after-the-fact log (duration/distance/RPE), not an
+            interactive session — its own entry point rather than mixed into the
+            sets×reps workout types above. */}
+        <button
+          onClick={() => setMode('cardio')}
+          className="w-full glass-card p-4 mt-4 flex items-center gap-3 border-accent-blue/30 active:scale-[0.99] transition-transform"
+        >
+          <Activity size={18} className="text-accent-blue shrink-0" />
+          <span className="text-sm font-medium text-foreground">Activité cardio</span>
+          <span className="text-xs text-muted-foreground ml-auto">Course, natation...</span>
+        </button>
+      </div>
+    );
+  }
+
+  if (mode === 'cardio' && cardioRecapOpen) {
+    const activityLabel = cardioActivityType === 'Autre' ? (cardioCustomLabel.trim() || 'Autre') : cardioActivityType;
+    const previousSessions = (data.cardioSessions || []).filter(s => s.activityType === cardioActivityType);
+    const comparison = compareCardioSession({ durationMinutes: cardioDurationMinutes, distanceKm: cardioDistanceKm }, previousSessions);
+    const verdictLabel = (metric: 'distance' | 'pace' | 'duration') => metric === 'distance' ? 'la distance' : metric === 'pace' ? "l'allure" : 'la durée';
+    return (
+      <div className="px-4 pt-12 pb-24 animate-slide-up">
+        <div className="flex items-center gap-3 mb-6">
+          <button
+            onClick={() => setCardioRecapOpen(false)}
+            className="touch-target p-1 text-muted-foreground"
+            aria-label="Retour au formulaire"
+          >
+            <ArrowLeft size={20} />
+          </button>
+          <h1 className="text-xl font-bold text-foreground">Récap</h1>
+        </div>
+
+        {comparison.headline ? (
+          <div className={`glass-card p-4 mb-4 border ${comparison.headline.improved ? 'border-success/40 bg-success/5' : 'border-warning/40 bg-warning/5'}`}>
+            <p className={`text-sm font-semibold ${comparison.headline.improved ? 'text-success' : 'text-warning'}`}>
+              {comparison.headline.improved ? '📈 Mieux que la dernière fois' : '📉 En dessous de la dernière fois'}
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">D'après {verdictLabel(comparison.headline.metric)}</p>
+          </div>
+        ) : (
+          <div className="glass-card p-4 mb-4">
+            <p className="text-sm text-foreground">Première séance de {activityLabel} enregistrée — rien à comparer pour l'instant.</p>
+          </div>
+        )}
+
+        <div className="glass-card p-4 mb-4">
+          <div className="flex items-center gap-2 mb-3">
+            {(() => { const Icon = CARDIO_ACTIVITY_TYPES.find(a => a.type === cardioActivityType)?.icon || Activity; return <Icon size={16} className="text-accent-blue" />; })()}
+            <span className="text-sm font-semibold text-foreground">{activityLabel}</span>
+          </div>
+          <div className="space-y-3">
+            {comparison.distance && (
+              <div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">Distance</span>
+                  <span className="text-sm font-bold text-foreground">{comparison.distance.current} km</span>
+                </div>
+                <p className="text-[10px] text-muted-foreground">
+                  {comparison.distance.last !== null && `Dernière : ${comparison.distance.last} km`}
+                  {comparison.distance.last !== null && comparison.distance.average !== null && ' · '}
+                  {comparison.distance.average !== null && `Moyenne : ${Math.round(comparison.distance.average * 100) / 100} km`}
+                </p>
+              </div>
+            )}
+            {comparison.pace && (
+              <div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">Allure</span>
+                  <span className="text-sm font-bold text-foreground">{formatPace(comparison.pace.current)}</span>
+                </div>
+                <p className="text-[10px] text-muted-foreground">
+                  {comparison.pace.last !== null && `Dernière : ${formatPace(comparison.pace.last)}`}
+                  {comparison.pace.last !== null && comparison.pace.average !== null && ' · '}
+                  {comparison.pace.average !== null && `Moyenne : ${formatPace(comparison.pace.average)}`}
+                </p>
+              </div>
+            )}
+            <div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">Durée</span>
+                <span className="text-sm font-bold text-foreground">{formatCardioDuration(comparison.duration.current)}</span>
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                {comparison.duration.last !== null && `Dernière : ${formatCardioDuration(comparison.duration.last)}`}
+                {comparison.duration.last !== null && comparison.duration.average !== null && ' · '}
+                {comparison.duration.average !== null && `Moyenne : ${formatCardioDuration(comparison.duration.average)}`}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex gap-2">
+          <button
+            onClick={() => setCardioRecapOpen(false)}
+            className="flex-1 bg-secondary text-secondary-foreground font-medium py-2.5 rounded-xl text-sm touch-target"
+          >
+            Modifier
+          </button>
+          <button
+            onClick={saveCardioSession}
+            className="flex-1 btn-neon font-medium py-2.5 rounded-xl text-sm flex items-center justify-center gap-1.5 touch-target transition-transform active:scale-95"
+          >
+            <Check size={14} /> Valider
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (mode === 'cardio') {
+    const canSave = cardioDurationMinutes > 0;
+    return (
+      <div className="px-4 pt-12 pb-24 animate-slide-up">
+        <div className="flex items-center gap-3 mb-6">
+          <button
+            onClick={() => { resetCardioForm(); setMode('select'); }}
+            className="touch-target p-1 text-muted-foreground"
+            aria-label="Retour"
+          >
+            <ArrowLeft size={20} />
+          </button>
+          <h1 className="text-xl font-bold text-foreground">Activité cardio</h1>
+        </div>
+
+        <div className="glass-card p-4 mb-4">
+          <label className="text-xs text-muted-foreground mb-2 block">Type d'activité</label>
+          <div className="grid grid-cols-4 gap-2">
+            {CARDIO_ACTIVITY_TYPES.map(({ type, icon: Icon }) => (
+              <button
+                key={type}
+                onClick={() => setCardioActivityType(type)}
+                className={`flex flex-col items-center gap-1 py-2.5 rounded-xl text-[10px] font-medium transition-colors ${
+                  cardioActivityType === type ? 'bg-accent-blue/15 text-accent-blue border border-accent-blue/40' : 'bg-secondary text-muted-foreground border border-transparent'
+                }`}
+                aria-pressed={cardioActivityType === type}
+              >
+                <Icon size={16} />
+                {type}
+              </button>
+            ))}
+          </div>
+          {cardioActivityType === 'Autre' && (
+            <input
+              value={cardioCustomLabel}
+              onChange={e => setCardioCustomLabel(e.target.value)}
+              placeholder="Quel type d'activité ?"
+              className="w-full bg-secondary text-foreground rounded-lg px-3 py-2 text-sm outline-none mt-3"
+            />
+          )}
+        </div>
+
+        <div className="glass-card p-4 mb-4">
+          <label className="text-xs text-muted-foreground mb-1.5 block">Durée</label>
+          <div className="flex items-center gap-1.5">
+            <input
+              type="number"
+              inputMode="numeric"
+              value={cardioDurationMin}
+              onChange={e => setCardioDurationMin(e.target.value)}
+              placeholder="30"
+              className="w-full bg-secondary text-foreground rounded-xl px-3 py-2.5 text-sm outline-none font-mono text-center text-lg"
+              aria-label="Minutes"
+            />
+            <span className="text-muted-foreground text-xs shrink-0">min</span>
+            <input
+              type="number"
+              inputMode="numeric"
+              value={cardioDurationSec}
+              onChange={e => setCardioDurationSec(e.target.value)}
+              placeholder="00"
+              className="w-full bg-secondary text-foreground rounded-xl px-3 py-2.5 text-sm outline-none font-mono text-center text-lg"
+              aria-label="Secondes"
+            />
+            <span className="text-muted-foreground text-xs shrink-0">sec</span>
+          </div>
+        </div>
+
+        <div className="glass-card p-4 mb-4">
+          <label className="text-xs text-muted-foreground mb-1.5 block">Distance (km) — facultatif</label>
+          <input
+            type="number"
+            inputMode="decimal"
+            value={cardioDistance}
+            onChange={e => setCardioDistance(e.target.value)}
+            placeholder="5"
+            className="w-full bg-secondary text-foreground rounded-xl px-3 py-2.5 text-sm outline-none font-mono text-center text-lg"
+          />
+        </div>
+
+        <div className="glass-card p-4 mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <label className="text-xs text-muted-foreground">Comment tu t'es sentie ?</label>
+            <span className="text-sm font-bold text-foreground">{cardioDifficulty}/5</span>
+          </div>
+          <input
+            type="range"
+            min={1}
+            max={5}
+            value={cardioDifficulty}
+            onChange={e => setCardioDifficulty(parseInt(e.target.value))}
+            className="w-full accent-accent-blue h-2"
+          />
+          <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
+            <span>Facile</span>
+            <span>Difficile</span>
+          </div>
+        </div>
+
+        <button
+          onClick={() => setCardioRecapOpen(true)}
+          disabled={!canSave}
+          className="w-full btn-neon font-medium py-2.5 rounded-xl text-sm flex items-center justify-center gap-1.5 touch-target transition-transform active:scale-95 disabled:opacity-40"
+        >
+          <ChevronRight size={14} /> Voir le récap
+        </button>
       </div>
     );
   }
@@ -1174,9 +1453,11 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
                               type="number"
                               value={sets[row.idx].reps || ''}
                               onChange={e => updateSet(row.idx, 'reps', e.target.value)}
-                              className="w-12 bg-background/60 rounded-md text-foreground text-sm text-center outline-none font-mono py-1"
+                              className={`w-12 bg-background/60 rounded-md text-sm text-center outline-none font-mono py-1 ${
+                                sets[row.idx].amrap ? 'text-accent-purple placeholder:text-accent-purple/70' : 'text-foreground'
+                              }`}
                               aria-label={`Répétitions série ${localIdx + 1}, ${row.name}`}
-                              placeholder="reps"
+                              placeholder={sets[row.idx].amrap ? 'Max' : 'reps'}
                             />
                           </div>
                         ))}
@@ -1326,8 +1607,10 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
                           type="number"
                           value={sets[globalIdx].reps || ''}
                           onChange={e => updateSet(globalIdx, 'reps', e.target.value)}
-                          className="w-12 bg-transparent text-foreground text-sm text-center outline-none font-mono"
-                          placeholder="reps"
+                          className={`w-12 bg-transparent text-sm text-center outline-none font-mono ${
+                            sets[globalIdx].amrap ? 'text-accent-purple placeholder:text-accent-purple/70' : 'text-foreground'
+                          }`}
+                          placeholder={sets[globalIdx].amrap ? 'Max' : 'reps'}
                           aria-label={`Répétitions ${rowLabel}, ${name}`}
                         />
                         <button

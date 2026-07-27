@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, forwardRef, useImperativeHandle } from 'react';
+import { useState, useEffect, useCallback, useRef, forwardRef, useImperativeHandle, CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { Pause, Play, RotateCcw, X, Timer, Plus, Check } from 'lucide-react';
 import { getSharedAudioContext, scheduleBeep, cancelBeep } from '@/lib/beep';
@@ -6,6 +6,42 @@ import OrbitRing from './OrbitRing';
 
 interface RestTimerProps {
   defaultSeconds?: number;
+}
+
+// Where she's dragged the floating timer to — a UI preference, not training data, so it
+// lives in its own localStorage key rather than AppData (no export/backup implications).
+type Corner = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
+const CORNER_STORAGE_KEY = 'fitness-tracker-timer-corner';
+const CORNERS: Corner[] = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
+
+function loadCorner(): Corner {
+  try {
+    const stored = localStorage.getItem(CORNER_STORAGE_KEY);
+    if ((CORNERS as string[]).includes(stored || '')) return stored as Corner;
+  } catch { /* localStorage unavailable (private browsing, etc.) */ }
+  return 'bottom-right';
+}
+
+function saveCorner(corner: Corner) {
+  try { localStorage.setItem(CORNER_STORAGE_KEY, corner); } catch { /* ignore */ }
+}
+
+// Bottom stays a fixed 96px (clears the bottom tab bar, unchanged from the original,
+// already-tested position) — top needs the notch/status-bar safe area instead, since
+// nothing else on this fixed/portaled overlay accounts for it.
+function cornerStyle(corner: Corner): CSSProperties {
+  const style: CSSProperties = { position: 'fixed' };
+  if (corner.startsWith('top')) style.top = 'calc(env(safe-area-inset-top, 0px) + 16px)';
+  else style.bottom = 96;
+  if (corner.endsWith('left')) style.left = 16;
+  else style.right = 16;
+  return style;
+}
+
+function nearestCorner(x: number, y: number): Corner {
+  const vertical = y < window.innerHeight / 2 ? 'top' : 'bottom';
+  const horizontal = x < window.innerWidth / 2 ? 'left' : 'right';
+  return `${vertical}-${horizontal}` as Corner;
 }
 
 // "1.5m" reads as a decimal, not a duration — "1min30" spells it out unambiguously,
@@ -32,8 +68,13 @@ const RestTimer = forwardRef<RestTimerHandle, RestTimerProps>(({ defaultSeconds 
   const [customOpen, setCustomOpen] = useState(false);
   const [customMin, setCustomMin] = useState('');
   const [customSec, setCustomSec] = useState('');
+  const [corner, setCorner] = useState<Corner>(loadCorner);
+  const [dragOffset, setDragOffset] = useState<{ x: number; y: number } | null>(null);
   const endAtRef = useRef<number | null>(null);
   const scheduledBeepRef = useRef<OscillatorNode[]>([]);
+  // Not state: read synchronously in the pointerup/click handlers to distinguish a tap
+  // (open the panel) from a drag (reposition) without waiting for a re-render.
+  const dragStateRef = useRef<{ startX: number; startY: number; dragging: boolean } | null>(null);
 
   // Recompute remaining time from wall-clock time rather than trusting the interval's
   // tick count: iOS throttles/pauses setInterval when the tab is backgrounded or the
@@ -167,6 +208,42 @@ const RestTimer = forwardRef<RestTimerHandle, RestTimerProps>(({ defaultSeconds 
   const mins = Math.floor(seconds / 60);
   const secs = seconds % 60;
 
+  // Drag-to-reposition on the collapsed circle only — a 10px threshold before it counts
+  // as a drag (rather than a tap) keeps normal taps opening the panel as before, and the
+  // button visually follows the finger via a transform so it doesn't feel inert mid-drag.
+  const onDragPointerDown = (e: ReactPointerEvent<HTMLButtonElement>) => {
+    dragStateRef.current = { startX: e.clientX, startY: e.clientY, dragging: false };
+  };
+
+  const onDragPointerMove = (e: ReactPointerEvent<HTMLButtonElement>) => {
+    const state = dragStateRef.current;
+    if (!state) return;
+    const dx = e.clientX - state.startX;
+    const dy = e.clientY - state.startY;
+    if (!state.dragging && Math.hypot(dx, dy) > 10) {
+      state.dragging = true;
+      e.currentTarget.setPointerCapture(e.pointerId);
+    }
+    if (state.dragging) setDragOffset({ x: dx, y: dy });
+  };
+
+  const onDragPointerUp = (e: ReactPointerEvent<HTMLButtonElement>) => {
+    const state = dragStateRef.current;
+    if (state?.dragging) {
+      const next = nearestCorner(e.clientX, e.clientY);
+      setCorner(next);
+      saveCorner(next);
+    }
+    setDragOffset(null);
+  };
+
+  const onCollapsedClick = () => {
+    // A drag that just ended shouldn't also open the panel — pointerup already handled it.
+    if (dragStateRef.current?.dragging) { dragStateRef.current = null; return; }
+    dragStateRef.current = null;
+    setExpanded(true);
+  };
+
   // Rendered via a portal straight into document.body — a `position: fixed` element
   // still resolves relative to any ANCESTOR that has an active/lingering `transform`
   // (this is spec behavior, not a bug in one engine), and iOS Safari standalone-PWA mode
@@ -177,13 +254,18 @@ const RestTimer = forwardRef<RestTimerHandle, RestTimerProps>(({ defaultSeconds 
   // Floating button when collapsed
   if (!expanded) {
     return createPortal(
-      <div className="fixed bottom-24 right-4 z-40">
+      <div style={cornerStyle(corner)} className="z-40">
         {isRunning && <div className="absolute inset-0 bg-primary/40 rounded-full blur-xl animate-pulse-glow" />}
         <button
-          onClick={() => setExpanded(true)}
-          className={`relative w-14 h-14 rounded-full flex items-center justify-center shadow-lg transition-all active:scale-90 ${
-            isRunning ? 'bg-primary text-primary-foreground' : 'bg-card border border-border text-foreground'
-          }`}
+          onClick={onCollapsedClick}
+          onPointerDown={onDragPointerDown}
+          onPointerMove={onDragPointerMove}
+          onPointerUp={onDragPointerUp}
+          onPointerCancel={() => { dragStateRef.current = null; setDragOffset(null); }}
+          style={dragOffset ? { transform: `translate(${dragOffset.x}px, ${dragOffset.y}px)`, touchAction: 'none' } : undefined}
+          className={`relative w-14 h-14 rounded-full flex items-center justify-center shadow-lg active:scale-90 ${
+            dragOffset ? '' : 'transition-all'
+          } ${isRunning ? 'bg-primary text-primary-foreground' : 'bg-card border border-border text-foreground'}`}
         >
           {isRunning ? (
             <span className="font-mono text-xs font-bold">{mins}:{secs.toString().padStart(2, '0')}</span>
@@ -204,7 +286,7 @@ const RestTimer = forwardRef<RestTimerHandle, RestTimerProps>(({ defaultSeconds 
   // on separate elements (see the confirm dialogs in SettingsPanel/WorkoutTab) — this
   // was the one place that combined both classes on the same node.
   return createPortal(
-    <div className="fixed bottom-24 right-4 z-40 w-72">
+    <div style={cornerStyle(corner)} className="z-40 w-72">
       <div className="glass-card p-4 shadow-2xl">
         <div className="flex items-center justify-between mb-3">
           <span className="text-sm font-medium text-muted-foreground">Minuteur de repos</span>

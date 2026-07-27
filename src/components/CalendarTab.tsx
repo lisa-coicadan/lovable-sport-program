@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
-import { AppData, SessionLog } from '@/lib/types';
-import { ChevronLeft, ChevronRight, Plus, Trash2, X } from 'lucide-react';
+import { AppData, SessionLog, CardioSession } from '@/lib/types';
+import { ChevronLeft, ChevronRight, Plus, Trash2, X, Activity } from 'lucide-react';
+import { formatCardioDuration, calculatePaceMinPerKm, formatPace } from '@/lib/cardio';
 import SessionDetailView from './SessionDetailView';
 
 interface CalendarTabProps {
@@ -8,13 +9,15 @@ interface CalendarTabProps {
   onDaySelect: (date: string) => void;
   onUpdateSession: (updated: SessionLog) => void;
   onDeleteSession?: (sessionId: string) => void;
+  onDeleteCardioSession?: (cardioSessionId: string) => void;
 }
 
-const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession }: CalendarTabProps) => {
+const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession, onDeleteCardioSession }: CalendarTabProps) => {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [viewingSession, setViewingSession] = useState<SessionLog | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [confirmDeleteCardioId, setConfirmDeleteCardioId] = useState<string | null>(null);
   const cancelDeleteRef = useRef<HTMLButtonElement>(null);
 
   // Default focus to the safe action, and let Escape back out — same expectations any
@@ -45,6 +48,15 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession }: Ca
     return map;
   }, [data.sessions]);
 
+  const cardioByDate = useMemo(() => {
+    const map: Record<string, CardioSession[]> = {};
+    (data.cardioSessions || []).forEach(s => {
+      if (!map[s.date]) map[s.date] = [];
+      map[s.date].push(s);
+    });
+    return map;
+  }, [data.cardioSessions]);
+
   const getColorForType = (typeId: string) => {
     const wt = data.workoutTypes.find(w => w.id === typeId);
     return wt?.color || '189 94% 55%';
@@ -65,6 +77,13 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession }: Ca
   });
 
   const weekProgress = Math.min(thisWeekSessions.length / data.weeklyGoal, 1);
+
+  const cardioWeeklyGoal = data.cardioWeeklyGoal || 2;
+  const thisWeekCardioSessions = (data.cardioSessions || []).filter(s => {
+    const d = new Date(s.date);
+    return d >= startOfWeek && d < endOfWeek;
+  });
+  const cardioWeekProgress = Math.min(thisWeekCardioSessions.length / cardioWeeklyGoal, 1);
 
   const thisMonthSessions = data.sessions.filter(s => {
     const d = new Date(s.date);
@@ -109,6 +128,7 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession }: Ca
   // Day bottom sheet
   if (selectedDate) {
     const daySessions = sessionsByDate[selectedDate] || [];
+    const dayCardioSessions = cardioByDate[selectedDate] || [];
     const dateLabel = new Date(selectedDate + 'T00:00:00').toLocaleDateString('fr-FR', { weekday: 'long', month: 'long', day: 'numeric' });
 
     return (
@@ -149,6 +169,40 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession }: Ca
           </div>
         )}
 
+        {confirmDeleteCardioId && (
+          <div
+            className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-6 animate-fade-in"
+            onClick={() => setConfirmDeleteCardioId(null)}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="delete-cardio-title"
+              className="glass-card p-6 max-w-sm w-full"
+              onClick={e => e.stopPropagation()}
+            >
+              <h3 id="delete-cardio-title" className="text-lg font-bold text-foreground mb-2">Supprimer l'activité ?</h3>
+              <p className="text-sm text-muted-foreground mb-6">
+                Es-tu sûre de vouloir supprimer cette activité cardio ? Cette action est irréversible.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setConfirmDeleteCardioId(null)}
+                  className="flex-1 bg-secondary text-secondary-foreground font-medium py-2.5 rounded-xl text-sm"
+                >
+                  Annuler
+                </button>
+                <button
+                  onClick={() => { onDeleteCardioSession?.(confirmDeleteCardioId); setConfirmDeleteCardioId(null); }}
+                  className="flex-1 bg-destructive text-destructive-foreground font-medium py-2.5 rounded-xl text-sm"
+                >
+                  Supprimer
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
             <button onClick={() => setSelectedDate(null)} aria-label="Retour au calendrier" className="text-muted-foreground touch-target p-1">
@@ -158,9 +212,40 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession }: Ca
           </div>
         </div>
 
-        {daySessions.length === 0 && (
+        {daySessions.length === 0 && dayCardioSessions.length === 0 && (
           <div className="glass-card p-8 text-center mb-6">
             <p className="text-muted-foreground text-sm">Aucune séance ce jour-là</p>
+          </div>
+        )}
+
+        {dayCardioSessions.length > 0 && (
+          <div className="space-y-3 mb-6">
+            {dayCardioSessions.map(cardio => (
+              <div key={cardio.id} className="glass-card p-4 flex items-center gap-3 border-accent-blue/30">
+                <Activity size={16} className="text-accent-blue shrink-0" />
+                <div className="flex-1">
+                  <span className="text-foreground font-semibold text-sm">
+                    {cardio.activityType === 'Autre' ? (cardio.customActivityLabel || 'Autre') : cardio.activityType}
+                  </span>
+                  <div className="flex gap-4 text-xs text-muted-foreground mt-1">
+                    <span>{formatCardioDuration(cardio.durationMinutes)}</span>
+                    {cardio.distanceKm !== undefined && <span>{cardio.distanceKm} km</span>}
+                    {(() => {
+                      const pace = calculatePaceMinPerKm(cardio.durationMinutes, cardio.distanceKm);
+                      return pace !== null && <span>{formatPace(pace)}</span>;
+                    })()}
+                    {cardio.difficulty && <span>RPE {cardio.difficulty}/5</span>}
+                  </div>
+                </div>
+                <button
+                  onClick={() => setConfirmDeleteCardioId(cardio.id)}
+                  aria-label={`Supprimer l'activité ${cardio.activityType}`}
+                  className="p-2 text-muted-foreground hover:text-destructive transition-colors rounded-xl"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            ))}
           </div>
         )}
 
@@ -231,6 +316,21 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession }: Ca
               style={{ width: `${weekProgress * 100}%` }}
             />
           </div>
+          {/* Separate goal/color from strength — cardio isn't counted toward weeklyGoal */}
+          <div className="flex items-center justify-between mb-1.5 mt-2.5">
+            <span className="text-[10px] font-medium text-muted-foreground flex items-center gap-1">
+              <Activity size={10} className="text-accent-blue" /> Cardio
+            </span>
+            <span className="text-xs font-bold text-foreground">
+              {thisWeekCardioSessions.length}/{cardioWeeklyGoal}
+            </span>
+          </div>
+          <div className="h-2 bg-progress-track rounded-full overflow-hidden">
+            <div
+              className="h-full bg-accent-blue rounded-full transition-all duration-500"
+              style={{ width: `${cardioWeekProgress * 100}%` }}
+            />
+          </div>
         </div>
         <div className="glass-card p-3">
           <div className="flex items-center justify-between mb-1.5">
@@ -267,17 +367,19 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession }: Ca
           const dayNum = i + 1;
           const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
           const sessions = sessionsByDate[dateStr] || [];
+          const cardioSessions = cardioByDate[dateStr] || [];
           const isToday = dateStr === today;
           const dayLabel = new Date(dateStr + 'T00:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
           const sessionsLabel = sessions.length === 0
             ? 'aucune séance'
             : `${sessions.length} séance${sessions.length > 1 ? 's' : ''} : ${sessions.map(s => s.workoutTypeName).join(', ')}`;
+          const cardioLabel = cardioSessions.length > 0 ? `, ${cardioSessions.length} activité${cardioSessions.length > 1 ? 's' : ''} cardio` : '';
 
           return (
             <button
               key={dayNum}
               onClick={() => handleDayClick(dateStr)}
-              aria-label={`${dayLabel}${isToday ? ' (aujourd\'hui)' : ''} — ${sessionsLabel}`}
+              aria-label={`${dayLabel}${isToday ? ' (aujourd\'hui)' : ''} — ${sessionsLabel}${cardioLabel}`}
               className={`relative aspect-square flex flex-col items-center justify-center rounded-xl transition-colors touch-target ${
                 isToday && sessions.length === 0 ? 'bg-primary/20 ring-1 ring-primary' : isToday ? 'ring-1 ring-primary' : 'active:bg-secondary'
               }`}
@@ -285,6 +387,11 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession }: Ca
                 backgroundColor: `hsl(${getColorForType(sessions[0].workoutTypeId)} / 0.25)`,
               } : undefined}
             >
+              {/* Outline rather than a fill so a cardio day can be superimposed on a
+                  strength day's background color instead of fighting over it. */}
+              {cardioSessions.length > 0 && (
+                <div className="absolute inset-0 rounded-xl border-2 border-accent-blue pointer-events-none" />
+              )}
               <span className={`text-sm ${isToday ? 'font-bold text-primary' : sessions.length > 0 ? 'font-semibold text-foreground' : 'text-foreground'}`}>
                 {dayNum}
               </span>

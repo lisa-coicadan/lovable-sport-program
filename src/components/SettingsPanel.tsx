@@ -6,7 +6,7 @@ import { getEmomConfig, getEmomWeight, getDefaultEmomPercentage } from '@/lib/em
 import { getClusterConfig, getMiniSeriesWeight, CLUSTER_PRESETS } from '@/lib/cluster';
 import { weightFieldValue } from '@/lib/exerciseNormalize';
 import { estimateOneRepMax, estimateTrainingMax } from '@/lib/trainingMax';
-import { ArrowLeft, Plus, Trash2, EyeOff, Eye, Scale, Link2, Link2Off, Download, Upload, Database, AlertTriangle, FileText, Zap, Timer, Clock, Layers, Check, Calculator, TrendingDown, User } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, EyeOff, Eye, Scale, Link2, Link2Off, Download, Upload, Database, AlertTriangle, FileText, Zap, Timer, Clock, Layers, Check, Calculator, TrendingDown, User, Infinity as InfinityIcon } from 'lucide-react';
 import { SortableList, DragHandle } from './SortableBlock';
 import { loadData, saveData } from '@/lib/storage';
 import { toast } from '@/hooks/use-toast';
@@ -97,6 +97,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
   const [gender, setGender] = useState<Gender | undefined>(data.gender);
   const [heightCm, setHeightCm] = useState(data.heightCm ? String(data.heightCm) : '');
   const [weeklyGoal, setWeeklyGoal] = useState(data.weeklyGoal);
+  const [cardioWeeklyGoal, setCardioWeeklyGoal] = useState(data.cardioWeeklyGoal || 2);
   const [notesOpen, setNotesOpen] = useState(false);
   const [notesText, setNotesText] = useState('');
   const [notesTargetId, setNotesTargetId] = useState<string | null>(null);
@@ -344,7 +345,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
 
   const save = () => {
     const partial: Partial<AppData> = {
-      workoutTypes, weeklyGoal, programs, activeProgramId,
+      workoutTypes, weeklyGoal, cardioWeeklyGoal, programs, activeProgramId,
       gender,
       heightCm: heightCm === '' ? undefined : parseFloat(heightCm) || undefined,
     };
@@ -585,6 +586,23 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
           value={weeklyGoal}
           onChange={e => setWeeklyGoal(parseInt(e.target.value))}
           className="w-full accent-primary h-2"
+        />
+      </div>
+
+      {/* Cardio Weekly Goal — separate from strength, own counter/color everywhere else */}
+      <div className="glass-card p-4 mb-6">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-sm font-medium text-foreground">Objectif hebdo cardio</span>
+          <span className="text-sm font-bold text-accent-blue">{cardioWeeklyGoal} activité{cardioWeeklyGoal > 1 ? 's' : ''}</span>
+        </div>
+        <input
+          type="range"
+          aria-label="Objectif hebdomadaire d'activités cardio"
+          min={1}
+          max={7}
+          value={cardioWeeklyGoal}
+          onChange={e => setCardioWeeklyGoal(parseInt(e.target.value))}
+          className="w-full accent-accent-blue h-2"
         />
       </div>
 
@@ -1180,6 +1198,15 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                         className="w-3.5 h-3.5 accent-warning"
                                       />
                                       <TrendingDown size={10} className="text-warning" /> Drop set
+                                    </label>
+                                    <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                                      <input
+                                        type="checkbox"
+                                        checked={!!ex.amrap}
+                                        onChange={e => updateExercise(ti, exIdx, 'amrap', e.target.checked)}
+                                        className="w-3.5 h-3.5 accent-accent-purple"
+                                      />
+                                      <InfinityIcon size={10} className="text-accent-purple" /> Max de reps
                                     </label>
                                     {ex.dropSet && (
                                       <>
