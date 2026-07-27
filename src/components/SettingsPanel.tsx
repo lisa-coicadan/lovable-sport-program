@@ -4,6 +4,7 @@ import { linkSuperset, unlinkSuperset, buildExerciseBlocks, flattenBlocks, Exerc
 import { parseSessionNotes, parseMultiSessionNotes, NOTES_SYNTAX_HELP, NOTES_SYNTAX_HELP_FILL } from '@/lib/notesParser';
 import { getEmomConfig, getEmomWeight, getDefaultEmomPercentage } from '@/lib/emom';
 import { getClusterConfig, getMiniSeriesWeight, CLUSTER_PRESETS } from '@/lib/cluster';
+import { weightFieldValue } from '@/lib/exerciseNormalize';
 import { estimateOneRepMax, estimateTrainingMax } from '@/lib/trainingMax';
 import { ArrowLeft, Plus, Trash2, EyeOff, Eye, Scale, Link2, Link2Off, Download, Upload, Database, AlertTriangle, FileText, Zap, Timer, Clock, Layers, Check, Calculator, TrendingDown, User } from 'lucide-react';
 import { SortableList, DragHandle } from './SortableBlock';
@@ -722,7 +723,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                               />
                               <input
                                 type="number"
-                                value={ex.weight || ''}
+                                value={ex.weight === undefined ? '' : weightFieldValue(ex.weight, ex.name || '')}
                                 onChange={e => updateExercise(ti, ei, 'weight', e.target.value === '' ? 0 : parseFloat(e.target.value) || 0)}
                                 className="w-12 bg-secondary text-foreground rounded-lg px-1 py-1.5 text-sm text-center outline-none"
                                 placeholder="kg"

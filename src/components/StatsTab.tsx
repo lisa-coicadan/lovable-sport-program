@@ -1,21 +1,25 @@
 import { useMemo, useState } from 'react';
-import { AppData, calculate1RM, WORKOUT_COLORS } from '@/lib/types';
+import { AppData, SessionLog, calculate1RM, WORKOUT_COLORS } from '@/lib/types';
 import { normalizeExerciseName } from '@/lib/exerciseNormalize';
-import { Trophy, Scale, Crown, ChevronDown } from 'lucide-react';
+import { Trophy, Scale, Crown, ChevronDown, Search, X, Plus } from 'lucide-react';
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine
 } from 'recharts';
 import RangeButtons, { RangeFilter, rangeWeeks, rangeCutoffDate } from './RangeButtons';
+import ExerciseHistory from './ExerciseHistory';
+import SessionDetailView from './SessionDetailView';
 
 interface StatsTabProps {
   data: AppData;
+  onUpdateSession: (updated: SessionLog) => void;
+  onDeleteSession?: (sessionId: string) => void;
 }
 
 const RPE_CUTOFF = '2026-06-01';
 
 type PR = { name: string; e1rm: number; weight: number; reps: number; date: string };
-type DotRenderProps = { cx: number; cy: number; index: number; payload: { programName?: string } };
+type DotRenderProps = { cx: number; cy: number; index: number; payload: { id: string; programName?: string } };
 type E1rmDotProps = { cx: number; cy: number; index: number; payload: { date: number; e1rm: number; weight: number; reps: number } };
 
 const daysAgo = (dateStr: string) => {
@@ -73,7 +77,7 @@ const weekRangeMondays = (range: RangeFilter, referenceDates: string[]): Date[] 
   return out;
 };
 
-const StatsTab = ({ data }: StatsTabProps) => {
+const StatsTab = ({ data, onUpdateSession, onDeleteSession }: StatsTabProps) => {
   const [volumeFilter, setVolumeFilter] = useState<string | null>(null);
   const [weeklyRange, setWeeklyRange] = useState<RangeFilter>('all');
   const [volumeRange, setVolumeRange] = useState<RangeFilter>('3m');
@@ -82,6 +86,25 @@ const StatsTab = ({ data }: StatsTabProps) => {
   const [monthlyTimeRange, setMonthlyTimeRange] = useState<RangeFilter>('all');
   const [e1rmOpen, setE1rmOpen] = useState(false);
   const [selectedE1rmPoint, setSelectedE1rmPoint] = useState<Record<string, E1rmDotProps['payload']>>({});
+  const [historyExercise, setHistoryExercise] = useState<string | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [exerciseSearch, setExerciseSearch] = useState('');
+  const [viewingSession, setViewingSession] = useState<SessionLog | null>(null);
+  const [previewSessionId, setPreviewSessionId] = useState<{ chart: 'volume' | 'difficulty'; id: string; cx: number; cy: number } | null>(null);
+
+  // Every distinct exercise name ever logged, regardless of weight (so bodyweight-only
+  // tractions/dips are searchable too) — the candidate list for "rechercher un exercice".
+  const allLoggedExerciseNames = useMemo(() => {
+    const set = new Set<string>();
+    data.sessions.forEach(session => session.sets.forEach(s => set.add(normalizeExerciseName(s.exerciseName))));
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [data.sessions]);
+
+  const searchResults = useMemo(() => {
+    const q = exerciseSearch.trim().toLowerCase();
+    if (!q) return [];
+    return allLoggedExerciseNames.filter(n => n.toLowerCase().includes(q)).slice(0, 8);
+  }, [allLoggedExerciseNames, exerciseSearch]);
 
   // All PRs, grouped by normalized name -> best e1rm ever
   const prByName = useMemo(() => {
@@ -181,6 +204,7 @@ const StatsTab = ({ data }: StatsTabProps) => {
       .map(s => {
         const volume = s.sets.reduce((acc, set) => acc + set.reps * set.weight, 0);
         return {
+          id: s.id,
           date: new Date(s.date).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' }),
           volume,
           type: s.workoutTypeName,
@@ -211,6 +235,7 @@ const StatsTab = ({ data }: StatsTabProps) => {
       .filter(s => !cutoff || new Date(s.date + 'T00:00:00') >= cutoff)
       .sort((a, b) => a.date.localeCompare(b.date))
       .map(s => ({
+        id: s.id,
         date: new Date(s.date).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' }),
         difficulty: s.difficulty || 0,
         type: s.workoutTypeName,
@@ -271,9 +296,64 @@ const StatsTab = ({ data }: StatsTabProps) => {
   // programs (e.g. "Push") should offer a single filter button, not one per program.
   const activeTypeNames = Array.from(new Set(activeTypes.map(t => t.name))).filter(Boolean);
 
+  if (viewingSession) {
+    return (
+      <SessionDetailView
+        session={viewingSession}
+        data={data}
+        onClose={() => setViewingSession(null)}
+        onUpdate={(updated) => { onUpdateSession(updated); setViewingSession(null); }}
+        onDelete={(sessionId) => { onDeleteSession?.(sessionId); setViewingSession(null); }}
+      />
+    );
+  }
+
+  if (historyExercise) {
+    return <ExerciseHistory exerciseName={historyExercise} data={data} onClose={() => setHistoryExercise(null)} />;
+  }
+
   return (
     <div className="px-4 pt-12 pb-24 animate-slide-up">
-      <h1 className="text-2xl font-bold text-foreground mb-6">Statistiques</h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-bold text-foreground">Statistiques</h1>
+        <button
+          onClick={() => { setSearchOpen(v => !v); if (searchOpen) setExerciseSearch(''); }}
+          className="min-h-11 min-w-11 flex items-center justify-center text-muted-foreground active:text-primary"
+          aria-label="Rechercher un exercice"
+          aria-pressed={searchOpen}
+        >
+          {searchOpen ? <X size={18} /> : <Search size={18} />}
+        </button>
+      </div>
+
+      {searchOpen && (
+        <div className="glass-card p-3 mb-4">
+          <input
+            autoFocus
+            value={exerciseSearch}
+            onChange={e => setExerciseSearch(e.target.value)}
+            placeholder="Rechercher un exercice..."
+            className="w-full bg-secondary/50 rounded-lg px-3 py-2 text-sm text-foreground outline-none"
+          />
+          {exerciseSearch.trim() !== '' && (
+            searchResults.length > 0 ? (
+              <div className="mt-2 space-y-1">
+                {searchResults.map(n => (
+                  <button
+                    key={n}
+                    onClick={() => setHistoryExercise(n)}
+                    className="w-full text-left min-h-11 flex items-center px-2 rounded-lg text-sm text-foreground active:bg-secondary/60"
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground mt-2 px-2">Aucun exercice trouvé.</p>
+            )
+          )}
+        </div>
+      )}
 
       {noData && (
         <div className="glass-card p-8 text-center">
@@ -465,37 +545,73 @@ const StatsTab = ({ data }: StatsTabProps) => {
             ))}
           </div>
           {volumeData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={180}>
-              <LineChart data={volumeData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 12% 20%)" />
-                <XAxis dataKey="date" tick={chartStyle} axisLine={false} tickLine={false} />
-                <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={45} />
-                <Tooltip
-                  content={({ active, payload, label }) => {
-                    if (!active || !payload?.length) return null;
-                    const p = payload[0].payload as { volume: number; programName?: string };
-                    return (
-                      <div style={tooltipStyle} className="px-3 py-2">
-                        <p style={{ color: 'hsl(0 0% 95%)' }} className="text-xs mb-0.5">{label}</p>
-                        <p className="text-sm font-semibold" style={{ color: 'hsl(322 100% 60%)' }}>{p.volume} kg</p>
-                        {p.programName && <p className="text-[10px] text-muted-foreground mt-0.5">{p.programName}</p>}
+            <div className="relative">
+              <ResponsiveContainer width="100%" height={180}>
+                <LineChart data={volumeData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 12% 20%)" />
+                  <XAxis dataKey="date" tick={chartStyle} axisLine={false} tickLine={false} />
+                  <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={45} />
+                  <Line
+                    type="monotone"
+                    dataKey="volume"
+                    stroke="hsl(322 100% 60%)"
+                    strokeWidth={2.5}
+                    dot={(props: DotRenderProps) => {
+                      const color = volumeProgramColors.get(props.payload.programName) || '322 100% 60%';
+                      return (
+                        <g
+                          key={`vdot-${props.index}`}
+                          onClick={() => setPreviewSessionId({ chart: 'volume', id: props.payload.id, cx: props.cx, cy: props.cy })}
+                          style={{ cursor: 'pointer' }}
+                        >
+                          {/* Invisible larger circle as the real tap target — the visible
+                              3px dot alone is far too small to hit reliably with a thumb. */}
+                          <circle cx={props.cx} cy={props.cy} r={14} fill="transparent" />
+                          <circle cx={props.cx} cy={props.cy} r={3} fill={`hsl(${color})`} />
+                        </g>
+                      );
+                    }}
+                    style={{ filter: 'drop-shadow(0 0 5px hsl(322 100% 60% / 0.6))' }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+              {previewSessionId?.chart === 'volume' && (() => {
+                const session = data.sessions.find(s => s.id === previewSessionId.id);
+                if (!session) return null;
+                const point = volumeData.find(p => p.id === previewSessionId.id);
+                return (
+                  <div
+                    style={{ left: previewSessionId.cx, top: previewSessionId.cy, transform: 'translate(-50%, calc(-100% - 10px))' }}
+                    className="absolute z-10 w-36"
+                  >
+                    <div style={tooltipStyle} className="px-2 py-1.5 relative">
+                      <button
+                        onClick={() => setPreviewSessionId(null)}
+                        className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-secondary flex items-center justify-center text-muted-foreground"
+                        aria-label="Fermer"
+                      >
+                        <X size={9} />
+                      </button>
+                      <p style={{ color: 'hsl(0 0% 95%)' }} className="text-[11px] mb-0.5">{point?.date}</p>
+                      <p className="text-xs font-semibold mb-1" style={{ color: 'hsl(322 100% 60%)' }}>{point?.volume} kg</p>
+                      <div className="flex items-center justify-between gap-1.5">
+                        <div className="min-w-0">
+                          <p className="text-[9px] text-foreground/80 truncate">{session.workoutTypeName}</p>
+                          {session.programName && <p className="text-[8px] text-muted-foreground truncate">{session.programName}</p>}
+                        </div>
+                        <button
+                          onClick={() => { setViewingSession(session); setPreviewSessionId(null); }}
+                          className="shrink-0 w-6 h-6 flex items-center justify-center bg-primary/80 text-primary-foreground rounded-md"
+                          aria-label="Voir la séance complète"
+                        >
+                          <Plus size={12} />
+                        </button>
                       </div>
-                    );
-                  }}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="volume"
-                  stroke="hsl(322 100% 60%)"
-                  strokeWidth={2.5}
-                  dot={(props: DotRenderProps) => {
-                    const color = volumeProgramColors.get(props.payload.programName) || '322 100% 60%';
-                    return <circle key={`vdot-${props.index}`} cx={props.cx} cy={props.cy} r={3} fill={`hsl(${color})`} />;
-                  }}
-                  style={{ filter: 'drop-shadow(0 0 5px hsl(322 100% 60% / 0.6))' }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
           ) : (
             <p className="text-xs text-muted-foreground text-center py-8">Aucune donnée pour ce type de séance</p>
           )}
@@ -509,37 +625,71 @@ const StatsTab = ({ data }: StatsTabProps) => {
             <h3 className="text-sm font-semibold text-foreground">Effort perçu (RPE /5)</h3>
             <RangeButtons value={difficultyRange} onChange={setDifficultyRange} />
           </div>
-          <ResponsiveContainer width="100%" height={180}>
-            <LineChart data={difficultyData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 12% 20%)" />
-              <XAxis dataKey="date" tick={chartStyle} axisLine={false} tickLine={false} />
-              <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={30} domain={[0, 5]} />
-              <Tooltip
-                content={({ active, payload, label }) => {
-                  if (!active || !payload?.length) return null;
-                  const p = payload[0].payload as { difficulty: number; programName?: string };
-                  return (
-                    <div style={tooltipStyle} className="px-3 py-2">
-                      <p style={{ color: 'hsl(0 0% 95%)' }} className="text-xs mb-0.5">{label}</p>
-                      <p className="text-sm font-semibold" style={{ color: 'hsl(262 83% 66%)' }}>RPE {p.difficulty}/5</p>
-                      {p.programName && <p className="text-[10px] text-muted-foreground mt-0.5">{p.programName}</p>}
+          <div className="relative">
+            <ResponsiveContainer width="100%" height={180}>
+              <LineChart data={difficultyData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 12% 20%)" />
+                <XAxis dataKey="date" tick={chartStyle} axisLine={false} tickLine={false} />
+                <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={30} domain={[0, 5]} />
+                <Line
+                  type="monotone"
+                  dataKey="difficulty"
+                  stroke="hsl(262 83% 66%)"
+                  strokeWidth={2.5}
+                  dot={(props: DotRenderProps) => {
+                    const color = difficultyProgramColors.get(props.payload.programName) || '262 83% 66%';
+                    return (
+                      <g
+                        key={`ddot-${props.index}`}
+                        onClick={() => setPreviewSessionId({ chart: 'difficulty', id: props.payload.id, cx: props.cx, cy: props.cy })}
+                        style={{ cursor: 'pointer' }}
+                      >
+                        <circle cx={props.cx} cy={props.cy} r={14} fill="transparent" />
+                        <circle cx={props.cx} cy={props.cy} r={3} fill={`hsl(${color})`} />
+                      </g>
+                    );
+                  }}
+                  style={{ filter: 'drop-shadow(0 0 5px hsl(262 83% 66% / 0.6))' }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+            {previewSessionId?.chart === 'difficulty' && (() => {
+              const session = data.sessions.find(s => s.id === previewSessionId.id);
+              if (!session) return null;
+              const point = difficultyData.find(p => p.id === previewSessionId.id);
+              return (
+                <div
+                  style={{ left: previewSessionId.cx, top: previewSessionId.cy, transform: 'translate(-50%, calc(-100% - 10px))' }}
+                  className="absolute z-10 w-36"
+                >
+                  <div style={tooltipStyle} className="px-2 py-1.5 relative">
+                    <button
+                      onClick={() => setPreviewSessionId(null)}
+                      className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-secondary flex items-center justify-center text-muted-foreground"
+                      aria-label="Fermer"
+                    >
+                      <X size={9} />
+                    </button>
+                    <p style={{ color: 'hsl(0 0% 95%)' }} className="text-[11px] mb-0.5">{point?.date}</p>
+                    <p className="text-xs font-semibold mb-1" style={{ color: 'hsl(262 83% 66%)' }}>RPE {point?.difficulty}/5</p>
+                    <div className="flex items-center justify-between gap-1.5">
+                      <div className="min-w-0">
+                        <p className="text-[9px] text-foreground/80 truncate">{session.workoutTypeName}</p>
+                        {session.programName && <p className="text-[8px] text-muted-foreground truncate">{session.programName}</p>}
+                      </div>
+                      <button
+                        onClick={() => { setViewingSession(session); setPreviewSessionId(null); }}
+                        className="shrink-0 w-6 h-6 flex items-center justify-center bg-primary/80 text-primary-foreground rounded-md"
+                        aria-label="Voir la séance complète"
+                      >
+                        <Plus size={12} />
+                      </button>
                     </div>
-                  );
-                }}
-              />
-              <Line
-                type="monotone"
-                dataKey="difficulty"
-                stroke="hsl(262 83% 66%)"
-                strokeWidth={2.5}
-                dot={(props: DotRenderProps) => {
-                  const color = difficultyProgramColors.get(props.payload.programName) || '262 83% 66%';
-                  return <circle key={`ddot-${props.index}`} cx={props.cx} cy={props.cy} r={3} fill={`hsl(${color})`} />;
-                }}
-                style={{ filter: 'drop-shadow(0 0 5px hsl(262 83% 66% / 0.6))' }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
         </div>
       )}
 

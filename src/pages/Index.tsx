@@ -70,7 +70,7 @@ const Index = () => {
           onProgressChange={setSessionProgress}
         />
       </div>
-      {activeTab === 2 && <StatsTab data={data} />}
+      {activeTab === 2 && <StatsTab data={data} onUpdateSession={handleUpdateSession} onDeleteSession={handleDeleteSession} />}
       <BottomTabBar activeTab={activeTab} onTabChange={(tab) => { setActiveTab(tab); }} sessionProgress={sessionProgress} />
     </div>
   );

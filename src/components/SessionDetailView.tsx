@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useRef } from 'react';
 import { SessionLog, SetLog, AppData, calculate1RM } from '@/lib/types';
-import { isBodyweightOptionalExercise } from '@/lib/exerciseNormalize';
+import { isBodyweightOptionalExercise, weightFieldValue } from '@/lib/exerciseNormalize';
 import { Trash2, Pencil, Share2, Plus, X, TrendingUp, TrendingDown, Minus, Check } from 'lucide-react';
 
 interface SessionDetailViewProps {
@@ -517,7 +517,7 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
                         <span className="text-xs text-muted-foreground w-8">S{localIdx + 1}</span>
                         <input
                           type="number"
-                          value={s.weight || ''}
+                          value={weightFieldValue(s.weight, name)}
                           onChange={e => updateEditSet(gi, 'weight', e.target.value)}
                           className="w-16 bg-transparent text-foreground text-sm text-center outline-none font-mono"
                           placeholder="kg"

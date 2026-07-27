@@ -1,12 +1,21 @@
 import { useState, useEffect, useCallback, useRef, forwardRef, useImperativeHandle } from 'react';
 import { createPortal } from 'react-dom';
-import { Pause, Play, RotateCcw, X, Timer } from 'lucide-react';
+import { Pause, Play, RotateCcw, X, Timer, Plus, Check } from 'lucide-react';
 import { getSharedAudioContext, scheduleBeep, cancelBeep } from '@/lib/beep';
 import OrbitRing from './OrbitRing';
 
 interface RestTimerProps {
   defaultSeconds?: number;
 }
+
+// "1.5m" reads as a decimal, not a duration — mm'ss (like a stopwatch) is the format she
+// actually wants, and it only needs the seconds part when they're non-zero.
+const formatDurationLabel = (totalSeconds: number): string => {
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
+  return s === 0 ? `${m}m` : `${m}'${s.toString().padStart(2, '0')}`;
+};
 
 // Imperative handle so other cards (e.g. the Cluster block) can start a rest countdown
 // of their own duration on tap, synchronously within the click — needed so the audio
@@ -20,6 +29,9 @@ const RestTimer = forwardRef<RestTimerHandle, RestTimerProps>(({ defaultSeconds 
   const [isRunning, setIsRunning] = useState(false);
   const [total, setTotal] = useState(defaultSeconds);
   const [expanded, setExpanded] = useState(false);
+  const [customOpen, setCustomOpen] = useState(false);
+  const [customMin, setCustomMin] = useState('');
+  const [customSec, setCustomSec] = useState('');
   const endAtRef = useRef<number | null>(null);
   const scheduledBeepRef = useRef<OscillatorNode[]>([]);
 
@@ -140,6 +152,17 @@ const RestTimer = forwardRef<RestTimerHandle, RestTimerProps>(({ defaultSeconds 
     setIsRunning(false);
   };
 
+  const applyCustomDuration = () => {
+    const m = parseInt(customMin, 10) || 0;
+    const s = parseInt(customSec, 10) || 0;
+    const t = m * 60 + s;
+    if (t <= 0) return;
+    applyDuration(t);
+    setCustomOpen(false);
+    setCustomMin('');
+    setCustomSec('');
+  };
+
   const progress = total > 0 ? (seconds / total) * 100 : 0;
   const mins = Math.floor(seconds / 60);
   const secs = seconds % 60;
@@ -200,10 +223,51 @@ const RestTimer = forwardRef<RestTimerHandle, RestTimerProps>(({ defaultSeconds 
                 total === t ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground'
               }`}
             >
-              {t < 60 ? `${t}s` : `${t / 60}m`}
+              {formatDurationLabel(t)}
             </button>
           ))}
+          <button
+            onClick={() => setCustomOpen(v => !v)}
+            className={`touch-target px-2 rounded-lg text-[10px] font-medium transition-colors ${
+              customOpen ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground'
+            }`}
+            aria-label="Durée personnalisée"
+            aria-pressed={customOpen}
+          >
+            <Plus size={12} />
+          </button>
         </div>
+
+        {customOpen && (
+          <div className="flex items-center gap-1.5 mb-3">
+            <input
+              type="number"
+              inputMode="numeric"
+              value={customMin}
+              onChange={e => setCustomMin(e.target.value)}
+              placeholder="min"
+              className="w-14 bg-secondary rounded-lg text-foreground text-sm text-center outline-none font-mono py-1.5"
+              aria-label="Minutes"
+            />
+            <span className="text-muted-foreground text-xs">'</span>
+            <input
+              type="number"
+              inputMode="numeric"
+              value={customSec}
+              onChange={e => setCustomSec(e.target.value)}
+              placeholder="sec"
+              className="w-14 bg-secondary rounded-lg text-foreground text-sm text-center outline-none font-mono py-1.5"
+              aria-label="Secondes"
+            />
+            <button
+              onClick={applyCustomDuration}
+              className="touch-target flex-1 flex items-center justify-center bg-primary text-primary-foreground rounded-lg py-1.5"
+              aria-label="Valider la durée personnalisée"
+            >
+              <Check size={14} />
+            </button>
+          </div>
+        )}
 
         <div className="flex items-center gap-3">
           <div className="relative w-14 h-14">

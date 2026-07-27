@@ -99,7 +99,7 @@ export function getRecordMessage(record: FranceRecordRow, oneRepMax: number): st
   if (ecart <= 0) {
     return `Tu as dépassé le record de France (${record.recordKg} kg, détenu par ${record.holder} en ${record.year}) !`;
   }
-  return `Plus que ${ecart} kg pour atteindre le record de France détenu par ${record.holder} en ${record.year}.`;
+  return `Plus que ${ecart} kg pour atteindre le record de France (${record.recordKg} kg, détenu par ${record.holder} en ${record.year}).`;
 }
 
 // --- Standards / niveaux (percentiles), sheet "Standards & Niveaux" ---------------

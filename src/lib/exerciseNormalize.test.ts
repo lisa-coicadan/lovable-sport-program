@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeExerciseName, isPrTracked, PR_TRACKED_CANONICAL, splitEquipmentVariant, isBodyweightOptionalExercise } from './exerciseNormalize';
+import { normalizeExerciseName, isPrTracked, PR_TRACKED_CANONICAL, splitEquipmentVariant, isBodyweightOptionalExercise, weightFieldValue } from './exerciseNormalize';
 
 describe('normalizeExerciseName', () => {
   it('maps spelling variants to the same canonical name', () => {
@@ -150,5 +150,48 @@ describe('isBodyweightOptionalExercise', () => {
     expect(isBodyweightOptionalExercise('Squat')).toBe(false);
     expect(isBodyweightOptionalExercise('Développé couché')).toBe(false);
     expect(isBodyweightOptionalExercise('Curl biceps')).toBe(false);
+  });
+});
+
+// A completed set is "loggable" (counted in history/PRs) when weight > 0, OR the
+// exercise is bodyweight-optional — this is the exact predicate reused throughout
+// WorkoutTab/ExerciseHistory/SessionDetailView (weight <= 0 means "not filled in" for
+// every other movement, but 0 or negative/assisted is a real value here).
+const isLoggableSet = (name: string, weight: number) => weight > 0 || isBodyweightOptionalExercise(name);
+
+describe('weightFieldValue', () => {
+  it('shows 0 for a bodyweight-only pull-up/dip set instead of blanking the field', () => {
+    expect(weightFieldValue(0, 'Tractions lestées')).toBe(0);
+    expect(weightFieldValue(0, 'Dips lestés')).toBe(0);
+    expect(weightFieldValue(0, 'Tractions assistées')).toBe(0);
+  });
+
+  it('keeps a negative (assisted) weight visible', () => {
+    expect(weightFieldValue(-15, 'Tractions lestées')).toBe(-15);
+  });
+
+  it('keeps a positive weight visible for any exercise', () => {
+    expect(weightFieldValue(50, 'Squat')).toBe(50);
+    expect(weightFieldValue(20, 'Tractions lestées')).toBe(20);
+  });
+
+  it('blanks a 0kg field for every other (non-bodyweight-optional) exercise', () => {
+    expect(weightFieldValue(0, 'Squat')).toBe('');
+    expect(weightFieldValue(0, 'Développé couché')).toBe('');
+  });
+});
+
+describe('assisted (negative-weight) pull-ups/dips end to end', () => {
+  it('counts a bodyweight-only set (0kg) as loggable', () => {
+    expect(isLoggableSet('Tractions lestées', 0)).toBe(true);
+  });
+
+  it('counts an assisted set (negative weight) as loggable', () => {
+    expect(isLoggableSet('Tractions assistées', -15)).toBe(true);
+    expect(isLoggableSet('Dips élastique', -20)).toBe(true);
+  });
+
+  it('excludes an unfilled 0kg set for every other exercise', () => {
+    expect(isLoggableSet('Squat', 0)).toBe(false);
   });
 });

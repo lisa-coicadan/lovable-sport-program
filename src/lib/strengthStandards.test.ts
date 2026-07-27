@@ -27,7 +27,7 @@ describe('getFranceRecord', () => {
 describe('getRecordMessage', () => {
   it('reports the remaining gap to the record', () => {
     const record = { gender: 'F' as const, categoryLabel: '-57 kg', direction: 'under' as const, boundKg: 57, movement: 'Tractions lestées' as const, recordKg: 55, holder: 'Lylia Ammour', year: 2026, source: 'StreetLiftings.fr' };
-    expect(getRecordMessage(record, 32.5)).toBe('Plus que 22.5 kg pour atteindre le record de France détenu par Lylia Ammour en 2026.');
+    expect(getRecordMessage(record, 32.5)).toBe('Plus que 22.5 kg pour atteindre le record de France (55 kg, détenu par Lylia Ammour en 2026).');
   });
 
   it('congratulates when the record is beaten', () => {

@@ -4,7 +4,7 @@ import { getWeekSets, getWeekLabel } from '@/lib/531';
 import { getClusterConfig, getMiniSeriesWeight } from '@/lib/cluster';
 import { getEmomConfig, getEmomWeight } from '@/lib/emom';
 import { buildExerciseBlocks } from '@/lib/superset';
-import { isBodyweightOptionalExercise } from '@/lib/exerciseNormalize';
+import { isBodyweightOptionalExercise, weightFieldValue } from '@/lib/exerciseNormalize';
 import { getDropSetConfig, getDropSetStage } from '@/lib/dropset';
 import RestTimer, { RestTimerHandle } from './RestTimer';
 import EmomTimer from './EmomTimer';
@@ -766,6 +766,23 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
             <div className="px-3 pb-3 space-y-1">
               {(() => {
                 const previewMap = new Map(selectedType.exercises.map(e => [e.id, e]));
+                // Cluster/EMOM don't use the plain sets×reps fields (those stay at their
+                // generic default even once a method is applied) — each method has its own
+                // real structure to summarize instead: EMOM as "duration' × reps/minute",
+                // Cluster as "series × total reps" (the mini-series reps summed, e.g. a
+                // 2-2-2 scheme reads as "3 × 6").
+                const volumeLabel = (ex: Exercise): string => {
+                  if (ex.method?.type === 'emom') {
+                    const { durationMinutes, repsPerMinute } = getEmomConfig(ex.method);
+                    return `EMOM ${durationMinutes}' × ${repsPerMinute}`;
+                  }
+                  if (ex.method?.type === 'cluster') {
+                    const { numSeries, miniSeries } = getClusterConfig(ex.method);
+                    const totalReps = miniSeries.reduce((acc, m) => acc + m.reps, 0);
+                    return `${numSeries} × ${totalReps}`;
+                  }
+                  return `${ex.sets} × ${ex.reps}`;
+                };
                 // Dot color: method hue when the exercise carries one (matches the
                 // primary/purple/blue convention used everywhere else for 5/3/1/Cluster/
                 // EMOM), magenta for supersets, cyan as the neutral default otherwise —
@@ -782,7 +799,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
                   const dot = ex.method?.type === '531' ? 'hsl(var(--primary))'
                     : ex.method?.type === 'cluster' ? 'hsl(var(--accent-purple))'
                     : 'hsl(var(--accent-blue))';
-                  return { label: ex.name, volume: `${ex.sets} × ${ex.reps}`, dot };
+                  return { label: ex.name, volume: volumeLabel(ex), dot };
                 });
                 return rows.map((r, i) => (
                   <div key={i} className="flex items-center gap-2 text-xs py-1">
@@ -929,7 +946,13 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
         return (
           <div key={ex.id} className="glass-card p-4 mb-4 border-accent-purple/30">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-bold text-accent-purple">{ex.name}</h3>
+              <button
+                onClick={() => { setHistoryExercise(ex.name); setMode('history'); }}
+                className="min-h-11 flex items-center gap-1.5 group"
+              >
+                <h3 className="text-sm font-bold text-accent-purple">{ex.name}</h3>
+                <History size={12} className="text-accent-purple/70 group-active:text-accent-purple" />
+              </button>
               <span className="text-xs text-muted-foreground">TM {method.trainingMax} kg</span>
             </div>
             <MethodPickerRow active="cluster" onSelect={opt => applyMethodOverride(ex, opt)} />
@@ -1016,7 +1039,13 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
         return (
           <div key={ex.id} className="glass-card p-4 mb-4 border-accent-blue/30">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-bold text-accent-blue">{ex.name}</h3>
+              <button
+                onClick={() => { setHistoryExercise(ex.name); setMode('history'); }}
+                className="min-h-11 flex items-center gap-1.5 group"
+              >
+                <h3 className="text-sm font-bold text-accent-blue">{ex.name}</h3>
+                <History size={12} className="text-accent-blue/70 group-active:text-accent-blue" />
+              </button>
               <span className="text-xs text-muted-foreground">TM {method.trainingMax} kg</span>
             </div>
             <MethodPickerRow active="emom" onSelect={opt => applyMethodOverride(ex, opt)} />
@@ -1133,7 +1162,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
                             </button>
                             <input
                               type="number"
-                              value={sets[row.idx].weight || ''}
+                              value={weightFieldValue(sets[row.idx].weight, row.name)}
                               onChange={e => updateSet(row.idx, 'weight', e.target.value)}
                               onBlur={() => propagateWeightOnBlur(row.idx)}
                               className="w-14 bg-background/60 rounded-md text-foreground text-sm text-center outline-none font-mono py-1"
@@ -1169,10 +1198,19 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
           // follows it to "Série 4". Shared between the row list and the picker chips
           // below so both always agree.
           const seriesNumberByGlobalIdx = new Map<number, number>();
+          // Every drop-set row (and its own anchor) maps back to the anchor's globalIdx —
+          // needed so "+ Drop set", rendered under the *last* stage of a cascade, still
+          // cascades off the original reference set (P0/R0), never off a prior drop stage.
+          const anchorGlobalIdxByGlobalIdx = new Map<number, number>();
           {
             let seriesCounter = 0;
+            let currentAnchor = -1;
             exerciseSets.forEach(e => {
-              if (!sets[e.globalIdx].dropSetStage) seriesNumberByGlobalIdx.set(e.globalIdx, ++seriesCounter);
+              if (!sets[e.globalIdx].dropSetStage) {
+                seriesNumberByGlobalIdx.set(e.globalIdx, ++seriesCounter);
+                currentAnchor = e.globalIdx;
+              }
+              anchorGlobalIdxByGlobalIdx.set(e.globalIdx, currentAnchor);
             });
           }
 
@@ -1258,10 +1296,12 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
               )}
 
               <div className="space-y-2">
-                {exerciseSets.map((s) => {
+                {exerciseSets.map((s, idx) => {
                   const globalIdx = s.globalIdx;
                   const stage = sets[globalIdx].dropSetStage;
                   const rowLabel = stage ? `Drop ${stage}` : `Série ${seriesNumberByGlobalIdx.get(globalIdx)}`;
+                  const nextEntry = exerciseSets[idx + 1];
+                  const isLastOfCascade = !nextEntry || !sets[nextEntry.globalIdx].dropSetStage;
                   return (
                     <div key={globalIdx}>
                       <div
@@ -1274,7 +1314,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
                         </span>
                         <input
                           type="number"
-                          value={sets[globalIdx].weight || ''}
+                          value={weightFieldValue(sets[globalIdx].weight, name)}
                           onChange={e => updateSet(globalIdx, 'weight', e.target.value)}
                           onBlur={() => propagateWeightOnBlur(globalIdx)}
                           className="w-16 bg-transparent text-foreground text-sm text-center outline-none font-mono"
@@ -1308,9 +1348,9 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
                           <Check size={18} />
                         </button>
                       </div>
-                      {dropSetPickerFor === exerciseId && !stage && (
+                      {dropSetPickerFor === exerciseId && isLastOfCascade && (
                         <button
-                          onClick={() => addDropSet(exerciseId, name, globalIdx)}
+                          onClick={() => addDropSet(exerciseId, name, anchorGlobalIdxByGlobalIdx.get(globalIdx) ?? globalIdx)}
                           className="w-full min-h-9 flex items-center justify-center gap-1 text-warning text-[10px] font-medium mt-1"
                         >
                           <TrendingDown size={10} /> + Drop set

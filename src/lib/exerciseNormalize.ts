@@ -286,3 +286,11 @@ export function isBodyweightOptionalExercise(name: string): boolean {
   const base = splitEquipmentVariant(name).base;
   return base === 'Tractions lestées' || base === 'Dips lestés';
 }
+
+// A plain `weight || ''` blanks the input on 0 — right for every other exercise (0 means
+// "not filled in"), wrong here where 0 (bodyweight) or a negative (assisted) value is a
+// real, meaningful entry that must stay visible instead of reading as empty.
+export function weightFieldValue(weight: number, exerciseName: string): number | '' {
+  if (weight === 0 && isBodyweightOptionalExercise(exerciseName)) return 0;
+  return weight || '';
+}

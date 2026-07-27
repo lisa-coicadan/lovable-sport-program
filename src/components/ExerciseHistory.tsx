@@ -79,11 +79,11 @@ const ExerciseHistory = ({ exerciseName, data, onClose }: ExerciseHistoryProps) 
   // variant (machine-assisted or elastic-assisted loads aren't comparable to the
   // standards, which assume free weights or a weighted belt).
   const isStandardMovement = STANDARD_MOVEMENTS.includes(base as StandardMovement);
+  const defaultVariantGroup = useMemo(() => variantGroups.find(g => g.label === null), [variantGroups]);
   const defaultVariantPR = useMemo(() => {
-    const defaultGroup = variantGroups.find(g => g.label === null);
-    if (!defaultGroup || defaultGroup.history.length === 0) return 0;
-    return Math.max(...defaultGroup.history.map(h => h.e1rm));
-  }, [variantGroups]);
+    if (!defaultVariantGroup || defaultVariantGroup.history.length === 0) return 0;
+    return Math.max(...defaultVariantGroup.history.map(h => h.e1rm));
+  }, [defaultVariantGroup]);
   const latestBodyweight = useMemo(() => {
     const logs = data.bodyWeightLogs || [];
     if (logs.length === 0) return null;
@@ -104,7 +104,7 @@ const ExerciseHistory = ({ exerciseName, data, onClose }: ExerciseHistoryProps) 
         </div>
       </div>
 
-      {isStandardMovement && defaultVariantPR > 0 && (
+      {isStandardMovement && defaultVariantGroup && defaultVariantGroup.history.length > 0 && (
         <div className="glass-card p-4 mb-4">
           <div className="flex items-center gap-1.5 mb-2">
             <Trophy size={14} className="text-primary" />
