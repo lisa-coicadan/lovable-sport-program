@@ -396,18 +396,30 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     const updated = [...sets];
     if (value === '') {
       updated[index][field] = 0;
+    } else if (field === 'weight') {
+      const parsed = parseFloat(value) || 0;
+      // The mobile numeric keypad for <input type="number"> rarely offers a minus key, so
+      // she can't just type "-20" — instead, the +/- toggle button sets the sign and this
+      // preserves it while she types the magnitude (onFocus selects-all, so each edit here
+      // sees a bare digit string with no sign of its own). An explicitly typed "-" (on
+      // devices whose keypad does have one) always wins over the preserved sign.
+      const typedNegative = value.trim().startsWith('-');
+      const wasNegative = updated[index].weight < 0;
+      updated[index][field] = typedNegative ? parsed : (wasNegative ? -Math.abs(parsed) : parsed);
     } else {
-      updated[index][field] = field === 'weight' ? parseFloat(value) || 0 : parseInt(value) || 0;
+      updated[index][field] = parseInt(value) || 0;
     }
     setSets(updated);
   };
 
-  // Tractions/dips: a negative weight materializes band/machine assistance, but the
-  // mobile numeric keypad for <input type="number"> doesn't reliably offer a minus key —
-  // this toggle button is the actual way in, typing "-" being a bonus on devices that do.
+  // Tractions/dips: a negative weight materializes band/machine assistance. Toggling from
+  // exactly 0 has nothing to negate (-0 === 0), which read as "the button does nothing" —
+  // jump to -1 instead so the switch to assisted mode is always visible; she then edits
+  // the magnitude via the weight field, sign preserved by updateSet above.
   const toggleWeightSign = (index: number) => {
     const updated = [...sets];
-    updated[index].weight = -updated[index].weight;
+    const w = updated[index].weight;
+    updated[index].weight = w === 0 ? -1 : -w;
     setSets(updated);
   };
 
@@ -1499,7 +1511,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                               <button
                                 type="button"
                                 onClick={() => toggleWeightSign(row.idx)}
-                                className="w-6 h-6 shrink-0 rounded-md bg-background/60 text-muted-foreground text-xs font-bold"
+                                className="w-5 h-5 shrink-0 rounded-md bg-background/60 text-muted-foreground text-[10px] leading-none font-bold"
                                 aria-label={sets[row.idx].weight < 0 ? 'Assisté (élastique/machine) — repasser en lesté' : 'Lesté — passer en assisté (élastique/machine)'}
                                 title={sets[row.idx].weight < 0 ? 'Assisté' : 'Lesté'}
                               >
@@ -1670,7 +1682,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                           <button
                             type="button"
                             onClick={() => toggleWeightSign(globalIdx)}
-                            className="w-6 h-6 shrink-0 rounded-md bg-secondary text-muted-foreground text-xs font-bold"
+                            className="w-5 h-5 shrink-0 rounded-md bg-secondary text-muted-foreground text-[10px] leading-none font-bold"
                             aria-label={sets[globalIdx].weight < 0 ? 'Assisté (élastique/machine) — repasser en lesté' : 'Lesté — passer en assisté (élastique/machine)'}
                             title={sets[globalIdx].weight < 0 ? 'Assisté' : 'Lesté'}
                           >
