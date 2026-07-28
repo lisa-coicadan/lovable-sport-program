@@ -20,6 +20,7 @@ const App = () => (
         <p className="text-sm font-medium text-foreground">Tourne ton téléphone en mode portrait</p>
         <p className="text-xs text-muted-foreground">Cette app est conçue pour un usage vertical.</p>
       </div>
+      <PWAUpdatePrompt />
       <Toaster />
       <Sonner />
       <BrowserRouter>
