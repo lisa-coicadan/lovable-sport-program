@@ -33,6 +33,13 @@ const Index = () => {
     setActiveTab(1);
   }, []);
 
+  // `selectedDate` targets the session she's about to log at a specific past date (logging
+  // retroactively from Calendar) — it must not silently keep applying to every session she
+  // starts afterwards from the Séance tab directly, so it's cleared once actually consumed.
+  const handleClearSelectedDate = useCallback(() => {
+    setSelectedDate(null);
+  }, []);
+
   const handleUpdateSession = useCallback((updated: SessionLog) => {
     setData(prev => ({
       ...prev,
@@ -63,7 +70,7 @@ const Index = () => {
   }
 
   return (
-    <div className="min-h-screen bg-background max-w-lg mx-auto relative">
+    <div className="min-h-screen bg-background max-w-lg mx-auto relative overflow-x-hidden">
       {activeTab === 0 && (
         <CalendarTab data={data} onDaySelect={handleDaySelect} onUpdateSession={handleUpdateSession} onDeleteSession={handleDeleteSession} onDeleteCardioSession={handleDeleteCardioSession} />
       )}
@@ -74,6 +81,7 @@ const Index = () => {
           onSaveSession={handleSaveSession}
           onUpdateData={handleUpdateData}
           selectedDate={selectedDate}
+          onClearSelectedDate={handleClearSelectedDate}
           onProgressChange={setSessionProgress}
         />
       </div>

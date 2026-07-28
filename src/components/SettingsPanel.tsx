@@ -697,11 +697,17 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                   {(() => {
                     const blocks = buildExerciseBlocks(type.exercises);
 
+                    // The delete button used to sit at the end of this row, inline with the
+                    // sets/reps/weight fields — on narrow phones that pushed the row's total
+                    // content past the viewport width, and since the row wasn't allowed to
+                    // shrink below it, the whole page became horizontally pannable just to
+                    // reach it. It's now rendered separately, above and right-aligned (see
+                    // renderDeleteButton below), so this row never has to make room for it.
                     const renderRow = (ex: Exercise, opts?: { hideSets?: boolean }) => {
                       const ei = type.exercises.findIndex(e => e.id === ex.id);
                       const hasMethod = !!ex.method;
                       return (
-                        <div className="flex items-center gap-1.5 flex-1">
+                        <div className="flex items-center gap-1.5 flex-1 min-w-0">
                           <input
                             value={ex.name}
                             onChange={e => updateExercise(ti, ei, 'name', e.target.value)}
@@ -719,23 +725,23 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                           ) : (
                             <>
                               {opts?.hideSets ? (
-                                <span className="text-[10px] text-muted-foreground w-10 text-center">partagé</span>
+                                <span className="text-[10px] text-muted-foreground w-10 min-w-0 shrink-0 text-center">partagé</span>
                               ) : (
                                 <input
                                   type="number"
                                   value={ex.sets || ''}
                                   onChange={e => updateExercise(ti, ei, 'sets', e.target.value === '' ? '' as any : parseInt(e.target.value) || 0)}
-                                  className="w-10 bg-secondary text-foreground rounded-lg px-1 py-1.5 text-sm text-center outline-none"
+                                  className="w-10 min-w-0 shrink-0 bg-secondary text-foreground rounded-lg px-1 py-1.5 text-sm text-center outline-none"
                                   placeholder="S"
                                   aria-label={`Séries, ${ex.name || 'exercice'}`}
                                 />
                               )}
-                              <span className="text-muted-foreground text-xs">×</span>
+                              <span className="text-muted-foreground text-xs shrink-0">×</span>
                               <input
                                 type="number"
                                 value={ex.reps || ''}
                                 onChange={e => updateExercise(ti, ei, 'reps', e.target.value === '' ? '' as any : parseInt(e.target.value) || 0)}
-                                className="w-10 bg-secondary text-foreground rounded-lg px-1 py-1.5 text-sm text-center outline-none"
+                                className="w-10 min-w-0 shrink-0 bg-secondary text-foreground rounded-lg px-1 py-1.5 text-sm text-center outline-none"
                                 placeholder="R"
                                 aria-label={`Répétitions, ${ex.name || 'exercice'}`}
                               />
@@ -743,16 +749,26 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                 type="number"
                                 value={ex.weight === undefined ? '' : weightFieldValue(ex.weight, ex.name || '')}
                                 onChange={e => updateExercise(ti, ei, 'weight', e.target.value === '' ? 0 : parseFloat(e.target.value) || 0)}
-                                className="w-12 bg-secondary text-foreground rounded-lg px-1 py-1.5 text-sm text-center outline-none"
+                                className="w-12 min-w-0 shrink-0 bg-secondary text-foreground rounded-lg px-1 py-1.5 text-sm text-center outline-none"
                                 placeholder="kg"
                                 aria-label={`Poids, ${ex.name || 'exercice'} (kg)`}
                               />
                             </>
                           )}
-                          <button onClick={() => removeExercise(ti, ei)} className="text-muted-foreground p-1" aria-label={`Supprimer ${ex.name || 'cet exercice'}`}>
-                            <Trash2 size={12} />
-                          </button>
                         </div>
+                      );
+                    };
+
+                    const renderDeleteButton = (ex: Exercise) => {
+                      const ei = type.exercises.findIndex(e => e.id === ex.id);
+                      return (
+                        <button
+                          onClick={() => removeExercise(ti, ei)}
+                          className="text-muted-foreground p-1 -m-1"
+                          aria-label={`Supprimer ${ex.name || 'cet exercice'}`}
+                        >
+                          <Trash2 size={12} />
+                        </button>
                       );
                     };
 
@@ -800,14 +816,20 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                     </button>
                                   </div>
                                 </div>
-                                <div className="flex items-center gap-1.5">
-                                  <span className="text-[10px] font-bold text-primary w-4">A</span>
-                                  {renderRow(a, { hideSets: true })}
+                                <div>
+                                  <div className="flex justify-end -mb-1">{renderDeleteButton(a)}</div>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-[10px] font-bold text-primary w-4">A</span>
+                                    {renderRow(a, { hideSets: true })}
+                                  </div>
                                 </div>
                                 {b && (
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="text-[10px] font-bold text-primary w-4">B</span>
-                                    {renderRow(b, { hideSets: true })}
+                                  <div>
+                                    <div className="flex justify-end -mb-1">{renderDeleteButton(b)}</div>
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="text-[10px] font-bold text-primary w-4">B</span>
+                                      {renderRow(b, { hideSets: true })}
+                                    </div>
                                   </div>
                                 )}
                               </div>
@@ -821,6 +843,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                           const methodEmom = ex.method?.type === 'emom' ? ex.method : null;
                           return (
                             <div className="space-y-1 mb-1.5">
+                              <div className="flex justify-end -mb-1">{renderDeleteButton(ex)}</div>
                               <div className="flex items-center gap-1">
                                 <DragHandle />
                                 {renderRow(ex)}

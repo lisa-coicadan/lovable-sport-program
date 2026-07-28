@@ -497,7 +497,9 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession }: StatsTabProps) => 
                     <Tooltip
                       contentStyle={tooltipStyle}
                       labelStyle={{ color: 'hsl(0 0% 95%)' }}
-                      formatter={(v: number) => [`${v} kg`, '1RM']}
+                      formatter={(v: number, _name: string, item: { payload: E1rmDotProps['payload'] }) =>
+                        [`${v} kg (${item.payload.weight} kg × ${item.payload.reps})`, '1RM']
+                      }
                       labelFormatter={(ts: number) => new Date(ts).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })}
                     />
                     <Line

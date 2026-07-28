@@ -79,7 +79,17 @@ const RestTimer = forwardRef<RestTimerHandle, RestTimerProps>(({ defaultSeconds 
   // Recompute remaining time from wall-clock time rather than trusting the interval's
   // tick count: iOS throttles/pauses setInterval when the tab is backgrounded or the
   // screen locks, so a plain decrementing counter drifts or freezes.
-  const syncFromWallClock = useCallback(() => {
+  //
+  // `resumed: true` means we're finding out the rest period is over specifically because
+  // the page just came back to the foreground (screen unlock, app switch back...) — iOS in
+  // particular routinely suspends the Web Audio context while the screen is locked, so the
+  // beep scheduled at countdown-start can silently never sound even though it was
+  // correctly scheduled (this was the "sonne 3 fois sur 4" flakiness: it played fine
+  // whenever she kept the screen on, and silently dropped whenever it locked). Firing a
+  // fresh beep right now, on the just-resumed (guaranteed-running) context, is the only
+  // way to make it reliable — the normal foreground path is left alone so it doesn't
+  // double up when the original scheduled beep already played on time.
+  const syncFromWallClock = useCallback((opts?: { resumed?: boolean }) => {
     if (endAtRef.current === null) return;
     const remaining = Math.max(0, Math.ceil((endAtRef.current - Date.now()) / 1000));
     if (remaining <= 0) {
@@ -88,6 +98,10 @@ const RestTimer = forwardRef<RestTimerHandle, RestTimerProps>(({ defaultSeconds 
       scheduledBeepRef.current = [];
       setIsRunning(false);
       setSeconds(total); // auto-reset, ready for the next rest period
+      if (opts?.resumed) {
+        const ctx = getSharedAudioContext();
+        if (ctx) scheduleBeep(ctx.currentTime);
+      }
       try {
         if ('vibrate' in navigator) navigator.vibrate([200, 100, 200]);
       } catch { /* vibration unsupported/blocked */ }
@@ -117,7 +131,7 @@ const RestTimer = forwardRef<RestTimerHandle, RestTimerProps>(({ defaultSeconds 
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         getSharedAudioContext(); // try to resume the audio context now that we're back in the foreground
-        syncFromWallClock();
+        syncFromWallClock({ resumed: true });
       }
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
@@ -262,7 +276,13 @@ const RestTimer = forwardRef<RestTimerHandle, RestTimerProps>(({ defaultSeconds 
           onPointerMove={onDragPointerMove}
           onPointerUp={onDragPointerUp}
           onPointerCancel={() => { dragStateRef.current = null; setDragOffset(null); }}
-          style={dragOffset ? { transform: `translate(${dragOffset.x}px, ${dragOffset.y}px)`, touchAction: 'none' } : undefined}
+          // touch-action must be 'none' from the very first touch, not just once the 10px
+          // threshold trips — iOS/Android decide whether a touch is a scroll gesture right
+          // at touchstart, and won't hand pointermove events back to us mid-gesture once
+          // they've claimed it. Setting this only while `dragOffset` is truthy (i.e. after
+          // dragging was already detected) was too late, which read as "slow/difficult to
+          // drag" since most attempts got eaten as a page scroll before ever registering.
+          style={{ touchAction: 'none', ...(dragOffset ? { transform: `translate(${dragOffset.x}px, ${dragOffset.y}px)` } : {}) }}
           className={`relative w-14 h-14 rounded-full flex items-center justify-center shadow-lg active:scale-90 ${
             dragOffset ? '' : 'transition-all'
           } ${isRunning ? 'bg-primary text-primary-foreground' : 'bg-card border border-border text-foreground'}`}
@@ -310,7 +330,7 @@ const RestTimer = forwardRef<RestTimerHandle, RestTimerProps>(({ defaultSeconds 
           ))}
           <button
             onClick={() => setCustomOpen(v => !v)}
-            className={`touch-target px-2 rounded-lg text-[10px] font-medium transition-colors ${
+            className={`flex-1 py-1.5 rounded-lg flex items-center justify-center transition-colors ${
               customOpen ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground'
             }`}
             aria-label="Durée personnalisée"

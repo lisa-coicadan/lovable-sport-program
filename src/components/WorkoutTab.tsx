@@ -22,6 +22,7 @@ interface WorkoutTabProps {
   onSaveSession: (session: SessionLog) => void;
   onUpdateData: (partial: Partial<AppData>) => void;
   selectedDate?: string | null;
+  onClearSelectedDate?: () => void;
   // Reports the live session's completed-sets fraction (0-1), or null when no session is
   // in progress — lets BottomTabBar show a progress strip even while she's on another tab.
   onProgressChange?: (progress: number | null) => void;
@@ -118,7 +119,7 @@ const MethodPickerRow = ({ active, onSelect }: { active: 'cluster' | 'emom' | 'n
   </div>
 );
 
-const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgressChange }: WorkoutTabProps) => {
+const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSelectedDate, onProgressChange }: WorkoutTabProps) => {
   const [mode, setMode] = useState<Mode>('select');
   const [selectedType, setSelectedType] = useState<WorkoutType | null>(null);
   const [sets, setSets] = useState<SetLog[]>([]);
@@ -182,6 +183,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
     onUpdateData({ cardioSessions: [...(data.cardioSessions || []), session] });
     resetCardioForm();
     setMode('select');
+    onClearSelectedDate?.();
   };
 
   // Resolves the full method (preset/rest times/duration included, not just TM) that
@@ -282,12 +284,19 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
   }, [data.sessions]);
 
   // Get last session weights for pre-fill
-  const getLastSessionWeights = useCallback((typeId: string) => {
+  const getLastSessionWeights = useCallback((typeId: string, exercises: Exercise[]) => {
     const lastSession = data.sessions
       .filter(s => s.workoutTypeId === typeId)
       .sort((a, b) => b.date.localeCompare(a.date))[0];
     if (!lastSession) return {};
-    
+
+    // A logged set's exerciseId can outlive a session-only rename (e.g. she swapped
+    // "Développé incliné" for "Développé couché" just for that one session, without
+    // touching the exercise's configured default) — matching by id alone would then pull
+    // that other exercise's weight into today's "Développé incliné" pre-fill. Only trust
+    // a logged weight when the exercise's CURRENT name still matches what was logged.
+    const currentNameById = new Map(exercises.map(e => [e.id, e.name]));
+
     const weights: Record<string, number> = {};
     // Keep overwriting as we walk the sets in order, so each exercise ends up with its
     // LAST completed set's weight, not its first — if she started light and worked up to
@@ -295,7 +304,10 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
     // Drop-set stages are excluded: they're a deliberately lighter cascade below the real
     // working weight, never a sensible baseline for the next session.
     lastSession.sets.forEach(s => {
-      if (s.completed && !s.dropSetStage && (s.weight > 0 || isBodyweightOptionalExercise(s.exerciseName))) {
+      if (
+        s.completed && !s.dropSetStage && (s.weight > 0 || isBodyweightOptionalExercise(s.exerciseName)) &&
+        currentNameById.get(s.exerciseId) === s.exerciseName
+      ) {
         weights[s.exerciseId] = s.weight;
       }
     });
@@ -317,7 +329,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
     });
     setSelectedWeeks(initialWeeks);
 
-    const lastWeights = getLastSessionWeights(type.id);
+    const lastWeights = getLastSessionWeights(type.id, type.exercises);
     const initialSets: SetLog[] = [];
 
     const exerciseMap = new Map(type.exercises.map(e => [e.id, e]));
@@ -387,6 +399,15 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
     } else {
       updated[index][field] = field === 'weight' ? parseFloat(value) || 0 : parseInt(value) || 0;
     }
+    setSets(updated);
+  };
+
+  // Tractions/dips: a negative weight materializes band/machine assistance, but the
+  // mobile numeric keypad for <input type="number"> doesn't reliably offer a minus key —
+  // this toggle button is the actual way in, typing "-" being a bonus on devices that do.
+  const toggleWeightSign = (index: number) => {
+    const updated = [...sets];
+    updated[index].weight = -updated[index].weight;
     setSets(updated);
   };
 
@@ -570,6 +591,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
     setMethodOverrides({});
     setRenamingExerciseId(null);
     setDropSetPickerFor(null);
+    onClearSelectedDate?.();
   };
 
   // RestTimer is rendered alongside EVERY mode below that can be reached mid-session
@@ -642,6 +664,23 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
             <Settings size={20} />
           </button>
         </div>
+
+        {/* Logging retroactively from a specific Calendar day — without this banner, this
+            screen looks identical to the normal "start a session" picker, so there's no
+            way to tell she's about to log for a past date instead of today. */}
+        {selectedDate && (
+          <div className="flex items-center justify-between gap-2 bg-primary/10 border border-primary/30 rounded-xl px-3 py-2 mb-4">
+            <span className="text-xs text-primary font-medium">
+              Séance pour le {new Date(selectedDate + 'T00:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+            </span>
+            <button
+              onClick={() => onClearSelectedDate?.()}
+              className="text-[10px] text-muted-foreground underline shrink-0"
+            >
+              Aujourd'hui
+            </button>
+          </div>
+        )}
 
         {/* 5/3/1 Block — one card per exercise using the method, if any */}
         {fiveThreeOneExercises.map(({ exercise, method }) => {
@@ -719,7 +758,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
             sets×reps workout types above. */}
         <button
           onClick={() => setMode('cardio')}
-          className="w-full glass-card p-4 mt-4 flex items-center gap-3 border-accent-blue/30 active:scale-[0.99] transition-transform"
+          className="w-full glass-card p-4 mt-4 mb-6 flex items-center gap-3 border-accent-blue/30 active:scale-[0.99] transition-transform"
         >
           <Activity size={18} className="text-accent-blue shrink-0" />
           <span className="text-sm font-medium text-foreground">Activité cardio</span>
@@ -1456,10 +1495,22 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
                               <span className="text-xs text-foreground/80 truncate group-active:text-primary transition-colors">{row.name}</span>
                               <History size={11} className="text-muted-foreground/70 group-active:text-primary shrink-0" />
                             </button>
+                            {isBodyweightOptionalExercise(row.name) && (
+                              <button
+                                type="button"
+                                onClick={() => toggleWeightSign(row.idx)}
+                                className="w-6 h-6 shrink-0 rounded-md bg-background/60 text-muted-foreground text-xs font-bold"
+                                aria-label={sets[row.idx].weight < 0 ? 'Assisté (élastique/machine) — repasser en lesté' : 'Lesté — passer en assisté (élastique/machine)'}
+                                title={sets[row.idx].weight < 0 ? 'Assisté' : 'Lesté'}
+                              >
+                                {sets[row.idx].weight < 0 ? '−' : '+'}
+                              </button>
+                            )}
                             <input
                               type="number"
                               value={weightFieldValue(sets[row.idx].weight, row.name)}
                               onChange={e => updateSet(row.idx, 'weight', e.target.value)}
+                              onFocus={e => e.target.select()}
                               onBlur={() => propagateWeightOnBlur(row.idx)}
                               className="w-14 bg-background/60 rounded-md text-foreground text-sm text-center outline-none font-mono py-1"
                               placeholder="kg"
@@ -1578,20 +1629,25 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
 
               <SetDots states={exerciseSets.map(e => sets[e.globalIdx].completed)} className="mb-2 ml-6" />
 
-              {(lastPerf || absRecord) && (
-                <div className="flex flex-wrap gap-x-3 gap-y-0.5 mb-2">
-                  {lastPerf && (
-                    <p className="text-[10px] text-muted-foreground">
-                      Dernière: <span className="text-foreground/80 font-medium">{lastPerf.weight}kg × {lastPerf.reps}</span>
-                    </p>
-                  )}
-                  {absRecord && (
-                    <p className="text-[10px] text-muted-foreground">
-                      Max: <span className="text-primary font-medium">{absRecord.weight}kg × {absRecord.reps}</span>
-                    </p>
-                  )}
-                </div>
-              )}
+              {(lastPerf || absRecord) && (() => {
+                // Highlighting when she's already at her all-time best on this exercise —
+                // same color as "Max" so it jumps out instead of blending into the muted text.
+                const lastIsMax = !!(lastPerf && absRecord && lastPerf.weight === absRecord.weight && lastPerf.reps === absRecord.reps);
+                return (
+                  <div className="flex flex-wrap gap-x-3 gap-y-0.5 mb-2">
+                    {lastPerf && (
+                      <p className="text-[10px] text-muted-foreground">
+                        Dernière: <span className={`font-medium ${lastIsMax ? 'text-primary' : 'text-foreground/80'}`}>{lastPerf.weight}kg × {lastPerf.reps}</span>
+                      </p>
+                    )}
+                    {absRecord && (
+                      <p className="text-[10px] text-muted-foreground">
+                        Max: <span className="text-primary font-medium">{absRecord.weight}kg × {absRecord.reps}</span>
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
 
               <div className="space-y-2">
                 {exerciseSets.map((s, idx) => {
@@ -1610,10 +1666,22 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
                         <span className={`text-xs w-12 shrink-0 ${stage ? 'text-warning font-medium' : 'text-muted-foreground'}`}>
                           {rowLabel}
                         </span>
+                        {isBodyweightOptionalExercise(name) && (
+                          <button
+                            type="button"
+                            onClick={() => toggleWeightSign(globalIdx)}
+                            className="w-6 h-6 shrink-0 rounded-md bg-secondary text-muted-foreground text-xs font-bold"
+                            aria-label={sets[globalIdx].weight < 0 ? 'Assisté (élastique/machine) — repasser en lesté' : 'Lesté — passer en assisté (élastique/machine)'}
+                            title={sets[globalIdx].weight < 0 ? 'Assisté' : 'Lesté'}
+                          >
+                            {sets[globalIdx].weight < 0 ? '−' : '+'}
+                          </button>
+                        )}
                         <input
                           type="number"
                           value={weightFieldValue(sets[globalIdx].weight, name)}
                           onChange={e => updateSet(globalIdx, 'weight', e.target.value)}
+                          onFocus={e => e.target.select()}
                           onBlur={() => propagateWeightOnBlur(globalIdx)}
                           className="w-16 bg-transparent text-foreground text-sm text-center outline-none font-mono"
                           placeholder="kg"
