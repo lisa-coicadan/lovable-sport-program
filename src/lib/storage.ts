@@ -81,12 +81,23 @@ function migrateSessionProgramNames(data: AppData): AppData {
   return { ...data, sessions };
 }
 
+// RPE moved from a 1-5 scale to 1-10 — doubles every already-logged value once so
+// history keeps its relative meaning ("5/5 max effort" becomes "10/10 max effort").
+// Guarded by rpeScaleV2 since a doubled value looks identical in shape to one already
+// on /10 — without the flag, every load would double it again.
+function migrateRpeScale(data: AppData): AppData {
+  if (data.rpeScaleV2) return data;
+  const sessions = data.sessions.map(s => s.difficulty ? { ...s, difficulty: s.difficulty * 2 } : s);
+  const cardioSessions = (data.cardioSessions || []).map(s => s.difficulty ? { ...s, difficulty: s.difficulty * 2 } : s);
+  return { ...data, sessions, cardioSessions, rpeScaleV2: true };
+}
+
 export function loadData(): AppData {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return { ...DEFAULT_APP_DATA };
     const parsed = { ...DEFAULT_APP_DATA, ...JSON.parse(raw) };
-    return migrateSessionProgramNames(migrateToPrograms(migrateLegacyFiveThreeOne(parsed)));
+    return migrateRpeScale(migrateSessionProgramNames(migrateToPrograms(migrateLegacyFiveThreeOne(parsed))));
   } catch {
     return { ...DEFAULT_APP_DATA };
   }

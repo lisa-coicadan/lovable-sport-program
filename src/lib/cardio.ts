@@ -2,9 +2,21 @@
 // a float (whole minutes + seconds/60), computed from separate min/sec form fields, so
 // these format it back into a readable "Xmin YY" string rather than fractional minutes.
 
+import type { CardioActivityType } from './types';
+
 export function calculatePaceMinPerKm(durationMinutes: number, distanceKm: number | undefined): number | null {
   if (!distanceKm || distanceKm <= 0 || durationMinutes <= 0) return null;
   return durationMinutes / distanceKm;
+}
+
+// Distance is always stored in km (CardioSession.distanceKm), but natation is
+// conventionally tracked in meters (pool lengths) — this only changes display,
+// never the stored unit.
+export function formatCardioDistance(distanceKm: number, activityType: CardioActivityType): string {
+  if (activityType === 'Natation') {
+    return `${Math.round(distanceKm * 1000)} m`;
+  }
+  return `${distanceKm} km`;
 }
 
 function toMinutesAndSeconds(totalMinutes: number): { m: number; s: number } {

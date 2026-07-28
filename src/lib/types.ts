@@ -69,6 +69,10 @@ export interface Exercise {
   // not toggled mid-set: every set built for this exercise starts with no pre-filled
   // target, she logs whatever she actually got.
   amrap?: boolean;
+  // Free-text reminder left during a session (via the lightbulb button in WorkoutTab),
+  // surfaced as a banner above this exercise's card next time it's trained. Cleared
+  // manually (dismiss button on the banner), not auto-cleared after being shown once.
+  reminderNote?: string;
 }
 
 export interface WorkoutType {
@@ -144,7 +148,7 @@ export interface CardioSession {
   customActivityLabel?: string; // only when activityType === 'Autre'
   durationMinutes: number;
   distanceKm?: number;
-  difficulty?: number; // RPE /5, same scale as SessionLog.difficulty
+  difficulty?: number; // RPE /10, same scale as SessionLog.difficulty
   notes?: string;
 }
 
@@ -172,6 +176,10 @@ export interface AppData {
   // src/lib/storage.ts). New AppData never sets these; only present on old stored JSON.
   fiveThreeOne?: FiveThreeOneConfig;
   squatSessionId?: string | null;
+  // One-time migration marker: RPE moved from a 1-5 scale to 1-10 (see migrateRpeScale
+  // in src/lib/storage.ts). A doubled value is indistinguishable in shape from one
+  // already on /10, so this flag is the only way to make the migration idempotent.
+  rpeScaleV2?: boolean;
 }
 
 export const WORKOUT_COLORS = [

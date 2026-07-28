@@ -1,8 +1,9 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { AppData, SessionLog, CardioSession, resolveProgramName } from '@/lib/types';
 import { ChevronLeft, ChevronRight, Plus, Trash2, X, Activity } from 'lucide-react';
-import { formatCardioDuration, calculatePaceMinPerKm, formatPace } from '@/lib/cardio';
+import { formatCardioDuration, calculatePaceMinPerKm, formatPace, formatCardioDistance } from '@/lib/cardio';
 import SessionDetailView from './SessionDetailView';
+import { CARDIO_ACTIVITY_TYPES } from './WorkoutTab';
 
 interface CalendarTabProps {
   data: AppData;
@@ -87,6 +88,12 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession, onDe
   const cardioWeekProgress = cardioWeeklyGoal > 0 ? Math.min(thisWeekCardioSessions.length / cardioWeeklyGoal, 1) : 0;
 
   const thisMonthSessions = data.sessions.filter(s => {
+    const d = new Date(s.date);
+    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+  });
+  // Unlike the weekly goal above (strength-only, cardio has its own goal/bar), this is a
+  // simple activity total for the month — cardio belongs in it too.
+  const thisMonthCardioSessions = (data.cardioSessions || []).filter(s => {
     const d = new Date(s.date);
     return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
   });
@@ -230,12 +237,12 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession, onDe
                   </span>
                   <div className="flex gap-4 text-xs text-muted-foreground mt-1">
                     <span>{formatCardioDuration(cardio.durationMinutes)}</span>
-                    {cardio.distanceKm !== undefined && <span>{cardio.distanceKm} km</span>}
+                    {cardio.distanceKm !== undefined && <span>{formatCardioDistance(cardio.distanceKm, cardio.activityType)}</span>}
                     {(() => {
                       const pace = calculatePaceMinPerKm(cardio.durationMinutes, cardio.distanceKm);
                       return pace !== null && <span>{formatPace(pace)}</span>;
                     })()}
-                    {cardio.difficulty && <span>RPE {cardio.difficulty}/5</span>}
+                    {cardio.difficulty && <span>RPE {cardio.difficulty}/10</span>}
                   </div>
                 </div>
                 <button
@@ -272,7 +279,7 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession, onDe
                 <div className="flex gap-4 text-xs text-muted-foreground ml-6">
                   {session.duration && <span>{session.duration} min</span>}
                   <span>{session.sets.filter(s => s.completed).length}/{session.sets.length} séries</span>
-                  {session.difficulty && <span>RPE {session.difficulty}/5</span>}
+                  {session.difficulty && <span>RPE {session.difficulty}/10</span>}
                 </div>
               </button>
               <button
@@ -338,7 +345,7 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession, onDe
             <span className="text-[10px] font-medium text-muted-foreground">Ce mois-ci</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-2xl font-bold text-primary">{thisMonthSessions.length}</span>
+            <span className="text-2xl font-bold text-primary">{thisMonthSessions.length + thisMonthCardioSessions.length}</span>
             <span className="text-[10px] text-muted-foreground">séances</span>
           </div>
         </div>
@@ -390,9 +397,17 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession, onDe
             >
               {/* Outline rather than a fill so a cardio day can be superimposed on a
                   strength day's background color instead of fighting over it. */}
-              {cardioSessions.length > 0 && (
-                <div className="absolute inset-0 rounded-xl border-2 border-accent-blue pointer-events-none" />
-              )}
+              {cardioSessions.length > 0 && (() => {
+                const Icon = CARDIO_ACTIVITY_TYPES.find(a => a.type === cardioSessions[0].activityType)?.icon || Activity;
+                return (
+                  <>
+                    <div className="absolute inset-0 rounded-xl border-2 border-accent-blue pointer-events-none" />
+                    <div className="absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-full bg-accent-blue flex items-center justify-center pointer-events-none">
+                      <Icon size={8} strokeWidth={2.5} className="text-white" />
+                    </div>
+                  </>
+                );
+              })()}
               <span className={`text-sm ${isToday ? 'font-bold text-primary' : sessions.length > 0 ? 'font-semibold text-foreground' : 'text-foreground'}`}>
                 {dayNum}
               </span>
@@ -421,6 +436,10 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession, onDe
               <span className="text-xs text-muted-foreground">{wt.name}</span>
             </div>
           ))}
+        <div className="flex items-center gap-1.5">
+          <div className="w-2.5 h-2.5 rounded-sm border-2 border-accent-blue" />
+          <span className="text-xs text-muted-foreground">Cardio</span>
+        </div>
       </div>
     </div>
   );

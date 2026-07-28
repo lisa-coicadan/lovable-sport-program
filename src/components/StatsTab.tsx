@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { AppData, SessionLog, calculate1RM, WORKOUT_COLORS, CardioActivityType, resolveProgramName } from '@/lib/types';
 import { normalizeExerciseName } from '@/lib/exerciseNormalize';
-import { calculatePaceMinPerKm, formatCardioDuration, formatPace } from '@/lib/cardio';
+import { calculatePaceMinPerKm, formatCardioDuration, formatPace, formatCardioDistance } from '@/lib/cardio';
 import { Trophy, Scale, Crown, ChevronDown, Search, X, Plus } from 'lucide-react';
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -16,8 +16,6 @@ interface StatsTabProps {
   onUpdateSession: (updated: SessionLog) => void;
   onDeleteSession?: (sessionId: string) => void;
 }
-
-const RPE_CUTOFF = '2026-06-01';
 
 type PR = { name: string; e1rm: number; weight: number; reps: number; date: string };
 type DotRenderProps = { cx: number; cy: number; index: number; payload: { id: string; programName?: string; isCardio?: boolean } };
@@ -233,19 +231,17 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession }: StatsTabProps) => 
   };
   const volumeProgramColors = useMemo(() => programColorFor(volumeData), [volumeData]);
 
-  // Difficulty over time — only sessions from June 2026 onward (RPE /5 scale)
-  // Cardio isn't counted in weeklyGoal/tonnage, but RPE is tracked on the same /5 scale —
-  // worth seeing on the same effort-over-time chart, just visually distinct (cardio's
-  // accent-blue vs a program color) so the two aren't mistaken for each other.
+  // Difficulty over time — cardio isn't counted in weeklyGoal/tonnage, but RPE is
+  // tracked on the same /10 scale — worth seeing on the same effort-over-time chart,
+  // just visually distinct (cardio's accent-blue vs a program color) so the two aren't
+  // mistaken for each other.
   const difficultyData = useMemo(() => {
     const cutoff = rangeCutoffDate(difficultyRange);
     const strengthPoints = difficultySourceFilter === 'cardio' ? [] : data.sessions
-      .filter(s => s.date >= RPE_CUTOFF)
       .filter(s => s.difficulty && s.difficulty > 0)
       .filter(s => !cutoff || new Date(s.date + 'T00:00:00') >= cutoff)
       .map(s => ({ rawDate: s.date, id: s.id, difficulty: s.difficulty || 0, type: s.workoutTypeName, programName: resolveProgramName(s, data), isCardio: false }));
     const cardioPoints = difficultySourceFilter === 'strength' ? [] : (data.cardioSessions || [])
-      .filter(s => s.date >= RPE_CUTOFF)
       .filter(s => s.difficulty && s.difficulty > 0)
       .filter(s => !cutoff || new Date(s.date + 'T00:00:00') >= cutoff)
       .map(s => ({ rawDate: s.date, id: s.id, difficulty: s.difficulty || 0, type: s.activityType, programName: undefined as string | undefined, isCardio: true }));
@@ -285,30 +281,41 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession }: StatsTabProps) => 
       }));
   }, [data.cardioSessions, paceRange, paceActivityFilter]);
 
-  // Weekly training time — include empty weeks
+  // Weekly training time — include empty weeks. Counts both strength sessions and
+  // cardio sessions, since cardio time is training time too.
   const weeklyTimeData = useMemo(() => {
     const withDuration = data.sessions.filter(s => s.duration);
+    const cardioSessions = data.cardioSessions || [];
     const minutesByWeek = new Map<string, number>();
     withDuration.forEach(s => {
       const key = mondayOf(new Date(s.date + 'T00:00:00')).toISOString().split('T')[0];
       minutesByWeek.set(key, (minutesByWeek.get(key) || 0) + (s.duration || 0));
     });
-    return weekRangeMondays(weeklyTimeRange, withDuration.map(s => s.date)).map(m => {
+    cardioSessions.forEach(s => {
+      const key = mondayOf(new Date(s.date + 'T00:00:00')).toISOString().split('T')[0];
+      minutesByWeek.set(key, (minutesByWeek.get(key) || 0) + s.durationMinutes);
+    });
+    return weekRangeMondays(weeklyTimeRange, [...withDuration.map(s => s.date), ...cardioSessions.map(s => s.date)]).map(m => {
       const key = m.toISOString().split('T')[0];
       return {
         week: m.toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' }),
         minutes: minutesByWeek.get(key) || 0,
       };
     });
-  }, [data.sessions, weeklyTimeRange]);
+  }, [data.sessions, data.cardioSessions, weeklyTimeRange]);
 
-  // Monthly training time
+  // Monthly training time — same, strength + cardio combined.
   const monthlyTimeData = useMemo(() => {
     const months: Record<string, number> = {};
     data.sessions.filter(s => s.duration).forEach(s => {
       const d = new Date(s.date);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       months[key] = (months[key] || 0) + (s.duration || 0);
+    });
+    (data.cardioSessions || []).forEach(s => {
+      const d = new Date(s.date);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      months[key] = (months[key] || 0) + s.durationMinutes;
     });
     const entries = Object.entries(months).sort(([a], [b]) => a.localeCompare(b));
     const n = rangeMonths(monthlyTimeRange);
@@ -317,7 +324,7 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession }: StatsTabProps) => 
       month: new Date(month + '-01').toLocaleDateString('fr-FR', { month: 'short' }),
       minutes,
     }));
-  }, [data.sessions, monthlyTimeRange]);
+  }, [data.sessions, data.cardioSessions, monthlyTimeRange]);
 
   const currentWeekTime = weeklyTimeData.length > 0 ? weeklyTimeData[weeklyTimeData.length - 1]?.minutes || 0 : 0;
   const prevWeekTime = weeklyTimeData.length > 1 ? weeklyTimeData[weeklyTimeData.length - 2]?.minutes || 0 : 0;
@@ -665,11 +672,11 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession }: StatsTabProps) => 
       )}
 
       {/* Difficulty Over Time */}
-      {(data.sessions.some(s => s.date >= RPE_CUTOFF && s.difficulty && s.difficulty > 0) ||
-        (data.cardioSessions || []).some(s => s.date >= RPE_CUTOFF && s.difficulty && s.difficulty > 0)) && (
+      {(data.sessions.some(s => s.difficulty && s.difficulty > 0) ||
+        (data.cardioSessions || []).some(s => s.difficulty && s.difficulty > 0)) && (
         <div className="glass-card p-4 mb-4">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-foreground">Effort perçu (RPE /5)</h3>
+            <h3 className="text-sm font-semibold text-foreground">Effort perçu (RPE /10)</h3>
             <RangeButtons value={difficultyRange} onChange={setDifficultyRange} />
           </div>
           <div className="flex gap-1 mb-3">
@@ -693,7 +700,7 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession }: StatsTabProps) => 
               <LineChart data={difficultyData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 12% 20%)" />
                 <XAxis dataKey="date" tick={chartStyle} axisLine={false} tickLine={false} />
-                <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={30} domain={[0, 5]} />
+                <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={30} domain={[0, 10]} />
                 <Line
                   type="monotone"
                   dataKey="difficulty"
@@ -737,7 +744,7 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession }: StatsTabProps) => 
                       <X size={9} />
                     </button>
                     <p style={{ color: 'hsl(0 0% 95%)' }} className="text-[11px] mb-0.5">{point.date}</p>
-                    <p className="text-xs font-semibold mb-1" style={{ color: dotColor }}>RPE {point.difficulty}/5</p>
+                    <p className="text-xs font-semibold mb-1" style={{ color: dotColor }}>RPE {point.difficulty}/10</p>
                     {session && (
                       <div className="flex items-center justify-between gap-1.5">
                         <div className="min-w-0">
@@ -756,7 +763,7 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession }: StatsTabProps) => 
                     {cardio && (
                       <p className="text-[9px] text-foreground/80">
                         {cardio.activityType === 'Autre' ? (cardio.customActivityLabel || 'Autre') : cardio.activityType} · {formatCardioDuration(cardio.durationMinutes)}
-                        {cardio.distanceKm !== undefined && ` · ${cardio.distanceKm} km`}
+                        {cardio.distanceKm !== undefined && ` · ${formatCardioDistance(cardio.distanceKm, cardio.activityType)}`}
                       </p>
                     )}
                   </div>

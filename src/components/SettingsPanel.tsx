@@ -4,9 +4,8 @@ import { linkSuperset, unlinkSuperset, buildExerciseBlocks, flattenBlocks, Exerc
 import { parseSessionNotes, parseMultiSessionNotes, NOTES_SYNTAX_HELP, NOTES_SYNTAX_HELP_FILL } from '@/lib/notesParser';
 import { getEmomConfig, getEmomWeight, getDefaultEmomPercentage } from '@/lib/emom';
 import { getClusterConfig, getMiniSeriesWeight, CLUSTER_PRESETS } from '@/lib/cluster';
-import { weightFieldValue } from '@/lib/exerciseNormalize';
 import { estimateOneRepMax, estimateTrainingMax } from '@/lib/trainingMax';
-import { ArrowLeft, Plus, Trash2, EyeOff, Eye, Scale, Link2, Link2Off, Download, Upload, Database, AlertTriangle, FileText, Zap, Timer, Clock, Layers, Check, Calculator, TrendingDown, User, Infinity as InfinityIcon } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, EyeOff, Eye, Scale, Link2, Link2Off, Download, Upload, Database, AlertTriangle, FileText, Zap, Timer, Clock, Layers, Check, Calculator, TrendingDown, User, Infinity as InfinityIcon, Pencil } from 'lucide-react';
 import { SortableList, DragHandle } from './SortableBlock';
 import { loadData, saveData } from '@/lib/storage';
 import { toast } from '@/hooks/use-toast';
@@ -101,6 +100,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
   const [notesOpen, setNotesOpen] = useState(false);
   const [notesText, setNotesText] = useState('');
   const [notesTargetId, setNotesTargetId] = useState<string | null>(null);
+  const [colorPickerFor, setColorPickerFor] = useState<string | null>(null);
   // window.prompt() is silently disabled by iOS Safari in standalone (home-screen) PWAs —
   // it never shows anything and returns null, so "Nouveau"/"Renommer" would do nothing on
   // her phone. This in-app modal replaces it for both flows.
@@ -616,7 +616,18 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
             return (
               <div key={type.id} className="glass-card p-4">
                 <div className="flex items-center gap-2 mb-3">
-                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: `hsl(${type.color})` }} />
+                  <button
+                    onClick={() => setColorPickerFor(colorPickerFor === type.id ? null : type.id)}
+                    className="relative touch-target shrink-0 flex items-center justify-center"
+                    aria-label={`Changer la couleur de ${type.name || 'cette séance'}`}
+                    aria-pressed={colorPickerFor === type.id}
+                  >
+                    <span className="relative w-6 h-6 rounded-full" style={{ backgroundColor: `hsl(${type.color})` }}>
+                      <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-secondary border border-border flex items-center justify-center">
+                        <Pencil size={8} className="text-foreground" />
+                      </span>
+                    </span>
+                  </button>
                   <input
                     value={type.name}
                     onChange={e => updateTypeName(ti, e.target.value)}
@@ -642,19 +653,20 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                     <Trash2 size={16} />
                   </button>
                 </div>
-                <div className="flex items-center gap-1.5 mb-3 flex-wrap">
-                  <span className="text-[10px] text-muted-foreground mr-1">Couleur</span>
-                  {WORKOUT_COLORS.map((c, ci) => (
-                    <button
-                      key={c}
-                      onClick={() => updateTypeColor(ti, c)}
-                      className={`w-6 h-6 rounded-full border-2 transition-transform ${type.color === c ? 'border-foreground scale-110' : 'border-transparent'}`}
-                      style={{ backgroundColor: `hsl(${c})` }}
-                      aria-label={`Couleur ${WORKOUT_COLOR_NAMES[ci] || ci + 1}`}
-                      aria-pressed={type.color === c}
-                    />
-                  ))}
-                </div>
+                {colorPickerFor === type.id && (
+                  <div className="flex items-center gap-1.5 mb-3 flex-wrap">
+                    {WORKOUT_COLORS.map((c, ci) => (
+                      <button
+                        key={c}
+                        onClick={() => { updateTypeColor(ti, c); setColorPickerFor(null); }}
+                        className={`w-6 h-6 rounded-full border-2 transition-transform ${type.color === c ? 'border-foreground scale-110' : 'border-transparent'}`}
+                        style={{ backgroundColor: `hsl(${c})` }}
+                        aria-label={`Couleur ${WORKOUT_COLOR_NAMES[ci] || ci + 1}`}
+                        aria-pressed={type.color === c}
+                      />
+                    ))}
+                  </div>
+                )}
                 {type.exercises.length === 0 && (
                   notesOpen && notesTargetId === type.id ? (
                     <div className="mb-3 bg-secondary/40 rounded-xl p-3">
@@ -744,14 +756,6 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                 className="w-10 min-w-0 shrink-0 bg-secondary text-foreground rounded-lg px-1 py-1.5 text-sm text-center outline-none"
                                 placeholder="R"
                                 aria-label={`Répétitions, ${ex.name || 'exercice'}`}
-                              />
-                              <input
-                                type="number"
-                                value={ex.weight === undefined ? '' : weightFieldValue(ex.weight, ex.name || '')}
-                                onChange={e => updateExercise(ti, ei, 'weight', e.target.value === '' ? 0 : parseFloat(e.target.value) || 0)}
-                                className="w-12 min-w-0 shrink-0 bg-secondary text-foreground rounded-lg px-1 py-1.5 text-sm text-center outline-none"
-                                placeholder="kg"
-                                aria-label={`Poids, ${ex.name || 'exercice'} (kg)`}
                               />
                             </>
                           )}
@@ -1180,39 +1184,18 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                 </div>
                               ) : (
                                 <div className="pl-1">
-                                  <button
-                                    onClick={() => setExpandedMethodFor(expandedMethodFor === ex.id ? null : ex.id)}
-                                    className="text-[10px] text-muted-foreground flex items-center gap-1"
-                                  >
-                                    <Zap size={10} /> Ajouter une méthode
-                                  </button>
-                                  {expandedMethodFor === ex.id && (
-                                    <div className="flex items-center gap-3 mt-1.5 flex-wrap">
-                                      <button
-                                        onClick={() => { updateExerciseMethod(ti, exIdx, { type: '531', trainingMax: 60, currentCycle: 1, currentWeek: 1, increment: 2.5 }); setExpandedMethodFor(null); }}
-                                        className="text-[10px] text-muted-foreground flex items-center gap-1"
-                                      >
-                                        <Zap size={10} /> 5/3/1
-                                      </button>
-                                      <button
-                                        onClick={() => { updateExerciseMethod(ti, exIdx, { type: 'cluster', trainingMax: 60 }); setExpandedMethodFor(null); }}
-                                        className="text-[10px] text-muted-foreground flex items-center gap-1"
-                                      >
-                                        <Timer size={10} /> Cluster
-                                      </button>
-                                      <button
-                                        onClick={() => { updateExerciseMethod(ti, exIdx, { type: 'emom', trainingMax: 60 }); setExpandedMethodFor(null); }}
-                                        className="text-[10px] text-muted-foreground flex items-center gap-1"
-                                      >
-                                        <Clock size={10} /> EMOM
-                                      </button>
-                                    </div>
-                                  )}
-                                  {/* Drop set isn't a standing method like 531/Cluster/EMOM (TM-driven, generates
-                                      every set upfront) — it cascades live from whichever regular set she's doing.
-                                      This toggle only pre-plans stage 1 at session start; "+ Drop set" in the
-                                      session itself works on any exercise regardless of this flag. */}
-                                  <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                                  {/* Méthode / Drop set / Max de reps on one row — Drop set isn't a
+                                      standing method like 531/Cluster/EMOM (TM-driven, generates every
+                                      set upfront), it cascades live from whichever regular set she's
+                                      doing; this toggle only pre-plans stage 1 at session start, "+ Drop
+                                      set" in the session itself works on any exercise regardless. */}
+                                  <div className="flex items-center gap-3 flex-wrap">
+                                    <button
+                                      onClick={() => setExpandedMethodFor(expandedMethodFor === ex.id ? null : ex.id)}
+                                      className="text-[10px] text-muted-foreground flex items-center gap-1"
+                                    >
+                                      <Zap size={10} /> Méthode
+                                    </button>
                                     <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
                                       <input
                                         type="checkbox"
@@ -1252,6 +1235,28 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                       </>
                                     )}
                                   </div>
+                                  {expandedMethodFor === ex.id && (
+                                    <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+                                      <button
+                                        onClick={() => { updateExerciseMethod(ti, exIdx, { type: '531', trainingMax: 60, currentCycle: 1, currentWeek: 1, increment: 2.5 }); setExpandedMethodFor(null); }}
+                                        className="text-[10px] text-muted-foreground flex items-center gap-1"
+                                      >
+                                        <Zap size={10} /> 5/3/1
+                                      </button>
+                                      <button
+                                        onClick={() => { updateExerciseMethod(ti, exIdx, { type: 'cluster', trainingMax: 60 }); setExpandedMethodFor(null); }}
+                                        className="text-[10px] text-muted-foreground flex items-center gap-1"
+                                      >
+                                        <Timer size={10} /> Cluster
+                                      </button>
+                                      <button
+                                        onClick={() => { updateExerciseMethod(ti, exIdx, { type: 'emom', trainingMax: 60 }); setExpandedMethodFor(null); }}
+                                        className="text-[10px] text-muted-foreground flex items-center gap-1"
+                                      >
+                                        <Clock size={10} /> EMOM
+                                      </button>
+                                    </div>
+                                  )}
                                 </div>
                               )}
                             </div>

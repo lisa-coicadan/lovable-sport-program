@@ -12,7 +12,7 @@ import EmomTimer from './EmomTimer';
 import ExerciseHistory from './ExerciseHistory';
 import SessionSummary from './SessionSummary';
 import SettingsPanel from './SettingsPanel';
-import { Check, ChevronRight, ArrowLeft, Settings, History, Plus, Trash2, ChevronDown, Timer, Pencil, TrendingDown, Activity, Footprints, Waves, Bike } from 'lucide-react';
+import { Check, ChevronRight, ArrowLeft, Settings, History, Plus, Trash2, ChevronDown, Timer, Pencil, TrendingDown, Activity, Footprints, Waves, Bike, Lightbulb, X } from 'lucide-react';
 import { SortableList, DragHandle } from './SortableBlock';
 import SetDots from './SetDots';
 
@@ -30,7 +30,7 @@ interface WorkoutTabProps {
 
 type Mode = 'select' | 'recap' | 'summary' | 'settings' | 'history' | 'cardio';
 
-const CARDIO_ACTIVITY_TYPES: { type: CardioActivityType; icon: typeof Footprints }[] = [
+export const CARDIO_ACTIVITY_TYPES: { type: CardioActivityType; icon: typeof Footprints }[] = [
   { type: 'Course à pied', icon: Footprints },
   { type: 'Natation', icon: Waves },
   { type: 'Vélo', icon: Bike },
@@ -134,6 +134,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
   const [clusterAutoTimer, setClusterAutoTimer] = useState(false);
   const [methodOverrides, setMethodOverrides] = useState<Record<string, MethodOverride>>({});
   const [showAbandonConfirm, setShowAbandonConfirm] = useState(false);
+  const [reminderNoteEditor, setReminderNoteEditor] = useState<{ exerciseId: string; name: string; draft: string } | null>(null);
   // Renaming a regular exercise mid-session (e.g. "Hack squat ou leg press" -> whichever
   // one she actually did today) reuses updateExerciseName below — the card's displayed
   // name already reads live from `sets`, not from the WorkoutType template, so this is
@@ -153,7 +154,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
   const [cardioDurationMin, setCardioDurationMin] = useState('');
   const [cardioDurationSec, setCardioDurationSec] = useState('');
   const [cardioDistance, setCardioDistance] = useState('');
-  const [cardioDifficulty, setCardioDifficulty] = useState(3);
+  const [cardioDifficulty, setCardioDifficulty] = useState(5);
   const [cardioRecapOpen, setCardioRecapOpen] = useState(false);
 
   const resetCardioForm = () => {
@@ -167,7 +168,8 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
   };
 
   const cardioDurationMinutes = (parseInt(cardioDurationMin, 10) || 0) + (parseInt(cardioDurationSec, 10) || 0) / 60;
-  const cardioDistanceKm = cardioDistance.trim() === '' ? undefined : parseFloat(cardioDistance) || undefined;
+  const cardioDistanceRaw = cardioDistance.trim() === '' ? undefined : parseFloat(cardioDistance) || undefined;
+  const cardioDistanceKm = cardioDistanceRaw === undefined ? undefined : cardioActivityType === 'Natation' ? cardioDistanceRaw / 1000 : cardioDistanceRaw;
 
   const saveCardioSession = () => {
     if (cardioDurationMinutes <= 0) return;
@@ -520,6 +522,54 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
   const updateExerciseName = (exerciseId: string, name: string) => {
     setSets(prev => prev.map(s => s.exerciseId === exerciseId ? { ...s, exerciseName: name } : s));
   };
+
+  // Unlike updateExerciseName above, this persists to the WorkoutType template itself
+  // (not just the live session) — the whole point is that the note survives past this
+  // session and resurfaces at the start of the next one for the same exercise.
+  const setExerciseReminderNote = (exerciseId: string, note: string | undefined) => {
+    const workoutTypes = data.workoutTypes.map(t => ({
+      ...t,
+      exercises: t.exercises.map(ex => ex.id === exerciseId ? { ...ex, reminderNote: note } : ex),
+    }));
+    onUpdateData({ workoutTypes });
+    // selectedType is a snapshot taken at startWorkout(), not a live view of
+    // data.workoutTypes — without this, the banner/icon wouldn't update until the
+    // session restarts even though the note already persisted correctly above.
+    setSelectedType(prev => prev ? {
+      ...prev,
+      exercises: prev.exercises.map(ex => ex.id === exerciseId ? { ...ex, reminderNote: note } : ex),
+    } : prev);
+  };
+
+  // Plain helper functions (not components) so they don't get a fresh type identity
+  // every render — called inline as {renderReminderNoteButton(ex)}, not <Foo ex={ex} />.
+  const renderReminderNoteButton = (ex: Exercise) => (
+    <button
+      type="button"
+      onClick={() => setReminderNoteEditor({ exerciseId: ex.id, name: ex.name, draft: ex.reminderNote || '' })}
+      className={`touch-target p-1.5 shrink-0 rounded-lg transition-colors ${
+        ex.reminderNote ? 'text-warning' : 'text-muted-foreground/50 active:text-warning'
+      }`}
+      aria-label={ex.reminderNote ? `Modifier la note pour ${ex.name}` : `Ajouter une note pour ${ex.name}`}
+      title="Note pour la prochaine séance"
+    >
+      <Lightbulb size={14} fill={ex.reminderNote ? 'currentColor' : 'none'} />
+    </button>
+  );
+
+  const renderReminderNoteBanner = (ex: Exercise) => !ex.reminderNote ? null : (
+    <div className="flex items-start gap-2 bg-warning/10 border border-warning/30 rounded-lg px-3 py-2 mb-3">
+      <Lightbulb size={14} className="text-warning shrink-0 mt-0.5" fill="currentColor" />
+      <p className="text-xs text-foreground/90 flex-1">{ex.reminderNote}</p>
+      <button
+        onClick={() => setExerciseReminderNote(ex.id, undefined)}
+        className="touch-target p-1 -mt-1 -mr-1 text-muted-foreground active:text-foreground shrink-0"
+        aria-label={`Effacer la note de ${ex.name}`}
+      >
+        <X size={14} />
+      </button>
+    </div>
+  );
 
   const updateWeekSelection = (exerciseId: string, week: number) => {
     setSelectedWeeks(prev => ({ ...prev, [exerciseId]: week }));
@@ -910,7 +960,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
             {CARDIO_ACTIVITY_TYPES.map(({ type, icon: Icon }) => (
               <button
                 key={type}
-                onClick={() => setCardioActivityType(type)}
+                onClick={() => { setCardioActivityType(type); setCardioDistance(''); }}
                 className={`flex flex-col items-center gap-1 py-2.5 rounded-xl text-[10px] font-medium transition-colors ${
                   cardioActivityType === type ? 'bg-accent-blue/15 text-accent-blue border border-accent-blue/40' : 'bg-secondary text-muted-foreground border border-transparent'
                 }`}
@@ -958,13 +1008,15 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
         </div>
 
         <div className="glass-card p-4 mb-4">
-          <label className="text-xs text-muted-foreground mb-1.5 block">Distance (km) — facultatif</label>
+          <label className="text-xs text-muted-foreground mb-1.5 block">
+            Distance ({cardioActivityType === 'Natation' ? 'm' : 'km'}) — facultatif
+          </label>
           <input
             type="number"
             inputMode="decimal"
             value={cardioDistance}
             onChange={e => setCardioDistance(e.target.value)}
-            placeholder="5"
+            placeholder={cardioActivityType === 'Natation' ? '400' : '5'}
             className="w-full bg-secondary text-foreground rounded-xl px-3 py-2.5 text-sm outline-none font-mono text-center text-lg"
           />
         </div>
@@ -972,12 +1024,12 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
         <div className="glass-card p-4 mb-6">
           <div className="flex items-center justify-between mb-3">
             <label className="text-xs text-muted-foreground">Comment tu t'es sentie ?</label>
-            <span className="text-sm font-bold text-foreground">{cardioDifficulty}/5</span>
+            <span className="text-sm font-bold text-foreground">{cardioDifficulty}/10</span>
           </div>
           <input
             type="range"
             min={1}
-            max={5}
+            max={10}
             value={cardioDifficulty}
             onChange={e => setCardioDifficulty(parseInt(e.target.value))}
             className="w-full accent-accent-blue h-2"
@@ -1185,8 +1237,12 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                 <h3 className="text-sm font-bold text-primary">{ex.name}</h3>
                 <History size={12} className="text-primary/70 group-active:text-primary" />
               </button>
-              <span className="text-xs text-muted-foreground">Cycle {method.currentCycle}</span>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <span className="text-xs text-muted-foreground">Cycle {method.currentCycle}</span>
+                {renderReminderNoteButton(ex)}
+              </div>
             </div>
+            {renderReminderNoteBanner(ex)}
             <SetDots states={liveSets.map(s => sets[s.globalIdx].completed)} className="mb-3" />
             <div className="flex gap-1.5 mb-4">
               {[1, 2, 3, 4].map(w => (
@@ -1300,8 +1356,12 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                 <h3 className="text-sm font-bold text-accent-purple">{ex.name}</h3>
                 <History size={12} className="text-accent-purple/70 group-active:text-accent-purple" />
               </button>
-              <span className="text-xs text-muted-foreground">TM {method.trainingMax} kg</span>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <span className="text-xs text-muted-foreground">TM {method.trainingMax} kg</span>
+                {renderReminderNoteButton(ex)}
+              </div>
             </div>
+            {renderReminderNoteBanner(ex)}
             <MethodPickerRow active="cluster" onSelect={opt => applyMethodOverride(ex, opt)} />
             <label className="flex items-center justify-between mb-3 -mt-1 cursor-pointer">
               <span className="text-xs text-muted-foreground flex items-center gap-1.5">
@@ -1393,8 +1453,12 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                 <h3 className="text-sm font-bold text-accent-blue">{ex.name}</h3>
                 <History size={12} className="text-accent-blue/70 group-active:text-accent-blue" />
               </button>
-              <span className="text-xs text-muted-foreground">TM {method.trainingMax} kg</span>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <span className="text-xs text-muted-foreground">TM {method.trainingMax} kg</span>
+                {renderReminderNoteButton(ex)}
+              </div>
             </div>
+            {renderReminderNoteBanner(ex)}
             <MethodPickerRow active="emom" onSelect={opt => applyMethodOverride(ex, opt)} />
             <div className="mb-3">
               <EmomTimer totalMinutes={durationMinutes} onMinuteComplete={handleMinuteComplete} />
@@ -1453,6 +1517,10 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
               updated[bIdx] = { ...updated[bIdx], completed: !bothDone };
               setSets(updated);
             };
+            // One reminder note per superset (not one per exercise inside it) — attached
+            // to the A exercise, same "A is canonical for the pair" convention as sets
+            // count above. Absent for a temp/ad-hoc exercise with no template to attach to.
+            const templateAEx = selectedType?.exercises.find(e => e.id === block.aId);
             return (
               <div key={block.groupId} className="glass-card p-4 border border-primary/40 bg-primary/5">
                 <div className="flex items-center justify-between mb-2">
@@ -1460,8 +1528,12 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                     <DragHandle />
                     <span className="text-[10px] font-bold text-primary tracking-wider">SUPERSET</span>
                   </div>
-                  <span className="text-[10px] text-muted-foreground">{block.series.length} séries</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] text-muted-foreground">{block.series.length} séries</span>
+                    {templateAEx && renderReminderNoteButton(templateAEx)}
+                  </div>
                 </div>
+                {templateAEx && renderReminderNoteBanner(templateAEx)}
 
                 <div className="flex items-center gap-2 text-xs text-foreground font-semibold mb-3">
                   <span className="text-primary">A</span><span>{block.aName}</span>
@@ -1554,6 +1626,10 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
           const absRecord = getAbsoluteRecord(name);
           const isTemp = exerciseId.startsWith('temp-');
           const methodEx = methodConfigMap.get(exerciseId);
+          // Reminder notes persist on the WorkoutType template — a temp exercise (added
+          // ad hoc for this session only, never saved to the template) has nothing to
+          // attach a note to, so it just doesn't get the button.
+          const templateEx = !isTemp ? selectedType?.exercises.find(e => e.id === exerciseId) : undefined;
           // "Série N" numbers only the plain rows, skipping over any interleaved drop-set
           // rows — a drop set inserted after Série 2 must not bump the plain Série 3 that
           // follows it to "Série 4". Shared between the row list and the picker chips
@@ -1635,7 +1711,10 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                 >
                   <TrendingDown size={14} /> Drop set
                 </button>
+                {templateEx && renderReminderNoteButton(templateEx)}
               </div>
+
+              {templateEx && renderReminderNoteBanner(templateEx)}
 
               {methodEx && <MethodPickerRow active="none" onSelect={opt => applyMethodOverride(methodEx, opt)} />}
 
@@ -1806,6 +1885,54 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
               className="flex-1 bg-destructive text-destructive-foreground font-medium py-2.5 rounded-xl text-sm touch-target"
             >
               Oui
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {reminderNoteEditor && (
+      <div
+        className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-6 animate-fade-in"
+        onClick={() => setReminderNoteEditor(null)}
+      >
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="reminder-note-title"
+          className="glass-card p-6 max-w-sm w-full"
+          onClick={e => e.stopPropagation()}
+        >
+          <h3 id="reminder-note-title" className="text-sm font-bold text-foreground mb-1 flex items-center gap-1.5">
+            <Lightbulb size={14} className="text-warning" /> Note — {reminderNoteEditor.name}
+          </h3>
+          <p className="text-[11px] text-muted-foreground mb-3">
+            S'affichera au-dessus de cet exercice à ta prochaine séance de ce type.
+          </p>
+          <textarea
+            autoFocus
+            value={reminderNoteEditor.draft}
+            onChange={e => setReminderNoteEditor({ ...reminderNoteEditor, draft: e.target.value })}
+            placeholder="Ex. augmenter la charge de 2,5 kg la prochaine fois"
+            rows={3}
+            className="w-full bg-secondary text-foreground rounded-xl px-3 py-2.5 text-sm outline-none resize-none mb-4"
+          />
+          <div className="flex gap-3">
+            <button
+              onClick={() => setReminderNoteEditor(null)}
+              className="flex-1 bg-secondary text-secondary-foreground font-medium py-2.5 rounded-xl text-sm touch-target"
+            >
+              Annuler
+            </button>
+            <button
+              onClick={() => {
+                const trimmed = reminderNoteEditor.draft.trim();
+                setExerciseReminderNote(reminderNoteEditor.exerciseId, trimmed === '' ? undefined : trimmed);
+                setReminderNoteEditor(null);
+              }}
+              className="flex-1 btn-neon font-medium py-2.5 rounded-xl text-sm touch-target"
+            >
+              Enregistrer
             </button>
           </div>
         </div>

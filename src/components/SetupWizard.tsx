@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { AppData, WorkoutType, Exercise, ExerciseMethod, FiveThreeOneMethod, ClusterMethod, EMOMMethod, WORKOUT_COLORS } from '@/lib/types';
+import { AppData, WorkoutType, Exercise, ExerciseMethod, FiveThreeOneMethod, ClusterMethod, EMOMMethod, WORKOUT_COLORS, Gender } from '@/lib/types';
 import { CLUSTER_PRESETS } from '@/lib/cluster';
 import { getDefaultEmomPercentage } from '@/lib/emom';
 import { estimateOneRepMax, estimateTrainingMax } from '@/lib/trainingMax';
 import { parseMultiSessionNotes, NOTES_SYNTAX_HELP } from '@/lib/notesParser';
-import { Plus, Trash2, ChevronRight, ChevronLeft, Check, Zap, Timer, Clock, FileText, X, Calculator } from 'lucide-react';
+import { linkSuperset, unlinkSuperset, buildExerciseBlocks, flattenBlocks, ExerciseBlock } from '@/lib/superset';
+import { Plus, Trash2, ChevronRight, ChevronLeft, Check, Zap, Timer, Clock, FileText, X, Calculator, TrendingDown, Infinity as InfinityIcon, Link2, Link2Off, User, Scale } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import BrandMark from './BrandMark';
 import { SortableList, DragHandle } from './SortableBlock';
@@ -76,6 +77,9 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
   const [tmMode, setTmMode] = useState<Record<string, 'direct' | 'compute'>>({});
   const [tmInputs, setTmInputs] = useState<Record<string, { weight: number; reps: number }>>({});
   const [showTmZeroConfirm, setShowTmZeroConfirm] = useState(false);
+  const [gender, setGender] = useState<Gender | undefined>(undefined);
+  const [heightCm, setHeightCm] = useState('');
+  const [bodyWeight, setBodyWeight] = useState('');
 
   const taggedExercises = workoutTypes.flatMap(t =>
     t.exercises.filter(e => e.method).map(e => ({ typeId: t.id, typeName: t.name, exercise: e }))
@@ -89,24 +93,43 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
       : t));
   };
 
+  // If the removed exercise was half of a superset, unlink first so the partner survives
+  // standalone instead of carrying a dangling supersetGroupId with no match left.
   const removeExercise = (exIndex: number) => {
     if (editingIndex === null) return;
-    setWorkoutTypes(prev => prev.map((t, i) => i === editingIndex
-      ? { ...t, exercises: t.exercises.filter((_, ei) => ei !== exIndex) }
-      : t));
-  };
-
-  const reorderExercises = (newItems: { key: string; ex: Exercise }[]) => {
-    if (editingIndex === null) return;
-    setWorkoutTypes(prev => prev.map((t, i) => i === editingIndex
-      ? { ...t, exercises: newItems.map(it => it.ex) }
-      : t));
+    setWorkoutTypes(prev => prev.map((t, i) => {
+      if (i !== editingIndex) return t;
+      const ex = t.exercises[exIndex];
+      const exercises = ex.supersetGroupId ? unlinkSuperset(t.exercises, ex.supersetGroupId) : t.exercises;
+      return { ...t, exercises: exercises.filter((_, ei) => ei !== exIndex) };
+    }));
   };
 
   const updateExercise = <K extends keyof Exercise>(exIndex: number, field: K, value: Exercise[K]) => {
     if (editingIndex === null) return;
+    setWorkoutTypes(prev => prev.map((t, i) => {
+      if (i !== editingIndex) return t;
+      const ex = t.exercises[exIndex];
+      let exercises = t.exercises.map((e, ei) => ei === exIndex ? { ...e, [field]: value } : e);
+      // Keep sets synced between superset partners
+      if (field === 'sets' && ex.supersetGroupId) {
+        exercises = exercises.map(e => e.supersetGroupId === ex.supersetGroupId ? { ...e, sets: value as number } : e);
+      }
+      return { ...t, exercises };
+    }));
+  };
+
+  const linkExerciseSuperset = (exId: string, partnerId: string) => {
+    if (editingIndex === null) return;
     setWorkoutTypes(prev => prev.map((t, i) => i === editingIndex
-      ? { ...t, exercises: t.exercises.map((e, ei) => ei === exIndex ? { ...e, [field]: value } : e) }
+      ? { ...t, exercises: linkSuperset(t.exercises, exId, partnerId) }
+      : t));
+  };
+
+  const unlinkExerciseSuperset = (groupId: string) => {
+    if (editingIndex === null) return;
+    setWorkoutTypes(prev => prev.map((t, i) => i === editingIndex
+      ? { ...t, exercises: unlinkSuperset(t.exercises, groupId) }
       : t));
   };
 
@@ -243,13 +266,23 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
     // so it's identifiable right away in Réglages/history once she creates a second one.
     const program = { id: `p${Date.now()}`, name: programName.trim() || 'Mon programme' };
     const typedWithProgram = workoutTypes.map(t => ({ ...t, programId: program.id }));
-    onComplete({
+    const partial: Partial<AppData> = {
       workoutTypes: typedWithProgram,
       weeklyGoal,
       setupComplete: true,
       programs: [program],
       activeProgramId: program.id,
-    });
+    };
+    // Profile/bodyweight are all optional here — only set keys that were actually
+    // filled in, so an empty field doesn't stomp DEFAULT_APP_DATA's [] with undefined.
+    if (gender) partial.gender = gender;
+    const height = parseFloat(heightCm);
+    if (heightCm.trim() !== '' && height > 0) partial.heightCm = height;
+    const weight = parseFloat(bodyWeight);
+    if (bodyWeight.trim() !== '' && weight > 0) {
+      partial.bodyWeightLogs = [{ date: new Date().toISOString().split('T')[0], weight }];
+    }
+    onComplete(partial);
   };
 
   // ============================================================ Step 0 — Welcome
@@ -491,109 +524,250 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
             />
           </div>
           <div className="space-y-2">
-            <SortableList items={type.exercises.map(ex => ({ key: ex.id, ex }))} onReorder={reorderExercises}>
-              {({ ex }, ei) => {
-              const methodType = ex.method?.type as MethodType | undefined;
-              const isExpanded = expandedMethodFor === ex.id;
-              return (
-                <div className="bg-secondary/40 rounded-xl p-2">
-                  <div className="flex items-center gap-2">
-                    <DragHandle />
-                    <input
-                      value={ex.name}
-                      onChange={e => updateExercise(ei, 'name', e.target.value)}
-                      className="flex-1 min-w-0 bg-secondary text-foreground rounded-lg px-3 py-2 text-sm outline-none"
-                      placeholder="Nom de l'exercice"
-                    />
-                    {methodType ? (
-                      <span
-                        className="text-[10px] text-muted-foreground px-2 shrink-0"
-                        title="Séries, reps et charge sont calculées automatiquement à partir du Training Max"
-                      >
-                        auto ({METHOD_LABELS[methodType]})
-                      </span>
-                    ) : (
-                      <>
-                        <input
-                          type="number"
-                          value={ex.sets || ''}
-                          onChange={e => updateExercise(ei, 'sets', e.target.value === '' ? 0 : parseInt(e.target.value) || 0)}
-                          className="w-14 bg-secondary text-foreground rounded-lg px-2 py-2 text-sm text-center outline-none"
-                          placeholder="Séries"
-                        />
-                        <span className="text-muted-foreground text-xs">×</span>
-                        <input
-                          type="number"
-                          value={ex.reps || ''}
-                          onChange={e => updateExercise(ei, 'reps', e.target.value === '' ? 0 : parseInt(e.target.value) || 0)}
-                          className="w-14 bg-secondary text-foreground rounded-lg px-2 py-2 text-sm text-center outline-none"
-                          placeholder="Reps"
-                        />
-                      </>
-                    )}
-                    <button onClick={() => removeExercise(ei)} aria-label={`Supprimer ${ex.name || 'cet exercice'}`} className="text-muted-foreground p-1 shrink-0">
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                  {ex.name.trim() === '' && (
-                    <p className="text-[10px] text-muted-foreground/70 mt-1 ml-0.5">Sans nom, cet exercice ne sera pas gardé</p>
-                  )}
+            {(() => {
+              const blocks = buildExerciseBlocks(type.exercises);
+              const onReorderBlocks = (newBlocks: ExerciseBlock[]) => {
+                if (editingIndex === null) return;
+                setWorkoutTypes(prev => prev.map((t, i) => i === editingIndex
+                  ? { ...t, exercises: flattenBlocks(newBlocks, t.exercises) }
+                  : t));
+              };
 
-                  <div className="flex justify-end mt-1.5">
-                    <button
-                      onClick={() => setExpandedMethodFor(isExpanded ? null : ex.id)}
-                      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-medium border transition-all ${
-                        methodType ? METHOD_HUES[methodType] : 'text-muted-foreground bg-transparent border-border/60'
-                      }`}
-                    >
-                      {methodType ? (() => { const Icon = METHOD_ICONS[methodType]; return <Icon size={10} />; })() : <Plus size={10} />}
-                      {methodType ? METHOD_LABELS[methodType] : 'Méthode'}
-                    </button>
-                  </div>
-
-                  {isExpanded && (
-                    <div className="mt-1.5">
-                      <div className="flex gap-1.5">
-                        {(['531', 'cluster', 'emom'] as const).map(mt => (
-                          <button
-                            key={mt}
-                            onClick={() => setExerciseMethod(ei, mt)}
-                            className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all ${
-                              methodType === mt ? METHOD_HUES[mt] : 'bg-secondary text-muted-foreground border-transparent'
-                            }`}
-                          >
-                            {METHOD_LABELS[mt]}
-                          </button>
-                        ))}
-                        {methodType && (
-                          <button
-                            onClick={() => setExerciseMethod(ei, null)}
-                            aria-label="Retirer la méthode d'entraînement"
-                            className="px-2.5 rounded-lg text-xs font-medium bg-secondary text-muted-foreground"
-                          >
-                            <X size={14} />
-                          </button>
-                        )}
-                      </div>
+              // opts.showDragHandle defaults to true (plain exercise row); superset A/B
+              // sub-rows pass false since the whole pair drags as one unit via the card's
+              // own handle instead.
+              const renderExerciseRow = (ex: Exercise, opts?: { hideSets?: boolean; showDragHandle?: boolean }) => {
+                const ei = type.exercises.findIndex(e => e.id === ex.id);
+                const methodType = ex.method?.type as MethodType | undefined;
+                const isExpanded = expandedMethodFor === ex.id;
+                const freePartners = type.exercises.filter(e => e.id !== ex.id && !e.supersetGroupId);
+                return (
+                  <div>
+                    <div className="flex items-center gap-2">
+                      {opts?.showDragHandle !== false && <DragHandle />}
+                      <input
+                        value={ex.name}
+                        onChange={e => updateExercise(ei, 'name', e.target.value)}
+                        className="flex-1 min-w-0 bg-secondary text-foreground rounded-lg px-3 py-2 text-sm outline-none"
+                        placeholder="Nom de l'exercice"
+                      />
                       {methodType ? (
-                        <p className="text-[10px] text-muted-foreground mt-1.5 px-0.5 leading-relaxed">
-                          {METHOD_DESCRIPTIONS[methodType]}
-                        </p>
+                        <span
+                          className="text-[10px] text-muted-foreground px-2 shrink-0"
+                          title="Séries, reps et charge sont calculées automatiquement à partir du Training Max"
+                        >
+                          auto ({METHOD_LABELS[methodType]})
+                        </span>
                       ) : (
-                        <div className="mt-1.5 space-y-1">
-                          {(['531', 'cluster', 'emom'] as const).map(mt => (
-                            <p key={mt} className="text-[10px] text-muted-foreground px-0.5 leading-relaxed">
-                              <span className="font-medium text-foreground/80">{METHOD_LABELS[mt]}</span> — {METHOD_DESCRIPTIONS[mt]}
-                            </p>
-                          ))}
-                        </div>
+                        <>
+                          {opts?.hideSets ? (
+                            <span className="text-[10px] text-muted-foreground w-14 shrink-0 text-center">partagé</span>
+                          ) : (
+                            <input
+                              type="number"
+                              value={ex.sets || ''}
+                              onChange={e => updateExercise(ei, 'sets', e.target.value === '' ? 0 : parseInt(e.target.value) || 0)}
+                              className="w-14 bg-secondary text-foreground rounded-lg px-2 py-2 text-sm text-center outline-none"
+                              placeholder="Séries"
+                            />
+                          )}
+                          <span className="text-muted-foreground text-xs">×</span>
+                          <input
+                            type="number"
+                            value={ex.reps || ''}
+                            onChange={e => updateExercise(ei, 'reps', e.target.value === '' ? 0 : parseInt(e.target.value) || 0)}
+                            className="w-14 bg-secondary text-foreground rounded-lg px-2 py-2 text-sm text-center outline-none"
+                            placeholder="Reps"
+                          />
+                        </>
+                      )}
+                      <button onClick={() => removeExercise(ei)} aria-label={`Supprimer ${ex.name || 'cet exercice'}`} className="text-muted-foreground p-1 shrink-0">
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                    {ex.name.trim() === '' && (
+                      <p className="text-[10px] text-muted-foreground/70 mt-1 ml-0.5">Sans nom, cet exercice ne sera pas gardé</p>
+                    )}
+
+                    {/* Méthode / Drop set / Max de reps on one row — the latter two only
+                        make sense without an active method (531/Cluster/EMOM already
+                        generates its sets from the TM). */}
+                    <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+                      <button
+                        onClick={() => setExpandedMethodFor(isExpanded ? null : ex.id)}
+                        className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-medium border transition-all ${
+                          methodType ? METHOD_HUES[methodType] : 'text-muted-foreground bg-transparent border-border/60'
+                        }`}
+                      >
+                        {methodType ? (() => { const Icon = METHOD_ICONS[methodType]; return <Icon size={10} />; })() : <Plus size={10} />}
+                        {methodType ? METHOD_LABELS[methodType] : 'Méthode'}
+                      </button>
+                      {!methodType && (
+                        <>
+                          <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                            <input
+                              type="checkbox"
+                              checked={!!ex.dropSet}
+                              onChange={e => updateExercise(ei, 'dropSet', e.target.checked ? { stepPercentage: 0.15, stepReps: 2 } : undefined)}
+                              className="w-3.5 h-3.5 accent-warning"
+                            />
+                            <TrendingDown size={10} className="text-warning" /> Drop set
+                          </label>
+                          <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                            <input
+                              type="checkbox"
+                              checked={!!ex.amrap}
+                              onChange={e => updateExercise(ei, 'amrap', e.target.checked)}
+                              className="w-3.5 h-3.5 accent-accent-purple"
+                            />
+                            <InfinityIcon size={10} className="text-accent-purple" /> Max de reps
+                          </label>
+                          {ex.dropSet && (
+                            <>
+                              <input
+                                type="number"
+                                value={Math.round((ex.dropSet.stepPercentage ?? 0.15) * 100)}
+                                onChange={e => updateExercise(ei, 'dropSet', { ...ex.dropSet, stepPercentage: (parseFloat(e.target.value) || 0) / 100 })}
+                                className="w-10 bg-secondary text-foreground rounded-md px-1 py-1 text-[10px] text-center outline-none"
+                                aria-label={`Pourcentage de réduction par palier de drop set, ${ex.name || 'exercice'}`}
+                              />
+                              <span className="text-[10px] text-muted-foreground">% / palier</span>
+                              <input
+                                type="number"
+                                value={ex.dropSet.stepReps ?? 2}
+                                onChange={e => updateExercise(ei, 'dropSet', { ...ex.dropSet, stepReps: parseInt(e.target.value) || 0 })}
+                                className="w-8 bg-secondary text-foreground rounded-md px-1 py-1 text-[10px] text-center outline-none"
+                                aria-label={`Répétitions en moins par palier de drop set, ${ex.name || 'exercice'}`}
+                              />
+                              <span className="text-[10px] text-muted-foreground">reps / palier</span>
+                            </>
+                          )}
+                        </>
                       )}
                     </div>
-                  )}
-                </div>
+
+                    {isExpanded && (
+                      <div className="mt-1.5">
+                        <div className="flex gap-1.5">
+                          {(['531', 'cluster', 'emom'] as const).map(mt => (
+                            <button
+                              key={mt}
+                              onClick={() => setExerciseMethod(ei, mt)}
+                              className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                                methodType === mt ? METHOD_HUES[mt] : 'bg-secondary text-muted-foreground border-transparent'
+                              }`}
+                            >
+                              {METHOD_LABELS[mt]}
+                            </button>
+                          ))}
+                          {methodType && (
+                            <button
+                              onClick={() => setExerciseMethod(ei, null)}
+                              aria-label="Retirer la méthode d'entraînement"
+                              className="px-2.5 rounded-lg text-xs font-medium bg-secondary text-muted-foreground"
+                            >
+                              <X size={14} />
+                            </button>
+                          )}
+                        </div>
+                        {methodType ? (
+                          <p className="text-[10px] text-muted-foreground mt-1.5 px-0.5 leading-relaxed">
+                            {METHOD_DESCRIPTIONS[methodType]}
+                          </p>
+                        ) : (
+                          <div className="mt-1.5 space-y-1">
+                            {(['531', 'cluster', 'emom'] as const).map(mt => (
+                              <p key={mt} className="text-[10px] text-muted-foreground px-0.5 leading-relaxed">
+                                <span className="font-medium text-foreground/80">{METHOD_LABELS[mt]}</span> — {METHOD_DESCRIPTIONS[mt]}
+                              </p>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {!ex.supersetGroupId && freePartners.length > 0 && (
+                      <details className="mt-1.5">
+                        <summary className="text-[10px] text-muted-foreground cursor-pointer flex items-center gap-1 py-0.5">
+                          <Link2 size={10} /> Associer en superset
+                        </summary>
+                        <div className="flex flex-wrap gap-1 pt-1">
+                          {freePartners.map(p => (
+                            <button
+                              key={p.id}
+                              onClick={() => linkExerciseSuperset(ex.id, p.id)}
+                              className="text-[10px] bg-secondary hover:bg-primary/20 text-foreground px-2 py-1 rounded-md"
+                            >
+                              + {p.name || 'Sans nom'}
+                            </button>
+                          ))}
+                        </div>
+                      </details>
+                    )}
+                  </div>
+                );
+              };
+
+              return (
+                <SortableList items={blocks} onReorder={onReorderBlocks}>
+                  {block => {
+                    if (block.isSuperset) {
+                      const [aId, bId] = block.exerciseIds;
+                      const a = type.exercises.find(e => e.id === aId)!;
+                      const b = type.exercises.find(e => e.id === bId);
+                      return (
+                        <div className="border border-primary/40 bg-primary/5 rounded-xl p-2.5 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-1">
+                              <DragHandle />
+                              <span className="text-[10px] font-bold text-primary tracking-wider">SUPERSET</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {!a.method && (
+                                <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                                  <span>Séries</span>
+                                  <input
+                                    type="number"
+                                    value={a.sets || ''}
+                                    onChange={e => updateExercise(type.exercises.findIndex(e2 => e2.id === a.id), 'sets', e.target.value === '' ? 0 : parseInt(e.target.value) || 0)}
+                                    className="w-10 bg-secondary text-foreground rounded-md px-1 py-0.5 text-xs text-center outline-none"
+                                    aria-label={`Nombre de séries, superset ${a.name}${b ? ' + ' + b.name : ''}`}
+                                  />
+                                </div>
+                              )}
+                              <button
+                                onClick={() => unlinkExerciseSuperset(block.key)}
+                                className="text-muted-foreground p-1 active:text-destructive"
+                                title="Dissocier"
+                                aria-label={`Dissocier le superset ${a.name}${b ? ' + ' + b.name : ''}`}
+                              >
+                                <Link2Off size={13} />
+                              </button>
+                            </div>
+                          </div>
+                          <div className="flex items-start gap-1.5">
+                            <span className="text-[10px] font-bold text-primary w-4 shrink-0 mt-2">A</span>
+                            <div className="flex-1 min-w-0">{renderExerciseRow(a, { hideSets: true, showDragHandle: false })}</div>
+                          </div>
+                          {b && (
+                            <div className="flex items-start gap-1.5">
+                              <span className="text-[10px] font-bold text-primary w-4 shrink-0 mt-2">B</span>
+                              <div className="flex-1 min-w-0">{renderExerciseRow(b, { hideSets: true, showDragHandle: false })}</div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    }
+                    const ex = type.exercises.find(e => e.id === block.exerciseIds[0])!;
+                    return (
+                      <div className="bg-secondary/40 rounded-xl p-2">
+                        {renderExerciseRow(ex)}
+                      </div>
+                    );
+                  }}
+                </SortableList>
               );
-              }}
-            </SortableList>
+            })()}
             <button onClick={addExercise} className="flex items-center gap-1 text-primary text-sm font-medium py-1">
               <Plus size={14} /> Ajouter un exercice
             </button>
@@ -637,6 +811,62 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
             ))}
           </div>
           <p className="text-center text-xs text-muted-foreground mt-3">séances / semaine</p>
+        </div>
+
+        {/* Profil + Bodyweight — optionnels, identiques aux champs de Réglages
+            (src/lib/strengthStandards.ts pour la comparaison "Record de France" /
+            niveau-percentile). Purement local, jamais envoyé nulle part. */}
+        <div className="glass-card p-4 mb-4">
+          <div className="flex items-center gap-2 mb-3">
+            <User size={16} className="text-primary" />
+            <h3 className="text-sm font-bold text-foreground">Profil (facultatif)</h3>
+          </div>
+          <div className="flex items-center gap-1.5 mb-3">
+            {(['F', 'H'] as const).map(g => (
+              <button
+                key={g}
+                onClick={() => setGender(gender === g ? undefined : g)}
+                className={`flex-1 py-2 rounded-lg text-xs font-medium transition-all ${
+                  gender === g ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
+                }`}
+                aria-pressed={gender === g}
+              >
+                {g === 'F' ? 'Femme' : 'Homme'}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-3">
+            <input
+              type="number"
+              value={heightCm}
+              onChange={e => setHeightCm(e.target.value)}
+              className="flex-1 bg-secondary text-foreground rounded-xl px-3 py-2.5 text-sm outline-none font-mono text-center"
+              placeholder="Taille, ex. 165"
+              aria-label="Taille (cm)"
+            />
+            <span className="text-sm text-muted-foreground">cm</span>
+          </div>
+          <p className="text-[10px] text-muted-foreground mt-2">
+            Utilisés pour comparer tes performances au record de France et à ton niveau (percentile), dans l'historique d'un exercice. Modifiable à tout moment dans Réglages.
+          </p>
+        </div>
+
+        <div className="glass-card p-4 mb-8">
+          <div className="flex items-center gap-2 mb-3">
+            <Scale size={16} className="text-primary" />
+            <h3 className="text-sm font-bold text-foreground">Bodyweight (facultatif)</h3>
+          </div>
+          <div className="flex items-center gap-3">
+            <input
+              type="number"
+              value={bodyWeight}
+              onChange={e => setBodyWeight(e.target.value)}
+              className="flex-1 bg-secondary text-foreground rounded-xl px-3 py-2.5 text-sm outline-none font-mono text-center"
+              placeholder="ex. 75"
+              aria-label="Bodyweight (kg)"
+            />
+            <span className="text-sm text-muted-foreground">kg</span>
+          </div>
         </div>
 
         <button

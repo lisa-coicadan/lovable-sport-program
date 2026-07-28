@@ -17,7 +17,7 @@ interface SessionSummaryProps {
 
 const SessionSummary = ({ session, previousSessions = [], workoutTypes = [], gender, bodyWeightLogs = [], onSave, onBack, readOnly = false }: SessionSummaryProps) => {
   const [duration, setDuration] = useState(session.duration || 0);
-  const [difficulty, setDifficulty] = useState(session.difficulty || 3);
+  const [difficulty, setDifficulty] = useState(session.difficulty || 5);
   const [notes, setNotes] = useState(session.notes || '');
   const recapRef = useRef<HTMLDivElement>(null);
 
@@ -156,7 +156,7 @@ const SessionSummary = ({ session, previousSessions = [], workoutTypes = [], gen
         const best = sets.reduce((b, s) => calculate1RM(s.weight, s.reps) > calculate1RM(b.weight, b.reps) ? s : b, sets[0]);
         return `${name}: ${best.weight}kg × ${best.reps} (1RM: ${calculate1RM(best.weight, best.reps)}kg)`;
       }).join('\n') +
-      `\n\nDurée : ${duration || session.duration || 60} min | RPE : ${difficulty || session.difficulty || '?'}/5` +
+      `\n\nDurée : ${duration || session.duration || 60} min | RPE : ${difficulty || session.difficulty || '?'}/10` +
       (notes ? `\n${notes}` : '');
 
     if (navigator.share) {
@@ -330,16 +330,16 @@ const SessionSummary = ({ session, previousSessions = [], workoutTypes = [], gen
             />
           </div>
 
-          {/* Difficulty 1-5 */}
+          {/* Difficulty 1-10 */}
           <div className="glass-card p-4 mb-4">
             <div className="flex items-center justify-between mb-3">
               <label className="text-xs text-muted-foreground">Comment tu t'es sentie ?</label>
-              <span className="text-sm font-bold text-foreground">{difficulty}/5</span>
+              <span className="text-sm font-bold text-foreground">{difficulty}/10</span>
             </div>
             <input
               type="range"
               min={1}
-              max={5}
+              max={10}
               value={difficulty}
               onChange={e => setDifficulty(parseInt(e.target.value))}
               className="w-full accent-primary h-2"
@@ -374,7 +374,7 @@ const SessionSummary = ({ session, previousSessions = [], workoutTypes = [], gen
         <div className="glass-card p-4 mb-4">
           <div className="flex items-center justify-between">
             <span className="text-xs text-muted-foreground">RPE</span>
-            <span className="text-sm font-bold text-foreground">{session.difficulty}/5</span>
+            <span className="text-sm font-bold text-foreground">{session.difficulty}/10</span>
           </div>
         </div>
       )}
