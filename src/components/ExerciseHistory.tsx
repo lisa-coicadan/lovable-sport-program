@@ -68,10 +68,13 @@ const ExerciseHistory = ({ exerciseName, data, onClose }: ExerciseHistoryProps) 
     return [...groups.values()];
   }, [data.sessions, base, bodyweightOptional]);
 
-  const overallPR = useMemo(() => {
+  // The headline "Record" number alone doesn't say what weight×reps produced it — she has
+  // to go dig through the list below to find it. Keep the actual best set alongside it.
+  const overallPRSet = useMemo(() => {
     const all = variantGroups.flatMap(g => g.history);
-    return all.length > 0 ? Math.max(...all.map(h => h.e1rm)) : 0;
+    return all.length > 0 ? all.reduce((best, h) => (h.e1rm > best.e1rm ? h : best), all[0]) : null;
   }, [variantGroups]);
+  const overallPR = overallPRSet?.e1rm ?? 0;
 
   const showSubGroups = variantGroups.length > 1;
 
@@ -98,8 +101,10 @@ const ExerciseHistory = ({ exerciseName, data, onClose }: ExerciseHistoryProps) 
         </button>
         <div>
           <h1 className="text-xl font-bold text-foreground">{base}</h1>
-          {overallPR > 0 && (
-            <p className="text-xs text-primary font-medium">Record : {overallPR} kg (1RM est.)</p>
+          {overallPR > 0 && overallPRSet && (
+            <p className="text-xs text-primary font-medium">
+              Record : {overallPR} kg (1RM est.) — {overallPRSet.weight} kg × {overallPRSet.reps}
+            </p>
           )}
         </div>
       </div>
@@ -181,14 +186,19 @@ const VariantSection = ({ group, showHeader }: { group: VariantGroup; showHeader
     return Object.entries(map).sort(([a], [b]) => b.localeCompare(a));
   }, [group.history]);
 
-  const pr = group.history.length > 0 ? Math.max(...group.history.map(h => h.e1rm)) : 0;
+  const prSet = group.history.length > 0
+    ? group.history.reduce((best, h) => (h.e1rm > best.e1rm ? h : best), group.history[0])
+    : null;
+  const pr = prSet?.e1rm ?? 0;
 
   return (
     <div className="mb-4">
       {showHeader && (
         <div className="flex items-center justify-between mb-2 px-1">
           <h3 className="text-sm font-semibold text-foreground">{group.label ?? 'Sans précision'}</h3>
-          {pr > 0 && <span className="text-xs text-primary font-medium">Record : {pr} kg</span>}
+          {pr > 0 && prSet && (
+            <span className="text-xs text-primary font-medium">Record : {pr} kg — {prSet.weight} kg × {prSet.reps}</span>
+          )}
         </div>
       )}
 

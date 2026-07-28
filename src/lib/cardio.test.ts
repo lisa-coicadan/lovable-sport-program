@@ -44,21 +44,22 @@ describe('compareCardioSession', () => {
     expect(result.duration.last).toBeNull();
   });
 
-  it('prioritizes distance for the headline when it improved', () => {
+  it('prioritizes pace (speed) for the headline when it improved', () => {
+    // Same duration, more distance → both pace and distance improve; pace wins the headline.
     const result = compareCardioSession(
       { durationMinutes: 30, distanceKm: 6 },
       [{ date: '2026-07-01', durationMinutes: 30, distanceKm: 5 }]
     );
-    expect(result.headline).toEqual({ metric: 'distance', improved: true });
-    expect(result.distance).toEqual({ current: 6, last: 5, average: 5, improved: true });
+    expect(result.headline).toEqual({ metric: 'pace', improved: true });
+    expect(result.distance).toEqual({ current: 6, last: 5, average: 5, improved: true, changePercent: 20 });
   });
 
-  it('flags a shorter distance than last time as not improved', () => {
+  it('flags a slower pace than last time as not improved', () => {
     const result = compareCardioSession(
       { durationMinutes: 30, distanceKm: 4 },
       [{ date: '2026-07-01', durationMinutes: 30, distanceKm: 5 }]
     );
-    expect(result.headline).toEqual({ metric: 'distance', improved: false });
+    expect(result.headline).toEqual({ metric: 'pace', improved: false });
   });
 
   it('falls back to duration when distance is not logged for this session', () => {
@@ -80,6 +81,9 @@ describe('compareCardioSession', () => {
     expect(result.pace?.improved).toBe(true);
     expect(result.pace?.current).toBe(6);
     expect(result.pace?.last).toBe(7.5);
+    // Pace dropped from 7.5 to 6 (faster) — a positive changePercent, even though the
+    // raw arithmetic delta (6-7.5)/7.5 is negative, since faster = improvement here.
+    expect(result.pace?.changePercent).toBeCloseTo(20, 5);
   });
 
   it('picks the most recent session as "last", not just the first in the array', () => {

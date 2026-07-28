@@ -97,7 +97,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
   const [gender, setGender] = useState<Gender | undefined>(data.gender);
   const [heightCm, setHeightCm] = useState(data.heightCm ? String(data.heightCm) : '');
   const [weeklyGoal, setWeeklyGoal] = useState(data.weeklyGoal);
-  const [cardioWeeklyGoal, setCardioWeeklyGoal] = useState(data.cardioWeeklyGoal || 2);
+  const [cardioWeeklyGoal, setCardioWeeklyGoal] = useState(data.cardioWeeklyGoal ?? 2);
   const [notesOpen, setNotesOpen] = useState(false);
   const [notesText, setNotesText] = useState('');
   const [notesTargetId, setNotesTargetId] = useState<string | null>(null);
@@ -598,7 +598,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
         <input
           type="range"
           aria-label="Objectif hebdomadaire d'activités cardio"
-          min={1}
+          min={0}
           max={7}
           value={cardioWeeklyGoal}
           onChange={e => setCardioWeeklyGoal(parseInt(e.target.value))}

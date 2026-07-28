@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
-import { AppData, SessionLog, CardioSession } from '@/lib/types';
+import { AppData, SessionLog, CardioSession, resolveProgramName } from '@/lib/types';
 import { ChevronLeft, ChevronRight, Plus, Trash2, X, Activity } from 'lucide-react';
 import { formatCardioDuration, calculatePaceMinPerKm, formatPace } from '@/lib/cardio';
 import SessionDetailView from './SessionDetailView';
@@ -78,12 +78,13 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession, onDe
 
   const weekProgress = Math.min(thisWeekSessions.length / data.weeklyGoal, 1);
 
-  const cardioWeeklyGoal = data.cardioWeeklyGoal || 2;
+  // `?? 2` (not `||`) — 0 is a deliberate "no cardio goal" choice, not a missing value.
+  const cardioWeeklyGoal = data.cardioWeeklyGoal ?? 2;
   const thisWeekCardioSessions = (data.cardioSessions || []).filter(s => {
     const d = new Date(s.date);
     return d >= startOfWeek && d < endOfWeek;
   });
-  const cardioWeekProgress = Math.min(thisWeekCardioSessions.length / cardioWeeklyGoal, 1);
+  const cardioWeekProgress = cardioWeeklyGoal > 0 ? Math.min(thisWeekCardioSessions.length / cardioWeeklyGoal, 1) : 0;
 
   const thisMonthSessions = data.sessions.filter(s => {
     const d = new Date(s.date);
@@ -262,9 +263,9 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession, onDe
                 <div className="flex items-center gap-3 mb-1">
                   <div className="w-3 h-3 rounded-full" style={{ backgroundColor: `hsl(${getColorForType(session.workoutTypeId)})` }} />
                   <span className="text-foreground font-semibold text-sm">{session.workoutTypeName}</span>
-                  {(data.programs?.length ?? 0) > 1 && session.programName && (
+                  {(data.programs?.length ?? 0) > 1 && resolveProgramName(session, data) && (
                     <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-secondary text-muted-foreground">
-                      {session.programName}
+                      {resolveProgramName(session, data)}
                     </span>
                   )}
                 </div>

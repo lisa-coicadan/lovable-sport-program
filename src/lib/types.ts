@@ -198,6 +198,23 @@ export const DEFAULT_APP_DATA: AppData = {
   cardioWeeklyGoal: 2,
 };
 
+// `SessionLog.programName` is a snapshot frozen at log time (survives a deleted/renamed
+// workoutType). But day to day, she wants Stats/Calendar/session badges to reflect
+// wherever that workout type is assigned RIGHT NOW — reassigning or renaming a program
+// should immediately show up on old sessions too, not just new ones. Falls back to the
+// frozen snapshot only when the live chain is broken (workoutType or program deleted).
+export function resolveProgramName(
+  session: { workoutTypeId: string; programName?: string },
+  data: Pick<AppData, 'workoutTypes' | 'programs'>
+): string | undefined {
+  const workoutType = data.workoutTypes.find(t => t.id === session.workoutTypeId);
+  if (workoutType?.programId) {
+    const program = (data.programs || []).find(p => p.id === workoutType.programId);
+    if (program) return program.name;
+  }
+  return session.programName;
+}
+
 export function calculate1RM(weight: number, reps: number): number {
   if (reps <= 0 || weight <= 0) return 0;
   return Math.round(weight * (1 + reps / 30) * 10) / 10;

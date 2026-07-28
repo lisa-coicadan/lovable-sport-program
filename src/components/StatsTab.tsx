@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { AppData, SessionLog, calculate1RM, WORKOUT_COLORS, CardioActivityType } from '@/lib/types';
+import { AppData, SessionLog, calculate1RM, WORKOUT_COLORS, CardioActivityType, resolveProgramName } from '@/lib/types';
 import { normalizeExerciseName } from '@/lib/exerciseNormalize';
 import { calculatePaceMinPerKm, formatCardioDuration, formatPace } from '@/lib/cardio';
 import { Trophy, Scale, Crown, ChevronDown, Search, X, Plus } from 'lucide-react';
@@ -212,10 +212,10 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession }: StatsTabProps) => 
           date: new Date(s.date).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' }),
           volume,
           type: s.workoutTypeName,
-          programName: s.programName,
+          programName: resolveProgramName(s, data),
         };
       });
-  }, [data.sessions, volumeFilter, volumeRange]);
+  }, [data, volumeFilter, volumeRange]);
 
   // Assigns a stable color per distinct programName encountered (in order of first
   // appearance) so points from different programs are visually distinguishable at a glance.
@@ -243,7 +243,7 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession }: StatsTabProps) => 
       .filter(s => s.date >= RPE_CUTOFF)
       .filter(s => s.difficulty && s.difficulty > 0)
       .filter(s => !cutoff || new Date(s.date + 'T00:00:00') >= cutoff)
-      .map(s => ({ rawDate: s.date, id: s.id, difficulty: s.difficulty || 0, type: s.workoutTypeName, programName: s.programName, isCardio: false }));
+      .map(s => ({ rawDate: s.date, id: s.id, difficulty: s.difficulty || 0, type: s.workoutTypeName, programName: resolveProgramName(s, data), isCardio: false }));
     const cardioPoints = difficultySourceFilter === 'strength' ? [] : (data.cardioSessions || [])
       .filter(s => s.date >= RPE_CUTOFF)
       .filter(s => s.difficulty && s.difficulty > 0)
@@ -259,7 +259,7 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession }: StatsTabProps) => 
         programName: p.programName,
         isCardio: p.isCardio,
       }));
-  }, [data.sessions, data.cardioSessions, difficultyRange, difficultySourceFilter]);
+  }, [data, difficultyRange, difficultySourceFilter]);
   const difficultyProgramColors = useMemo(() => programColorFor(difficultyData, 1), [difficultyData]);
 
   const cardioActivityTypesPresent = useMemo(() => {
@@ -598,7 +598,10 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession }: StatsTabProps) => 
                     stroke="hsl(322 100% 60%)"
                     strokeWidth={2.5}
                     dot={(props: DotRenderProps) => {
-                      const color = volumeProgramColors.get(props.payload.programName) || '322 100% 60%';
+                      // Neutral gray fallback (not in WORKOUT_COLORS) for points with no
+                      // resolvable program — otherwise it could coincide with a real
+                      // program's assigned color and become indistinguishable from it.
+                      const color = volumeProgramColors.get(props.payload.programName) || '240 8% 58%';
                       return (
                         <g
                           key={`vdot-${props.index}`}
@@ -638,7 +641,7 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession }: StatsTabProps) => 
                       <div className="flex items-center justify-between gap-1.5">
                         <div className="min-w-0">
                           <p className="text-[9px] text-foreground/80 truncate">{session.workoutTypeName}</p>
-                          {session.programName && <p className="text-[8px] text-muted-foreground truncate">{session.programName}</p>}
+                          {resolveProgramName(session, data) && <p className="text-[8px] text-muted-foreground truncate">{resolveProgramName(session, data)}</p>}
                         </div>
                         <button
                           onClick={() => { setViewingSession(session); setPreviewSessionId(null); }}
@@ -695,7 +698,7 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession }: StatsTabProps) => 
                   stroke="hsl(262 83% 66%)"
                   strokeWidth={2.5}
                   dot={(props: DotRenderProps) => {
-                    const color = props.payload.isCardio ? '189 94% 55%' : (difficultyProgramColors.get(props.payload.programName) || '262 83% 66%');
+                    const color = props.payload.isCardio ? '189 94% 55%' : (difficultyProgramColors.get(props.payload.programName) || '240 8% 58%');
                     return (
                       <g
                         key={`ddot-${props.index}`}
@@ -737,7 +740,7 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession }: StatsTabProps) => 
                       <div className="flex items-center justify-between gap-1.5">
                         <div className="min-w-0">
                           <p className="text-[9px] text-foreground/80 truncate">{session.workoutTypeName}</p>
-                          {session.programName && <p className="text-[8px] text-muted-foreground truncate">{session.programName}</p>}
+                          {resolveProgramName(session, data) && <p className="text-[8px] text-muted-foreground truncate">{resolveProgramName(session, data)}</p>}
                         </div>
                         <button
                           onClick={() => { setViewingSession(session); setPreviewSessionId(null); }}

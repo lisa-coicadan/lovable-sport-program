@@ -172,7 +172,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
     if (cardioDurationMinutes <= 0) return;
     const session: CardioSession = {
       id: `cardio-${Date.now()}`,
-      date: new Date().toISOString().split('T')[0],
+      date: selectedDate || new Date().toISOString().split('T')[0],
       activityType: cardioActivityType,
       customActivityLabel: cardioActivityType === 'Autre' ? cardioCustomLabel.trim() || undefined : undefined,
       durationMinutes: cardioDurationMinutes,
@@ -289,13 +289,13 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
     if (!lastSession) return {};
     
     const weights: Record<string, number> = {};
-    // A plain `!weights[id]` guard would misfire once 0 becomes a legitimate stored value
-    // (bodyweight tractions/dips) — 0 is falsy, so it would keep looking like "not seen
-    // yet" and get overwritten by a later set. Track "seen" explicitly instead.
-    const seenExerciseIds = new Set<string>();
+    // Keep overwriting as we walk the sets in order, so each exercise ends up with its
+    // LAST completed set's weight, not its first — if she started light and worked up to
+    // 12kg×10, the next session should pre-fill 12kg, not the 10kg she warmed up with.
+    // Drop-set stages are excluded: they're a deliberately lighter cascade below the real
+    // working weight, never a sensible baseline for the next session.
     lastSession.sets.forEach(s => {
-      if (s.completed && (s.weight > 0 || isBodyweightOptionalExercise(s.exerciseName)) && !seenExerciseIds.has(s.exerciseId)) {
-        seenExerciseIds.add(s.exerciseId);
+      if (s.completed && !s.dropSetStage && (s.weight > 0 || isBodyweightOptionalExercise(s.exerciseName))) {
         weights[s.exerciseId] = s.weight;
       }
     });
@@ -397,9 +397,12 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
     if (currentSet.weight <= 0 && !isBodyweightOptionalExercise(currentSet.exerciseName)) return;
     const updated = [...sets];
     for (let i = index + 1; i < updated.length; i++) {
-      // Drop-set rows keep their own computed (discounted) weight — never overwritten
-      // by the plain propagate-to-empty-sets behavior meant for un-filled regular sets.
-      if (updated[i].exerciseId === currentSet.exerciseId && updated[i].weight === 0 && !updated[i].dropSetStage) {
+      // Drop-set rows keep their own computed (discounted) weight — never overwritten by
+      // this. Completed sets are already logged and protected too — only sync forward
+      // into sets she hasn't finished yet. Everything else in between syncs to whatever
+      // she just set on the first set, whether it was empty or already pre-filled with a
+      // different value — editing set 1 is meant to carry through to the rest.
+      if (updated[i].exerciseId === currentSet.exerciseId && !updated[i].dropSetStage && !updated[i].completed) {
         updated[i].weight = currentSet.weight;
       }
     }
@@ -763,29 +766,43 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onProgres
             <span className="text-sm font-semibold text-foreground">{activityLabel}</span>
           </div>
           <div className="space-y-3">
-            {comparison.distance && (
-              <div>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground">Distance</span>
-                  <span className="text-sm font-bold text-foreground">{comparison.distance.current} km</span>
-                </div>
-                <p className="text-[10px] text-muted-foreground">
-                  {comparison.distance.last !== null && `Dernière : ${comparison.distance.last} km`}
-                  {comparison.distance.last !== null && comparison.distance.average !== null && ' · '}
-                  {comparison.distance.average !== null && `Moyenne : ${Math.round(comparison.distance.average * 100) / 100} km`}
-                </p>
-              </div>
-            )}
             {comparison.pace && (
               <div>
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-muted-foreground">Allure</span>
-                  <span className="text-sm font-bold text-foreground">{formatPace(comparison.pace.current)}</span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="text-sm font-bold text-foreground">{formatPace(comparison.pace.current)}</span>
+                    {comparison.pace.changePercent !== null && (
+                      <span className={`text-[10px] font-semibold ${comparison.pace.changePercent >= 0 ? 'text-success' : 'text-warning'}`}>
+                        {comparison.pace.changePercent >= 0 ? '▲' : '▼'} {Math.abs(Math.round(comparison.pace.changePercent))}%
+                      </span>
+                    )}
+                  </span>
                 </div>
                 <p className="text-[10px] text-muted-foreground">
                   {comparison.pace.last !== null && `Dernière : ${formatPace(comparison.pace.last)}`}
                   {comparison.pace.last !== null && comparison.pace.average !== null && ' · '}
                   {comparison.pace.average !== null && `Moyenne : ${formatPace(comparison.pace.average)}`}
+                </p>
+              </div>
+            )}
+            {comparison.distance && (
+              <div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">Distance</span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="text-sm font-bold text-foreground">{comparison.distance.current} km</span>
+                    {comparison.distance.changePercent !== null && (
+                      <span className={`text-[10px] font-semibold ${comparison.distance.changePercent >= 0 ? 'text-success' : 'text-warning'}`}>
+                        {comparison.distance.changePercent >= 0 ? '▲' : '▼'} {Math.abs(Math.round(comparison.distance.changePercent))}%
+                      </span>
+                    )}
+                  </span>
+                </div>
+                <p className="text-[10px] text-muted-foreground">
+                  {comparison.distance.last !== null && `Dernière : ${comparison.distance.last} km`}
+                  {comparison.distance.last !== null && comparison.distance.average !== null && ' · '}
+                  {comparison.distance.average !== null && `Moyenne : ${Math.round(comparison.distance.average * 100) / 100} km`}
                 </p>
               </div>
             )}

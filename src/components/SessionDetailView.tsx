@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useRef } from 'react';
-import { SessionLog, SetLog, AppData, calculate1RM } from '@/lib/types';
+import { SessionLog, SetLog, AppData, calculate1RM, resolveProgramName } from '@/lib/types';
 import { isBodyweightOptionalExercise, weightFieldValue } from '@/lib/exerciseNormalize';
 import { Trash2, Pencil, Share2, Plus, X, TrendingUp, TrendingDown, Minus, Check } from 'lucide-react';
 
@@ -668,9 +668,9 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
           >
             {session.workoutTypeName}
           </span>
-          {(data.programs?.length ?? 0) > 1 && session.programName && (
+          {(data.programs?.length ?? 0) > 1 && resolveProgramName(session, data) && (
             <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-secondary text-muted-foreground">
-              {session.programName}
+              {resolveProgramName(session, data)}
             </span>
           )}
         </div>

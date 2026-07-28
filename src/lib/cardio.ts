@@ -27,14 +27,17 @@ export interface CardioComparisonMetric {
   last: number | null;
   average: number | null;
   improved: boolean | null; // vs the last session of the same activity — null when there's no prior session
+  // % change vs `last`, sign already normalized so positive always means "better" (pace's
+  // is inverted vs the raw arithmetic delta, since a lower min/km is the improvement).
+  changePercent: number | null;
 }
 
 export interface CardioComparison {
   distance: CardioComparisonMetric | null; // null when this session has no distance logged
   pace: CardioComparisonMetric | null; // null when pace isn't computable (no distance)
   duration: CardioComparisonMetric;
-  // The headline "did I do better?" verdict — distance first, then pace, then duration,
-  // using the first one that's actually comparable against a prior session.
+  // The headline "did I do better?" verdict — pace (speed) first, then distance, then
+  // duration, using the first one that's actually comparable against a prior session.
   headline: { metric: 'distance' | 'pace' | 'duration'; improved: boolean } | null;
 }
 
@@ -48,11 +51,13 @@ export function compareCardioSession(
 ): CardioComparison {
   const last = [...previousSessions].sort((a, b) => b.date.localeCompare(a.date))[0] ?? null;
 
+  const lastDuration = last ? last.durationMinutes : null;
   const duration: CardioComparisonMetric = {
     current: current.durationMinutes,
-    last: last ? last.durationMinutes : null,
+    last: lastDuration,
     average: average(previousSessions.map(s => s.durationMinutes)),
-    improved: last ? current.durationMinutes > last.durationMinutes : null,
+    improved: lastDuration !== null ? current.durationMinutes > lastDuration : null,
+    changePercent: lastDuration ? ((current.durationMinutes - lastDuration) / lastDuration) * 100 : null,
   };
 
   let distance: CardioComparisonMetric | null = null;
@@ -63,6 +68,7 @@ export function compareCardioSession(
       last: lastDistance,
       average: average(previousSessions.map(s => s.distanceKm).filter((d): d is number => d !== undefined)),
       improved: lastDistance !== null ? current.distanceKm > lastDistance : null,
+      changePercent: lastDistance ? ((current.distanceKm - lastDistance) / lastDistance) * 100 : null,
     };
   }
 
@@ -79,12 +85,15 @@ export function compareCardioSession(
           .filter((p): p is number => p !== null)
       ),
       improved: lastPace !== null ? currentPace < lastPace : null, // lower min/km = faster = better
+      // Inverted vs the raw delta: pace dropping (faster) is the improvement, so a lower
+      // current-vs-last should read as a POSITIVE percentage here.
+      changePercent: lastPace ? ((lastPace - currentPace) / lastPace) * 100 : null,
     };
   }
 
   const headline: CardioComparison['headline'] =
-    distance?.improved != null ? { metric: 'distance', improved: distance.improved }
-    : pace?.improved != null ? { metric: 'pace', improved: pace.improved }
+    pace?.improved != null ? { metric: 'pace', improved: pace.improved }
+    : distance?.improved != null ? { metric: 'distance', improved: distance.improved }
     : duration.improved != null ? { metric: 'duration', improved: duration.improved }
     : null;
 
