@@ -23,4 +23,5 @@ dist-ssr
 *.sln
 *.sw?
 .claude/skills/
+.claude/hooks/data-risk-guard/state/
 .impeccable/
