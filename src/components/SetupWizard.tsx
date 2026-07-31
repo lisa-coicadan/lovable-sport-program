@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { AppData, WorkoutType, Exercise, ExerciseMethod, FiveThreeOneMethod, ClusterMethod, EMOMMethod, WORKOUT_COLORS, Gender } from '@/lib/types';
 import { CLUSTER_PRESETS } from '@/lib/cluster';
 import { getDefaultEmomPercentage } from '@/lib/emom';
 import { estimateOneRepMax, estimateTrainingMax } from '@/lib/trainingMax';
 import { parseMultiSessionNotes, NOTES_SYNTAX_HELP } from '@/lib/notesParser';
 import { linkSuperset, unlinkSuperset, buildExerciseBlocks, flattenBlocks, ExerciseBlock } from '@/lib/superset';
-import { Plus, Trash2, ChevronRight, ChevronLeft, Check, Zap, Timer, Clock, FileText, X, Calculator, TrendingDown, Infinity as InfinityIcon, Link2, Link2Off, User, Scale } from 'lucide-react';
+import { parseBackupFile } from '@/lib/backupFile';
+import { Plus, Trash2, ChevronRight, ChevronLeft, Check, Zap, Timer, Clock, FileText, X, Calculator, TrendingDown, Infinity as InfinityIcon, Link2, Link2Off, User, Scale, Upload } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import BrandMark from './BrandMark';
 import { SortableList, DragHandle } from './SortableBlock';
@@ -80,6 +81,27 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
   const [gender, setGender] = useState<Gender | undefined>(undefined);
   const [heightCm, setHeightCm] = useState('');
   const [bodyWeight, setBodyWeight] = useState('');
+  const importFileRef = useRef<HTMLInputElement>(null);
+
+  // Import direct depuis l'écran d'accueil : saute tout le wizard quand on a déjà une
+  // sauvegarde (ex. après la procédure de rattrapage iOS qui vide le stockage Safari).
+  // Rien à perdre ici (premier lancement ou juste après "Réinitialiser l'app"), donc pas
+  // de confirmation nécessaire contrairement à l'import depuis Réglages.
+  const handleImportBackup = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const imported = await parseBackupFile(file);
+      onComplete(imported);
+    } catch (err) {
+      toast({
+        title: 'Import impossible',
+        description: err instanceof Error ? err.message : 'Fichier JSON invalide.',
+        variant: 'destructive',
+      });
+    }
+  };
 
   const taggedExercises = workoutTypes.flatMap(t =>
     t.exercises.filter(e => e.method).map(e => ({ typeId: t.id, typeName: t.name, exercise: e }))
@@ -334,6 +356,20 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
         >
           Commencer
         </button>
+
+        <button
+          onClick={() => importFileRef.current?.click()}
+          className="relative flex items-center gap-1.5 text-sm text-muted-foreground touch-target mt-4 active:scale-95 transition-transform"
+        >
+          <Upload size={14} /> J'ai déjà une sauvegarde JSON
+        </button>
+        <input
+          ref={importFileRef}
+          type="file"
+          accept="application/json,.json"
+          className="hidden"
+          onChange={handleImportBackup}
+        />
       </div>
     );
   }
