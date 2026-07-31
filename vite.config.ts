@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
+import fs from "fs";
 import { componentTagger } from "lovable-tagger";
 import { VitePWA } from "vite-plugin-pwa";
 
@@ -9,6 +10,12 @@ import { VitePWA } from "vite-plugin-pwa";
 // voir le commentaire dans PWAUpdatePrompt.tsx pour le pourquoi (le check de mise à jour
 // natif du service worker est trop capricieux sur iOS/WebKit pour qu'on s'y fie seul).
 const buildId = String(Date.now());
+
+// Lu via fs plutôt qu'un import JSON ESM (évite les soucis d'assertion de type selon
+// l'environnement Node) — le hook .claude/hooks/version-bump/ maintient ce champ à jour.
+const appVersion = JSON.parse(
+  fs.readFileSync(path.resolve(__dirname, "package.json"), "utf-8")
+).version as string;
 
 export default defineConfig(({ mode }) => ({
   server: {
@@ -24,7 +31,7 @@ export default defineConfig(({ mode }) => ({
       transformIndexHtml(html: string) {
         return html.replace(
           "<head>",
-          `<head>\n    <meta name="app-build-id" content="${buildId}" />`
+          `<head>\n    <meta name="app-build-id" content="${buildId}" />\n    <meta name="app-version" content="${appVersion}" />`
         );
       },
     },
@@ -38,6 +45,18 @@ export default defineConfig(({ mode }) => ({
       injectRegister: false,
       includeAssets: ["favicon.ico"],
       workbox: {
+        // Défaut de vite-plugin-pwa ("index.html") : ça fait intercepter TOUTE navigation
+        // par le SW, qui sert alors le index.html précaché par le SW actuellement actif —
+        // même un reload ou une réouverture d'icône, peu importe ce qu'il y a sur le
+        // réseau. Combiné à injectRegister:false ci-dessus (qui désactive aussi l'injection
+        // auto de skipWaiting/clientsClaim, voir juste en dessous), un SW une fois installé
+        // ne se faisait jamais remplacer : piège permanent, confirmé en prod (sw.js live
+        // inspecté). On désactive complètement l'interception du shell HTML — la fraîcheur
+        // d'index.html repose uniquement sur le réseau (déjà cache-control: no-cache côté
+        // serveur, vérifié). Le SW garde le précache des assets JS/CSS/images pour l'offline.
+        navigateFallback: null,
+        skipWaiting: true,
+        clientsClaim: true,
         navigateFallbackDenylist: [/^\/~oauth/],
       },
       manifest: {

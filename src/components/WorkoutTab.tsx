@@ -30,6 +30,16 @@ interface WorkoutTabProps {
 
 type Mode = 'select' | 'recap' | 'summary' | 'settings' | 'history' | 'cardio';
 
+// "1.0.0" -> "1.0" (patch caché, voir vite.config.ts pour l'injection du meta tag et
+// .claude/hooks/version-bump/ pour l'incrémentation auto à chaque commit) — sert à
+// vérifier à distance quelle version un appareil fait vraiment tourner.
+const APP_VERSION = document
+  .querySelector('meta[name="app-version"]')
+  ?.getAttribute('content')
+  ?.split('.')
+  .slice(0, 2)
+  .join('.');
+
 export const CARDIO_ACTIVITY_TYPES: { type: CardioActivityType; icon: typeof Footprints }[] = [
   { type: 'Course à pied', icon: Footprints },
   { type: 'Natation', icon: Waves },
@@ -717,7 +727,12 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     return (
       <div className="px-4 pt-12 pb-24 animate-slide-up">
         <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-bold text-foreground">Séance</h1>
+          <div className="flex items-baseline gap-2">
+            <h1 className="text-2xl font-bold text-foreground">Séance</h1>
+            {APP_VERSION && (
+              <span className="text-[10px] text-muted-foreground">v{APP_VERSION}</span>
+            )}
+          </div>
           <button
             onClick={() => setMode('settings')}
             className="touch-target p-2 text-muted-foreground"
