@@ -304,14 +304,24 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
     e.target.value = '';
     if (!file) return;
     try {
-      const text = await file.text();
-      const parsed = JSON.parse(text);
+      // Retire un BOM éventuel (certains partages de fichiers iOS en ajoutent un en tête,
+      // ce qui fait échouer JSON.parse sans que le fichier soit visuellement différent).
+      const text = (await file.text()).replace(/^\uFEFF/, '');
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(text);
+      } catch (parseErr) {
+        // Erreur la plus utile à distance : dit où ça casse (souvent des guillemets
+        // "intelligents" introduits par Notes/Mail/Messages si le fichier a été collé ou
+        // édité comme texte quelque part avant l'import, plutôt qu'envoyé tel quel).
+        throw new Error(`JSON illisible : ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`);
+      }
       const imported: AppData | undefined =
-        parsed?.data && typeof parsed.data === 'object' ? parsed.data :
-        (parsed && Array.isArray(parsed.sessions) && Array.isArray(parsed.workoutTypes)) ? parsed :
+        parsed && typeof parsed === 'object' && 'data' in parsed && typeof (parsed as { data: unknown }).data === 'object' ? (parsed as { data: AppData }).data :
+        (parsed && typeof parsed === 'object' && Array.isArray((parsed as AppData).sessions) && Array.isArray((parsed as AppData).workoutTypes)) ? (parsed as AppData) :
         undefined;
       if (!imported || !Array.isArray(imported.workoutTypes) || !Array.isArray(imported.sessions)) {
-        throw new Error('Fichier invalide');
+        throw new Error('Structure inattendue : pas de "workoutTypes"/"sessions" reconnaissables.');
       }
       setConfirmDialog({
         title: 'Restaurer cette sauvegarde ?',
@@ -325,7 +335,11 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
         },
       });
     } catch (err) {
-      toast({ title: 'Import impossible', description: 'Fichier JSON invalide.', variant: 'destructive' });
+      toast({
+        title: 'Import impossible',
+        description: err instanceof Error ? err.message : 'Fichier JSON invalide.',
+        variant: 'destructive',
+      });
     }
   };
 
