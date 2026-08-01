@@ -12,10 +12,34 @@ const Index = () => {
   const [activeTab, setActiveTab] = useState(1);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [sessionProgress, setSessionProgress] = useState<number | null>(null);
+  // Hides BottomTabBar whenever a text field is focused anywhere in the app (not just one
+  // specific modal) — on iOS the bar sits at z-50 above everything else, so with the
+  // keyboard up it visually collides with whatever modal buttons happen to land near the
+  // bottom of the shrunk viewport. Tracked globally via focus events rather than per-modal
+  // state so any current or future text input gets this for free.
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
 
   useEffect(() => {
     saveData(data);
   }, [data]);
+
+  useEffect(() => {
+    const opensKeyboard = (target: EventTarget | null): boolean => {
+      if (target instanceof HTMLTextAreaElement) return true;
+      if (target instanceof HTMLInputElement) {
+        return !['checkbox', 'radio', 'range', 'button', 'submit', 'color', 'file'].includes(target.type);
+      }
+      return false;
+    };
+    const handleFocusIn = (e: FocusEvent) => { if (opensKeyboard(e.target)) setKeyboardOpen(true); };
+    const handleFocusOut = (e: FocusEvent) => { if (opensKeyboard(e.target)) setKeyboardOpen(false); };
+    document.addEventListener('focusin', handleFocusIn);
+    document.addEventListener('focusout', handleFocusOut);
+    return () => {
+      document.removeEventListener('focusin', handleFocusIn);
+      document.removeEventListener('focusout', handleFocusOut);
+    };
+  }, []);
 
   const handleSetupComplete = useCallback((partial: Partial<AppData>) => {
     setData(prev => ({ ...prev, ...partial }));
@@ -86,7 +110,9 @@ const Index = () => {
         />
       </div>
       {activeTab === 2 && <StatsTab data={data} onUpdateSession={handleUpdateSession} onDeleteSession={handleDeleteSession} />}
-      <BottomTabBar activeTab={activeTab} onTabChange={(tab) => { setActiveTab(tab); }} sessionProgress={sessionProgress} />
+      {!keyboardOpen && (
+        <BottomTabBar activeTab={activeTab} onTabChange={(tab) => { setActiveTab(tab); }} sessionProgress={sessionProgress} />
+      )}
     </div>
   );
 };

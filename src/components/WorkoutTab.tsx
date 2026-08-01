@@ -600,9 +600,10 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     </div>
   );
 
-  // Shows the rated value next to the icon once set — a color change alone (previous
-  // behavior) gave no way to see what she'd actually entered without reopening the editor,
-  // unlike the reminder note button which has its own banner showing the full text.
+  // Always labeled "RPE" (not just an icon whose meaning only showed up in a title
+  // tooltip, useless on touch) — and once rated, shows the value next to it, a color
+  // change alone gave no way to see what she'd actually entered without reopening the
+  // editor, unlike the reminder note button which has its own banner showing the full text.
   const renderDifficultyButton = (ex: Exercise) => {
     const current = exerciseDifficulty[ex.id];
     return (
@@ -616,7 +617,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
         title="RPE de l'exercice"
       >
         <Gauge size={14} />
-        {current !== undefined && <span>{current}/10</span>}
+        <span>{current !== undefined ? `RPE ${current}/10` : 'RPE'}</span>
       </button>
     );
   };
@@ -749,19 +750,6 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     );
   }
 
-  if (mode === 'settings') {
-    return (
-      <>
-        <SettingsPanel
-          data={data}
-          onUpdateData={onUpdateData}
-          onClose={() => setMode('select')}
-        />
-        {selectedType && <RestTimer ref={restTimerRef} defaultSeconds={restDuration} />}
-      </>
-    );
-  }
-
   if (mode === 'history' && historyExercise) {
     return (
       <>
@@ -775,13 +763,21 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     );
   }
 
-  if (mode === 'select') {
+  // Settings only ever opens from this screen (see the two setMode('settings') calls
+  // below), so it's rendered as a `fixed` overlay ON TOP of this same screen rather than
+  // replacing it — keeping the Séance picker mounted underneath is what lets the swipe-
+  // to-close gesture in SettingsPanel reveal it sliding back into view instead of a plain
+  // background. selectedType is always null here (starting a session switches to 'recap'),
+  // so the RestTimer condition below is dead in practice but kept for symmetry with the
+  // other mode branches that share it.
+  if (mode === 'select' || mode === 'settings') {
     const fiveThreeOneExercises = activeTypes.flatMap(type =>
       type.exercises
         .filter(ex => ex.method?.type === '531')
         .map(ex => ({ type, exercise: ex, method: ex.method as FiveThreeOneMethod }))
     );
     return (
+      <>
       <div className="px-4 pt-12 pb-24 animate-slide-up">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-baseline gap-2">
@@ -899,6 +895,17 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
           <span className="text-xs text-muted-foreground ml-auto">Course, natation...</span>
         </button>
       </div>
+      {mode === 'settings' && (
+        <>
+          <SettingsPanel
+            data={data}
+            onUpdateData={onUpdateData}
+            onClose={() => setMode('select')}
+          />
+          {selectedType && <RestTimer ref={restTimerRef} defaultSeconds={restDuration} />}
+        </>
+      )}
+      </>
     );
   }
 

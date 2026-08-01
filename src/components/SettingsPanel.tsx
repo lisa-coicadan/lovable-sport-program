@@ -5,7 +5,7 @@ import { parseSessionNotes, parseMultiSessionNotes, NOTES_SYNTAX_HELP, NOTES_SYN
 import { getEmomConfig, getEmomWeight, getDefaultEmomPercentage } from '@/lib/emom';
 import { getClusterConfig, getMiniSeriesWeight, CLUSTER_PRESETS } from '@/lib/cluster';
 import { estimateOneRepMax, estimateTrainingMax } from '@/lib/trainingMax';
-import { ArrowLeft, Plus, Trash2, EyeOff, Eye, Scale, Link2, Link2Off, Download, Upload, Database, AlertTriangle, FileText, Zap, Timer, Clock, Layers, Check, Calculator, TrendingDown, User, Infinity as InfinityIcon, Pencil, X } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, EyeOff, Eye, Scale, Link2, Link2Off, Download, Upload, Database, AlertTriangle, FileText, Zap, Timer, Clock, Layers, Check, Calculator, TrendingDown, User, Infinity as InfinityIcon, Pencil, X, RefreshCw } from 'lucide-react';
 import { SortableList, DragHandle } from './SortableBlock';
 import { loadData, saveData } from '@/lib/storage';
 import { parseBackupFile } from '@/lib/backupFile';
@@ -349,6 +349,35 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
     });
   };
 
+  // Filet de secours si l'auto-update (PWAUpdatePrompt.tsx) ne se déclenche jamais sur un
+  // appareil donné (vécu en réel sur iOS/Safari) : force le nettoyage du service worker et
+  // de son cache technique puis recharge, SANS toucher au localStorage (les séances restent
+  // intactes) — contrairement à "Réinitialiser l'app" ci-dessous qui efface tout exprès.
+  const handleForceUpdate = () => {
+    setConfirmDialog({
+      title: 'Forcer la mise à jour ?',
+      message:
+        `À utiliser seulement si l'app semble bloquée sur une ancienne version. ` +
+        `Recharge la page depuis zéro (efface la séance en cours si tu es en plein ` +
+        `entraînement) mais ne touche à aucune séance enregistrée.`,
+      confirmLabel: 'Forcer la mise à jour',
+      onConfirm: async () => {
+        try {
+          if ('serviceWorker' in navigator) {
+            const registrations = await navigator.serviceWorker.getRegistrations();
+            await Promise.all(registrations.map(r => r.unregister()));
+          }
+          if ('caches' in window) {
+            const cacheNames = await caches.keys();
+            await Promise.all(cacheNames.map(name => caches.delete(name)));
+          }
+        } finally {
+          window.location.reload();
+        }
+      },
+    });
+  };
+
 
   const save = () => {
     const partial: Partial<AppData> = {
@@ -382,34 +411,53 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
   // e.g. the color picker swatches) and is mostly horizontal (not a vertical page scroll).
   // The panel follows the finger live (dragX, no transition) while dragging, then either
   // snaps back or finishes sliding out (transition re-enabled) so the close reads as one
-  // continuous gesture instead of the panel just vanishing under the finger.
+  // continuous gesture instead of the panel just vanishing under the finger. This panel is
+  // rendered as a `fixed` overlay ON TOP of the Séance screen (see WorkoutTab), which stays
+  // mounted underneath — so as dragX grows, the Séance screen is what's actually being
+  // revealed, not a plain background.
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const draggingRef = useRef(false);
   const [dragX, setDragX] = useState(0);
   const [dragActive, setDragActive] = useState(false);
   const [closing, setClosing] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   const handleTouchStart = (e: React.TouchEvent) => {
     const t = e.touches[0];
     touchStartRef.current = { x: t.clientX, y: t.clientY };
     draggingRef.current = false;
   };
-  const handleTouchMove = (e: React.TouchEvent) => {
-    const start = touchStartRef.current;
-    if (!start || start.x > 32) return;
-    const t = e.touches[0];
-    const dx = t.clientX - start.x;
-    const dy = t.clientY - start.y;
-    if (!draggingRef.current) {
-      if (dx > 10 && Math.abs(dx) > Math.abs(dy) * 2) {
-        draggingRef.current = true;
-        setDragActive(true);
-      } else {
-        return;
+
+  // Native (non-passive) listener rather than React's onTouchMove: React attaches touch
+  // listeners as passive by default, so e.preventDefault() inside a JSX onTouchMove handler
+  // is silently ignored (and warns in the console) — it would never actually stop the page
+  // from also scrolling vertically underneath the horizontal drag. Locking that out via
+  // preventDefault once the gesture is confirmed horizontal is what keeps the panel moving
+  // strictly left-right instead of drifting diagonally with the finger.
+  useEffect(() => {
+    const el = panelRef.current;
+    if (!el) return;
+    const onMove = (e: TouchEvent) => {
+      const start = touchStartRef.current;
+      if (!start || start.x > 32) return;
+      const t = e.touches[0];
+      const dx = t.clientX - start.x;
+      const dy = t.clientY - start.y;
+      if (!draggingRef.current) {
+        if (dx > 10 && Math.abs(dx) > Math.abs(dy) * 2) {
+          draggingRef.current = true;
+          setDragActive(true);
+        } else {
+          return;
+        }
       }
-    }
-    setDragX(Math.max(0, dx));
-  };
+      e.preventDefault();
+      setDragX(Math.max(0, dx));
+    };
+    el.addEventListener('touchmove', onMove, { passive: false });
+    return () => el.removeEventListener('touchmove', onMove);
+  }, []);
+
   const handleTouchEnd = (e: React.TouchEvent) => {
     const start = touchStartRef.current;
     touchStartRef.current = null;
@@ -537,13 +585,14 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
   return (
     <>
     <div
-      className="px-4 pt-12 pb-24 animate-slide-up"
+      ref={panelRef}
+      className="fixed inset-0 z-40 bg-background overflow-y-auto px-4 pt-12 pb-24 animate-slide-up"
       style={{
         transform: dragX ? `translateX(${dragX}px)` : undefined,
         transition: dragActive ? 'none' : 'transform 0.22s ease-out',
+        touchAction: 'pan-y',
       }}
       onTouchStart={handleTouchStart}
-      onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
     >
       <div className="flex items-center gap-3 mb-6">
@@ -1484,6 +1533,18 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
         />
         <p className="text-[10px] text-muted-foreground mt-2">
           {(data.sessions?.length || 0)} séances enregistrées sur cet appareil.
+        </p>
+
+        <div className="h-px bg-border my-3" />
+
+        <button
+          onClick={handleForceUpdate}
+          className="w-full flex items-center justify-center gap-1.5 bg-secondary text-foreground rounded-xl py-2.5 text-sm font-medium active:scale-95 transition-transform"
+        >
+          <RefreshCw size={14} /> Forcer la mise à jour
+        </button>
+        <p className="text-[10px] text-muted-foreground mt-2">
+          Si l'app semble bloquée sur une ancienne version. Ne touche pas aux séances enregistrées.
         </p>
 
         <div className="h-px bg-border my-3" />
