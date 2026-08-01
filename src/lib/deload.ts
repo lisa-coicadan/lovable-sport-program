@@ -59,6 +59,8 @@ export function getConsecutiveTrainingWeeks(sessions: SessionLog[], sinceDate: s
 // par exercice) : deux sous-conditions indépendantes, chacune peut déclencher seule.
 // ---------------------------------------------------------------------------------------
 
+const FATIGUE_WINDOW_DAYS = 14;
+
 export interface FatigueCriterion {
   avgTrue: boolean;
   avgValue: number | null;
@@ -68,7 +70,7 @@ export interface FatigueCriterion {
 export function getFatigueCriterion(sessions: SessionLog[], now: Date): FatigueCriterion {
   const rated = sessions.filter(s => s.difficulty !== undefined);
 
-  const last14 = rated.filter(s => daysBetween(now, parseISODate(s.date)) < 14);
+  const last14 = rated.filter(s => daysBetween(now, parseISODate(s.date)) < FATIGUE_WINDOW_DAYS);
   const avgValue = last14.length >= 4
     ? Math.round((last14.reduce((sum, s) => sum + (s.difficulty ?? 0), 0) / last14.length) * 10) / 10
     : null;
@@ -92,18 +94,23 @@ function totalTonnage(sessions: SessionLog[], bodyWeightLogs: AppData['bodyWeigh
   }, 0);
 }
 
+export interface TonnageStagnationCriterion {
+  stagnant: boolean;
+  pctChange: number | null; // tonnage window A (0-13j) vs B (14-27j), null si B est vide (pas assez d'historique)
+}
+
 export function getTonnageStagnationCriterion(
   sessions: SessionLog[],
   bodyWeightLogs: AppData['bodyWeightLogs'],
   now: Date
-): boolean {
+): TonnageStagnationCriterion {
   const windowA = sessions.filter(s => { const d = daysBetween(now, parseISODate(s.date)); return d >= 0 && d < 14; });
   const windowB = sessions.filter(s => { const d = daysBetween(now, parseISODate(s.date)); return d >= 14 && d < 28; });
   const tonnageB = totalTonnage(windowB, bodyWeightLogs);
-  if (tonnageB === 0) return false; // pas assez d'historique pour comparer
+  if (tonnageB === 0) return { stagnant: false, pctChange: null }; // pas assez d'historique pour comparer
   const tonnageA = totalTonnage(windowA, bodyWeightLogs);
-  const pctChange = ((tonnageA - tonnageB) / tonnageB) * 100;
-  return Math.abs(pctChange) <= 2;
+  const pctChange = Math.round(((tonnageA - tonnageB) / tonnageB) * 1000) / 10;
+  return { stagnant: Math.abs(pctChange) <= 2, pctChange };
 }
 
 // ---------------------------------------------------------------------------------------
@@ -140,19 +147,25 @@ export function evaluateDeloadCriteria(data: AppData, now: Date = new Date()): D
   const time = timeWeeks >= 4;
   const fatigue = getFatigueCriterion(data.sessions, now);
   const stagnation = getTonnageStagnationCriterion(data.sessions, data.bodyWeightLogs, now);
+  const fatigueWindowWeeks = FATIGUE_WINDOW_DAYS / 7;
 
   const reasons: string[] = [];
   if (time) reasons.push(`${timeWeeks} semaines d'entraînement consécutives`);
-  if (fatigue.avgTrue) reasons.push(`Moyenne RPE : ${fatigue.avgValue!.toFixed(1).replace('.', ',')}`);
+  if (fatigue.avgTrue) {
+    reasons.push(`Moyenne RPE des ${fatigueWindowWeeks} dernières semaines : ${fatigue.avgValue!.toFixed(1).replace('.', ',')}`);
+  }
   if (fatigue.consecutiveTrue) reasons.push('3 dernières séances très intenses (RPE ≥ 8,5)');
-  if (stagnation) reasons.push('Progression ralentie détectée');
+  if (stagnation.stagnant && stagnation.pctChange !== null) {
+    const signed = `${stagnation.pctChange >= 0 ? '+' : ''}${stagnation.pctChange.toFixed(1).replace('.', ',')}%`;
+    reasons.push(`Progression ralentie : tonnage quasi stable sur 2 semaines (${signed})`);
+  }
 
   return {
     time, timeWeeks,
     fatigueAvg: fatigue.avgTrue, fatigueAvgValue: fatigue.avgValue,
     fatigueConsecutive: fatigue.consecutiveTrue,
-    stagnation,
-    anyTrue: time || fatigue.avgTrue || fatigue.consecutiveTrue || stagnation,
+    stagnation: stagnation.stagnant,
+    anyTrue: time || fatigue.avgTrue || fatigue.consecutiveTrue || stagnation.stagnant,
     reasons,
   };
 }
@@ -163,7 +176,7 @@ export function evaluateDeloadCriteria(data: AppData, now: Date = new Date()): D
 // held back indefinitely: past 5 weeks since the last deload it fires regardless.
 export function shouldShowDeloadRecommendation(data: AppData, now: Date = new Date()): { show: boolean; criteria: DeloadCriteria } {
   const criteria = evaluateDeloadCriteria(data, now);
-  if (data.deload?.active) return { show: false, criteria };
+  if (getActiveDeload(data, now)) return { show: false, criteria };
   if (data.deload?.dismissedUntil && toISODate(now) < data.deload.dismissedUntil) return { show: false, criteria };
   if (!criteria.anyTrue) return { show: false, criteria };
   if (criteria.fatigueAvg || criteria.fatigueConsecutive || criteria.stagnation) return { show: true, criteria };
@@ -246,6 +259,21 @@ export function getDeloadTargetWorkoutTypes(data: AppData): WorkoutType[] {
   );
 }
 
+// Force every 5/3/1 exercise straight to week 4 — their own deload week — regardless of
+// the Type/Intensity chosen for normal/Cluster/EMOM exercises. Already-synced exercises
+// already at week 4 are left untouched (nothing to resume afterwards). Shared by both the
+// recommendation-accept and the manual-activation flows below: a deload is a deload
+// regardless of how it was triggered.
+function forceFiveThreeOneToDeloadWeek(workoutTypes: WorkoutType[]): WorkoutType[] {
+  return workoutTypes.map(t => ({
+    ...t,
+    exercises: t.exercises.map(ex => {
+      if (ex.method?.type !== '531' || ex.method.currentWeek === 4) return ex;
+      return { ...ex, method: { ...ex.method, currentWeek: 4, deloadResumeWeek: ex.method.currentWeek } };
+    }),
+  }));
+}
+
 export function buildDeloadAcceptPatch(
   data: AppData,
   type: DeloadType,
@@ -253,18 +281,7 @@ export function buildDeloadAcceptPatch(
   now: Date = new Date()
 ): { workoutTypes: WorkoutType[]; deload: DeloadState } {
   const pendingWorkoutTypeIds = getDeloadTargetWorkoutTypes(data).map(t => t.id);
-
-  // Force every 5/3/1 exercise straight to week 4 — their own deload week — regardless of
-  // the Type/Intensity chosen above (that popup only governs normal/Cluster/EMOM
-  // exercises). Already-synced exercises already at week 4 are left untouched (nothing to
-  // resume afterwards).
-  const workoutTypes = data.workoutTypes.map(t => ({
-    ...t,
-    exercises: t.exercises.map(ex => {
-      if (ex.method?.type !== '531' || ex.method.currentWeek === 4) return ex;
-      return { ...ex, method: { ...ex.method, currentWeek: 4, deloadResumeWeek: ex.method.currentWeek } };
-    }),
-  }));
+  const workoutTypes = forceFiveThreeOneToDeloadWeek(data.workoutTypes);
 
   return {
     workoutTypes,
@@ -280,9 +297,55 @@ export function buildDeloadDismissPatch(data: AppData, now: Date = new Date()): 
   return { ...data.deload, dismissedUntil: toISODate(dismissedUntil) };
 }
 
-// Called right after a session is saved: shrinks the pending list if that workout type was
-// still due, and once every type has been done once, clears the deload automatically and
-// stamps lastDeloadCompletedAt (restarting the "4 weeks" criterion) — no user action needed.
+// Manual activation (Réglages, "Activer un deload") : runs for a fixed number of days
+// instead of "once per workout type" — every session logged through expiresAt (inclusive)
+// counts as deload, whichever workout type it is.
+export function buildManualDeloadPatch(
+  data: AppData,
+  type: DeloadType,
+  intensity: DeloadIntensity,
+  days: number,
+  now: Date = new Date()
+): { workoutTypes: WorkoutType[]; deload: DeloadState } {
+  const pendingWorkoutTypeIds = getDeloadTargetWorkoutTypes(data).map(t => t.id);
+  const workoutTypes = forceFiveThreeOneToDeloadWeek(data.workoutTypes);
+  const expiresAt = toISODate(new Date(now.getTime() + Math.max(1, days) * DAY_MS - DAY_MS));
+
+  return {
+    workoutTypes,
+    deload: {
+      ...data.deload,
+      active: { type, intensity, pendingWorkoutTypeIds, acceptedAt: toISODate(now), expiresAt },
+    },
+  };
+}
+
+// Ends a manually-activated deload immediately (Réglages, "Désactiver") — unlike "Ignorer"
+// on the recommendation banner (buildDeloadDismissPatch), this clears an already-active
+// deload rather than snoozing a not-yet-accepted recommendation, and doesn't stamp
+// lastDeloadCompletedAt since it wasn't actually carried through.
+export function buildDeloadDeactivatePatch(data: AppData): DeloadState {
+  return { ...data.deload, active: undefined };
+}
+
+// A manual (expiresAt-bound) deload is only "active" through its last day — read through
+// this everywhere UI/session-building needs to know "is a deload in effect right now",
+// instead of data.deload?.active directly, so an expired manual deload silently stops
+// applying/showing badges without needing a session save to notice (consumeDeloadOnSessionSave
+// only runs when a session is actually logged).
+export function getActiveDeload(data: AppData, now: Date = new Date()): DeloadState['active'] | undefined {
+  const active = data.deload?.active;
+  if (!active) return undefined;
+  if (active.expiresAt && toISODate(now) > active.expiresAt) return undefined;
+  return active;
+}
+
+// Called right after a session is saved. Two modes:
+// - Recommendation-accept (no expiresAt): shrinks the pending list, and once every type has
+//   been done once, clears the deload and stamps lastDeloadCompletedAt.
+// - Manual (expiresAt set): stays active for every session in the date window regardless of
+//   workout type — not consumed type-by-type — and is cleared (with lastDeloadCompletedAt
+//   stamped) once a session lands after expiresAt.
 export function consumeDeloadOnSessionSave(
   data: AppData,
   workoutTypeId: string,
@@ -292,6 +355,14 @@ export function consumeDeloadOnSessionSave(
   if (!active || !active.pendingWorkoutTypeIds.includes(workoutTypeId)) {
     return { deload: data.deload, wasDeload: false };
   }
+
+  if (active.expiresAt) {
+    if (toISODate(now) > active.expiresAt) {
+      return { deload: { ...data.deload, active: undefined, lastDeloadCompletedAt: toISODate(now) }, wasDeload: false };
+    }
+    return { deload: data.deload, wasDeload: true };
+  }
+
   const remaining = active.pendingWorkoutTypeIds.filter(id => id !== workoutTypeId);
   if (remaining.length === 0) {
     return { deload: { ...data.deload, active: undefined, lastDeloadCompletedAt: toISODate(now) }, wasDeload: true };

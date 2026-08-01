@@ -13,6 +13,9 @@ import {
   buildDeloadDismissPatch,
   consumeDeloadOnSessionSave,
   getDeloadTargetWorkoutTypes,
+  buildManualDeloadPatch,
+  buildDeloadDeactivatePatch,
+  getActiveDeload,
 } from './deload';
 import { AppData, SessionLog, WorkoutType, DEFAULT_APP_DATA } from './types';
 
@@ -113,12 +116,14 @@ describe('getTonnageStagnationCriterion', () => {
   const now = new Date('2026-06-29T12:00:00');
   const set = (weight: number, reps: number) => ({ exerciseId: 'e1', exerciseName: 'Squat', setNumber: 1, reps, weight, completed: true });
 
-  it('detects stagnation when tonnage change is within +-2%', () => {
+  it('detects stagnation when tonnage change is within +-2%, and reports the percentage', () => {
     const sessions = [
       session({ date: '2026-06-25', sets: [set(100, 10)] }), // window A: 1000
       session({ date: '2026-06-11', sets: [set(101, 10)] }), // window B: 1010 (~-1%)
     ];
-    expect(getTonnageStagnationCriterion(sessions, [], now)).toBe(true);
+    const result = getTonnageStagnationCriterion(sessions, [], now);
+    expect(result.stagnant).toBe(true);
+    expect(result.pctChange).toBeCloseTo(-1, 0);
   });
 
   it('does not detect stagnation with a real change', () => {
@@ -126,12 +131,16 @@ describe('getTonnageStagnationCriterion', () => {
       session({ date: '2026-06-25', sets: [set(150, 10)] }),
       session({ date: '2026-06-11', sets: [set(100, 10)] }),
     ];
-    expect(getTonnageStagnationCriterion(sessions, [], now)).toBe(false);
+    const result = getTonnageStagnationCriterion(sessions, [], now);
+    expect(result.stagnant).toBe(false);
+    expect(result.pctChange).toBe(50);
   });
 
-  it('returns false when there is no data in the prior window', () => {
+  it('returns false with a null pctChange when there is no data in the prior window', () => {
     const sessions = [session({ date: '2026-06-25', sets: [set(100, 10)] })];
-    expect(getTonnageStagnationCriterion(sessions, [], now)).toBe(false);
+    const result = getTonnageStagnationCriterion(sessions, [], now);
+    expect(result.stagnant).toBe(false);
+    expect(result.pctChange).toBeNull();
   });
 });
 
@@ -147,6 +156,31 @@ describe('getFiveThreeOneCurrentWeek', () => {
   it('returns null with no 531 exercise', () => {
     const workoutTypes: WorkoutType[] = [{ id: 't1', name: 'A', color: '0 0% 0%', exercises: [] }];
     expect(getFiveThreeOneCurrentWeek(workoutTypes)).toBeNull();
+  });
+});
+
+describe('evaluateDeloadCriteria reasons', () => {
+  it('states the fatigue-avg window explicitly, not just the value', () => {
+    const now = new Date('2026-06-29T12:00:00');
+    const sessions = [
+      session({ date: '2026-06-25', difficulty: 8 }),
+      session({ date: '2026-06-22', difficulty: 8 }),
+      session({ date: '2026-06-19', difficulty: 7.5 }),
+      session({ date: '2026-06-16', difficulty: 8.5 }),
+    ];
+    const { reasons } = evaluateDeloadCriteria(data({ sessions }), now);
+    expect(reasons).toContain('Moyenne RPE des 2 dernières semaines : 8,0');
+  });
+
+  it('states the tonnage stagnation percentage explicitly, not just a generic label', () => {
+    const now = new Date('2026-06-29T12:00:00');
+    const set = (weight: number, reps: number) => ({ exerciseId: 'e1', exerciseName: 'Squat', setNumber: 1, reps, weight, completed: true });
+    const sessions = [
+      session({ date: '2026-06-25', sets: [set(100, 10)] }), // window A: 1000
+      session({ date: '2026-06-11', sets: [set(101, 10)] }), // window B: 1010 (~-1%)
+    ];
+    const { reasons } = evaluateDeloadCriteria(data({ sessions }), now);
+    expect(reasons.some(r => r.includes('%') && r.includes('Progression ralentie'))).toBe(true);
   });
 });
 
@@ -316,5 +350,76 @@ describe('consumeDeloadOnSessionSave', () => {
     const result = consumeDeloadOnSessionSave(d, 't2', new Date('2026-06-21'));
     expect(result.wasDeload).toBe(false);
     expect(result.deload?.active?.pendingWorkoutTypeIds).toEqual(['t1']);
+  });
+
+  it('keeps a manual (expiresAt) deload active for every matching session inside the window, without shrinking the list', () => {
+    const d = data({ deload: { active: { type: 'both', intensity: 'medium', pendingWorkoutTypeIds: ['t1'], acceptedAt: '2026-06-20', expiresAt: '2026-06-26' } } });
+    const result = consumeDeloadOnSessionSave(d, 't1', new Date('2026-06-22'));
+    expect(result.wasDeload).toBe(true);
+    expect(result.deload?.active?.pendingWorkoutTypeIds).toEqual(['t1']);
+    expect(result.deload?.active?.expiresAt).toBe('2026-06-26');
+  });
+
+  it('clears a manual deload once a session lands after expiresAt', () => {
+    const d = data({ deload: { active: { type: 'both', intensity: 'medium', pendingWorkoutTypeIds: ['t1'], acceptedAt: '2026-06-20', expiresAt: '2026-06-26' } } });
+    const result = consumeDeloadOnSessionSave(d, 't1', new Date('2026-06-27'));
+    expect(result.wasDeload).toBe(false);
+    expect(result.deload?.active).toBeUndefined();
+    expect(result.deload?.lastDeloadCompletedAt).toBe('2026-06-27');
+  });
+});
+
+describe('buildManualDeloadPatch', () => {
+  it('sets an expiresAt covering exactly the chosen number of days (inclusive)', () => {
+    const workoutTypes: WorkoutType[] = [{ id: 't1', name: 'A', color: '0 0% 0%', exercises: [] }];
+    const patch = buildManualDeloadPatch(data({ workoutTypes }), 'both', 'medium', 5, new Date('2026-06-20'));
+    expect(patch.deload.active?.acceptedAt).toBe('2026-06-20');
+    expect(patch.deload.active?.expiresAt).toBe('2026-06-24'); // 20,21,22,23,24 = 5 days
+  });
+
+  it('forces 5/3/1 exercises to week 4 just like the recommendation-accept flow', () => {
+    const workoutTypes: WorkoutType[] = [{
+      id: 't1', name: 'A', color: '0 0% 0%',
+      exercises: [{ id: 'e1', name: 'Squat', sets: 3, reps: 5, method: { type: '531', trainingMax: 100, currentCycle: 1, currentWeek: 2 } }],
+    }];
+    const patch = buildManualDeloadPatch(data({ workoutTypes }), 'both', 'medium', 7, new Date('2026-06-20'));
+    const method = patch.workoutTypes[0].exercises[0].method as any;
+    expect(method.currentWeek).toBe(4);
+    expect(method.deloadResumeWeek).toBe(2);
+  });
+
+  it('treats a days value below 1 as 1 day', () => {
+    const patch = buildManualDeloadPatch(data({}), 'both', 'medium', 0, new Date('2026-06-20'));
+    expect(patch.deload.active?.expiresAt).toBe('2026-06-20');
+  });
+});
+
+describe('buildDeloadDeactivatePatch', () => {
+  it('clears the active deload without stamping lastDeloadCompletedAt', () => {
+    const d = data({ deload: { active: { type: 'both', intensity: 'medium', pendingWorkoutTypeIds: ['t1'], acceptedAt: '2026-06-20', expiresAt: '2026-06-26' } } });
+    const patch = buildDeloadDeactivatePatch(d);
+    expect(patch.active).toBeUndefined();
+    expect(patch.lastDeloadCompletedAt).toBeUndefined();
+  });
+});
+
+describe('getActiveDeload', () => {
+  it('returns the active deload when there is no expiresAt', () => {
+    const d = data({ deload: { active: { type: 'both', intensity: 'medium', pendingWorkoutTypeIds: ['t1'], acceptedAt: '2026-06-20' } } });
+    expect(getActiveDeload(d, new Date('2026-07-01'))?.pendingWorkoutTypeIds).toEqual(['t1']);
+  });
+
+  it('returns the active manual deload while within the window', () => {
+    const d = data({ deload: { active: { type: 'both', intensity: 'medium', pendingWorkoutTypeIds: ['t1'], acceptedAt: '2026-06-20', expiresAt: '2026-06-26' } } });
+    expect(getActiveDeload(d, new Date('2026-06-26'))).toBeDefined();
+  });
+
+  it('returns undefined once a manual deload has expired, even without a session save', () => {
+    const d = data({ deload: { active: { type: 'both', intensity: 'medium', pendingWorkoutTypeIds: ['t1'], acceptedAt: '2026-06-20', expiresAt: '2026-06-26' } } });
+    expect(getActiveDeload(d, new Date('2026-06-27'))).toBeUndefined();
+  });
+
+  it('returns undefined when there is no active deload', () => {
+    expect(getActiveDeload(data({}), new Date('2026-06-27'))).toBeUndefined();
   });
 });

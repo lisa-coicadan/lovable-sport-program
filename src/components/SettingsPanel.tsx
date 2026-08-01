@@ -1,5 +1,5 @@
 import { useState, useRef, useMemo, useEffect } from 'react';
-import { AppData, WorkoutType, Exercise, ExerciseMethod, Program, WORKOUT_COLORS, BodyWeightLog, DEFAULT_APP_DATA, Gender } from '@/lib/types';
+import { AppData, WorkoutType, Exercise, ExerciseMethod, Program, WORKOUT_COLORS, BodyWeightLog, DEFAULT_APP_DATA, Gender, DeloadType, DeloadIntensity } from '@/lib/types';
 import { linkSuperset, unlinkSuperset, buildExerciseBlocks, flattenBlocks, ExerciseBlock } from '@/lib/superset';
 import { parseSessionNotes, parseMultiSessionNotes, NOTES_SYNTAX_HELP, NOTES_SYNTAX_HELP_FILL } from '@/lib/notesParser';
 import { getEmomConfig, getEmomWeight, getDefaultEmomPercentage } from '@/lib/emom';
@@ -10,12 +10,16 @@ import { SortableList, DragHandle } from './SortableBlock';
 import { loadData, saveData } from '@/lib/storage';
 import { parseBackupFile } from '@/lib/backupFile';
 import { toast } from '@/hooks/use-toast';
+import { getActiveDeload, buildManualDeloadPatch, buildDeloadDeactivatePatch, evaluateDeloadCriteria, buildDeloadAcceptPatch, buildDeloadDismissPatch } from '@/lib/deload';
 
 
 
 // French names for WORKOUT_COLORS, same order, so color-swatch buttons can carry a
 // distinguishing aria-label instead of the identical "Choisir une couleur" for all eight.
 const WORKOUT_COLOR_NAMES = ['cyan', 'violet', 'magenta', 'ambre', 'indigo', 'turquoise', 'rouge', 'jaune'];
+
+const DELOAD_TYPE_LABELS: Record<DeloadType, string> = { charges: 'Charges', volume: 'Volume', both: 'Charges + volume' };
+const DELOAD_INTENSITY_LABELS: Record<DeloadIntensity, string> = { light: 'Léger', medium: 'Moyen' };
 
 // Training Max input with the same "je connais mon TM" / "calculer" toggle as the
 // onboarding wizard (SetupWizard's methodParams step) — lets her recompute a TM from a
@@ -122,6 +126,21 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
   const [confirmDialog, setConfirmDialog] = useState<{ title: string; message: string; confirmLabel: string; danger?: boolean; onConfirm: () => void } | null>(null);
   const [expandedMethodFor, setExpandedMethodFor] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Manual deload activation (Réglages) — separate from the auto-recommended flow in
+  // WorkoutTab (shouldShowDeloadRecommendation), lets her start a recovery week on her own
+  // schedule instead of waiting for the criteria to trigger. Applied immediately via
+  // onUpdateData, same as handleReset/handleForceUpdate below, not gated behind "Enregistrer".
+  const [manualDeloadOpen, setManualDeloadOpen] = useState(false);
+  const [manualDeloadSource, setManualDeloadSource] = useState<'recommendation' | 'manual'>('manual');
+  const [manualDeloadType, setManualDeloadType] = useState<DeloadType>('both');
+  const [manualDeloadIntensity, setManualDeloadIntensity] = useState<DeloadIntensity>('medium');
+  const [manualDeloadDays, setManualDeloadDays] = useState(7);
+  const activeDeload = getActiveDeload(data);
+  // Bypasses shouldShowDeloadRecommendation's dismissedUntil/5-3-1-alignment gates on
+  // purpose — those only govern *when to interrupt her* with the WorkoutTab banner, not
+  // whether a recommendation exists. Réglages is where she can always find it again even
+  // after "Ignorer" snoozed the banner for 7 days.
+  const recCriteria = evaluateDeloadCriteria(data);
 
   // Program management ----------------------------------------------------------
   const createProgram = () => {
@@ -1518,6 +1537,77 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
         )}
       </div>
 
+      {/* Deload manuel — voir src/lib/deload.ts pour la logique (indépendant de la
+          recommandation automatique de WorkoutTab) */}
+      <div className="glass-card p-4 mb-6">
+        <div className="flex items-center gap-2 mb-1">
+          <TrendingDown size={16} className="text-warning" />
+          <h3 className="text-sm font-bold text-foreground">Semaine de deload</h3>
+        </div>
+        {activeDeload ? (
+          <>
+            <p className="text-[11px] text-muted-foreground mb-3">
+              Deload actif ({DELOAD_TYPE_LABELS[activeDeload.type]} · {DELOAD_INTENSITY_LABELS[activeDeload.intensity]})
+              {activeDeload.expiresAt && ` jusqu'au ${new Date(activeDeload.expiresAt + 'T00:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}`}.
+            </p>
+            <button
+              onClick={() => onUpdateData({ deload: buildDeloadDeactivatePatch(data) })}
+              className="w-full flex items-center justify-center gap-1.5 bg-secondary text-foreground rounded-xl py-2.5 text-sm font-medium active:scale-95 transition-transform"
+            >
+              Désactiver le deload
+            </button>
+          </>
+        ) : (
+          <>
+            {recCriteria.anyTrue && (
+              <div className="bg-warning/10 border border-warning/30 rounded-xl p-3 mb-3">
+                <p className="text-sm font-semibold text-warning mb-2">
+                  💪 Semaine de récupération recommandée
+                </p>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold mb-1.5">Pourquoi ?</p>
+                <ul className="space-y-1 mb-3">
+                  {recCriteria.reasons.map((reason, i) => (
+                    <li key={i} className="text-xs text-foreground/90 flex items-start gap-1.5">
+                      <Check size={12} className="text-warning shrink-0 mt-0.5" /> {reason}
+                    </li>
+                  ))}
+                </ul>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => onUpdateData({ deload: buildDeloadDismissPatch(data) })}
+                    className="flex-1 bg-secondary text-secondary-foreground font-medium py-2 rounded-lg text-xs touch-target"
+                  >
+                    Ignorer
+                  </button>
+                  <button
+                    onClick={() => {
+                      setManualDeloadSource('recommendation');
+                      setManualDeloadType('both');
+                      setManualDeloadIntensity('medium');
+                      setManualDeloadOpen(true);
+                    }}
+                    className="flex-1 btn-neon font-medium py-2 rounded-lg text-xs touch-target"
+                  >
+                    Accepter
+                  </button>
+                </div>
+              </div>
+            )}
+            <p className="text-[11px] text-muted-foreground mb-3">
+              {recCriteria.anyTrue
+                ? 'Ou choisis une durée précise, sans attendre que ce soit fait automatiquement pour chaque séance.'
+                : 'Active une semaine de récupération manuellement, sans attendre la recommandation automatique. Toutes les séances faites pendant la période choisie seront en deload.'}
+            </p>
+            <button
+              onClick={() => { setManualDeloadSource('manual'); setManualDeloadType('both'); setManualDeloadIntensity('medium'); setManualDeloadDays(7); setManualDeloadOpen(true); }}
+              className="w-full flex items-center justify-center gap-1.5 bg-warning/15 text-warning rounded-xl py-2.5 text-sm font-medium active:scale-95 transition-transform"
+            >
+              <TrendingDown size={14} /> Activer un deload
+            </button>
+          </>
+        )}
+      </div>
+
       {/* Backup / Restore */}
       <div className="glass-card p-4 mb-6">
         <div className="flex items-center gap-2 mb-1">
@@ -1701,6 +1791,111 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
               className="bg-secondary text-secondary-foreground font-medium py-2.5 rounded-xl text-sm touch-target"
             >
               Ne pas enregistrer
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {manualDeloadOpen && (
+      <div
+        className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-6 animate-fade-in"
+        onClick={() => setManualDeloadOpen(false)}
+      >
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="manual-deload-title"
+          className="glass-card p-6 max-w-sm w-full"
+          onClick={e => e.stopPropagation()}
+        >
+          <h3 id="manual-deload-title" className="text-lg font-bold text-foreground mb-4">
+            {manualDeloadSource === 'recommendation' ? 'Semaine de récupération' : 'Activer un deload'}
+          </h3>
+
+          {manualDeloadSource === 'manual' && (
+            <>
+              <p className="text-xs text-muted-foreground mb-2">Nombre de jours</p>
+              <div className="flex items-center gap-3 mb-4">
+                <button
+                  onClick={() => setManualDeloadDays(d => Math.max(1, d - 1))}
+                  className="w-11 h-11 shrink-0 bg-secondary text-foreground rounded-xl text-lg font-bold touch-target active:scale-95 transition-transform"
+                  aria-label="Diminuer le nombre de jours"
+                >
+                  −
+                </button>
+                <span className="flex-1 text-center text-2xl font-bold text-foreground">{manualDeloadDays}</span>
+                <button
+                  onClick={() => setManualDeloadDays(d => Math.min(30, d + 1))}
+                  className="w-11 h-11 shrink-0 bg-secondary text-foreground rounded-xl text-lg font-bold touch-target active:scale-95 transition-transform"
+                  aria-label="Augmenter le nombre de jours"
+                >
+                  +
+                </button>
+              </div>
+            </>
+          )}
+
+          <p className="text-xs text-muted-foreground mb-2">Type de deload</p>
+          <div className="space-y-2 mb-4">
+            {([
+              { value: 'charges', label: 'Diminuer les charges' },
+              { value: 'volume', label: 'Diminuer le volume' },
+              { value: 'both', label: 'Les deux (recommandé)' },
+            ] as { value: DeloadType; label: string }[]).map(opt => (
+              <button
+                key={opt.value}
+                onClick={() => setManualDeloadType(opt.value)}
+                className={`w-full flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm text-left transition-colors touch-target ${
+                  manualDeloadType === opt.value ? 'bg-warning/15 text-warning border border-warning/40' : 'bg-secondary text-foreground border border-transparent'
+                }`}
+                aria-pressed={manualDeloadType === opt.value}
+              >
+                <span className={`w-4 h-4 rounded-full border-2 shrink-0 ${manualDeloadType === opt.value ? 'border-warning bg-warning' : 'border-muted-foreground'}`} />
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
+          <p className="text-xs text-muted-foreground mb-2">Intensité</p>
+          <div className="space-y-2 mb-6">
+            {([
+              { value: 'light', label: 'Léger' },
+              { value: 'medium', label: 'Moyen (recommandé)' },
+            ] as { value: DeloadIntensity; label: string }[]).map(opt => (
+              <button
+                key={opt.value}
+                onClick={() => setManualDeloadIntensity(opt.value)}
+                className={`w-full flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm text-left transition-colors touch-target ${
+                  manualDeloadIntensity === opt.value ? 'bg-warning/15 text-warning border border-warning/40' : 'bg-secondary text-foreground border border-transparent'
+                }`}
+                aria-pressed={manualDeloadIntensity === opt.value}
+              >
+                <span className={`w-4 h-4 rounded-full border-2 shrink-0 ${manualDeloadIntensity === opt.value ? 'border-warning bg-warning' : 'border-muted-foreground'}`} />
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex gap-3">
+            <button
+              onClick={() => setManualDeloadOpen(false)}
+              className="flex-1 bg-secondary text-secondary-foreground font-medium py-2.5 rounded-xl text-sm touch-target"
+            >
+              Annuler
+            </button>
+            <button
+              onClick={() => {
+                onUpdateData(
+                  manualDeloadSource === 'recommendation'
+                    ? buildDeloadAcceptPatch(data, manualDeloadType, manualDeloadIntensity)
+                    : buildManualDeloadPatch(data, manualDeloadType, manualDeloadIntensity, manualDeloadDays)
+                );
+                setManualDeloadOpen(false);
+              }}
+              className="flex-1 btn-neon font-medium py-2.5 rounded-xl text-sm touch-target"
+            >
+              Confirmer
             </button>
           </div>
         </div>

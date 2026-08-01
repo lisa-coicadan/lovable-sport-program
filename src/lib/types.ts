@@ -185,6 +185,12 @@ export interface DeloadState {
     intensity: DeloadIntensity;
     pendingWorkoutTypeIds: string[]; // snapshot of activeTypes ids at acceptance; shrinks as each is completed once
     acceptedAt: string; // ISO date
+    // Set only for a manually-activated deload (Réglages, "Activer un deload") that runs
+    // for a fixed number of days rather than "once per workout type" — while set, every
+    // session up to and including this date counts as deload regardless of
+    // pendingWorkoutTypeIds, and the deload auto-expires the day after (see getActiveDeload/
+    // consumeDeloadOnSessionSave in deload.ts) instead of being consumed type-by-type.
+    expiresAt?: string; // ISO date, inclusive
   };
   lastDeloadCompletedAt?: string; // ISO date — anchors the "4 weeks since last deload" criterion
   dismissedUntil?: string; // ISO date — set by "Ignorer", snoozes the banner for 7 days

@@ -10,7 +10,7 @@ import { compareCardioSession, formatCardioDuration, formatPace } from '@/lib/ca
 import {
   shouldShowDeloadRecommendation, DeloadCriteria, buildDeloadAcceptPatch, buildDeloadDismissPatch,
   consumeDeloadOnSessionSave, getDeloadTargetWorkoutTypes, applyDeloadToWeight, applyDeloadToTrainingMax,
-  getDeloadSetCount, shouldReduceSets,
+  getDeloadSetCount, shouldReduceSets, getActiveDeload,
 } from '@/lib/deload';
 import RestTimer, { RestTimerHandle } from './RestTimer';
 import EmomTimer from './EmomTimer';
@@ -379,7 +379,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     // get a charge (Training Max) cut, never a volume one (no clean equivalent — see
     // getDeloadSetCount's doc comment); regular exercises get whichever of the two the
     // chosen deload type calls for.
-    const deloadActive = data.deload?.active;
+    const deloadActive = getActiveDeload(data);
     const isDeloadPending = !!deloadActive?.pendingWorkoutTypeIds.includes(type.id);
     const deloadReduceCharge = isDeloadPending && deloadActive!.type !== 'volume';
     const deloadReduceSets = isDeloadPending && shouldReduceSets(deloadActive!.type);
@@ -730,7 +730,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     // still pending in the active deload at the moment it's actually saved — powers the
     // orange "Deload" day highlight in Calendrier (see consumeDeloadOnSessionSave below
     // for how the pending list itself is shrunk).
-    const wasDeloadPending = !!data.deload?.active?.pendingWorkoutTypeIds.includes(session.workoutTypeId);
+    const wasDeloadPending = !!getActiveDeload(data)?.pendingWorkoutTypeIds.includes(session.workoutTypeId);
     const finalSession = wasDeloadPending ? { ...session, isDeload: true } : session;
     onSaveSession(finalSession);
 
@@ -841,7 +841,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
         .map(ex => ({ type, exercise: ex, method: ex.method as FiveThreeOneMethod }))
     );
     const deloadRec = shouldShowDeloadRecommendation(data);
-    const pendingDeloadIds = data.deload?.active?.pendingWorkoutTypeIds;
+    const pendingDeloadIds = getActiveDeload(data)?.pendingWorkoutTypeIds;
     return (
       <>
       <div className="px-4 pt-12 pb-24 animate-slide-up">
