@@ -157,6 +157,12 @@ const RULES: NormalizationRule[] = [
     keywords: ['dip', 'dips'],
   },
   {
+    canonical: 'Pompes',
+    baseLabel: 'Pompes',
+    prTracked: false,
+    keywords: ['pompe', 'pompes', 'push up', 'pushup', 'push-up'],
+  },
+  {
     canonical: 'RDL',
     baseLabel: 'RDL',
     prTracked: false,
@@ -291,14 +297,27 @@ export function splitEquipmentVariant(name: string): { base: string; variantLabe
   };
 }
 
-// Tractions/dips are meaningfully loggable at 0kg (bodyweight only) or even a negative
-// weight (assisted via band or machine) — unlike every other exercise, where a weight of
-// 0 just means "not filled in yet" and would pollute history/records if counted. Callers
-// use this to decide whether a completed set should count regardless of its weight value
-// (this family) or whether weight > 0 is still required (everything else).
-export function isBodyweightOptionalExercise(name: string): boolean {
+// Fraction of bodyweight actually moved by one rep, for exercises where `weight` is
+// logged as an ADDITION to (or, negative, an assistance against) bodyweight rather than
+// the total load — used by tonnage.ts to turn `weight` into a real kg figure. Tractions/
+// dips move the full body (1); push-ups only load ~65% of bodyweight (hands/toes lever,
+// the rest is on the toes) per standard biomechanics estimates. Everything else logs
+// `weight` as the total load already, so it contributes 0 extra.
+export function bodyweightTonnageFraction(name: string): number {
   const base = splitEquipmentVariant(name).base;
-  return base === 'Tractions lestées' || base === 'Dips lestés';
+  if (base === 'Tractions lestées' || base === 'Dips lestés') return 1;
+  if (base === 'Pompes') return 0.65;
+  return 0;
+}
+
+// Tractions/dips/pompes are meaningfully loggable at 0kg (bodyweight only) or even a
+// negative weight (assisted via band or machine) — unlike every other exercise, where a
+// weight of 0 just means "not filled in yet" and would pollute history/records if
+// counted. Callers use this to decide whether a completed set should count regardless of
+// its weight value (this family) or whether weight > 0 is still required (everything
+// else).
+export function isBodyweightOptionalExercise(name: string): boolean {
+  return bodyweightTonnageFraction(name) > 0;
 }
 
 // A plain `weight || ''` blanks the input on 0 — right for every other exercise (0 means

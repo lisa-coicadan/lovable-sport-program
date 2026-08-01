@@ -1,6 +1,7 @@
 import { useState, useMemo, useRef } from 'react';
 import { SessionLog, WorkoutType, calculate1RM, Gender, BodyWeightLog } from '@/lib/types';
 import { isBodyweightOptionalExercise, splitEquipmentVariant } from '@/lib/exerciseNormalize';
+import { computeSetTonnage, resolveBodyWeightAtDate } from '@/lib/tonnage';
 import { STANDARD_MOVEMENTS, LEVEL_ORDER, LevelKey, getFranceRecord, getRecordMessage, getLevel, getLevelMessage } from '@/lib/strengthStandards';
 import { ArrowLeft, ChevronRight, Share2, TrendingUp, TrendingDown, Minus, Trophy } from 'lucide-react';
 
@@ -22,7 +23,11 @@ const SessionSummary = ({ session, previousSessions = [], workoutTypes = [], gen
   const recapRef = useRef<HTMLDivElement>(null);
 
   const completedSets = session.sets.filter(s => s.completed);
-  const totalVolume = completedSets.reduce((acc, s) => acc + s.weight * s.reps, 0);
+  const sessionBodyWeight = useMemo(
+    () => resolveBodyWeightAtDate(bodyWeightLogs, session.date),
+    [bodyWeightLogs, session.date]
+  );
+  const totalVolume = completedSets.reduce((acc, s) => acc + computeSetTonnage(s, sessionBodyWeight), 0);
 
   // 1RM is only a meaningful headline number for exercises actively following a
   // structured method (5/3/1, Cluster, EMOM) — for everything else, volume (already
@@ -52,10 +57,11 @@ const SessionSummary = ({ session, previousSessions = [], workoutTypes = [], gen
 
   const lastTotalVolume = useMemo(() => {
     if (!lastSameTypeSession) return 0;
+    const bw = resolveBodyWeightAtDate(bodyWeightLogs, lastSameTypeSession.date);
     return lastSameTypeSession.sets
       .filter(s => s.completed)
-      .reduce((acc, s) => acc + s.weight * s.reps, 0);
-  }, [lastSameTypeSession]);
+      .reduce((acc, s) => acc + computeSetTonnage(s, bw), 0);
+  }, [lastSameTypeSession, bodyWeightLogs]);
 
   const volumePct = lastTotalVolume > 0
     ? Math.round(((totalVolume - lastTotalVolume) / lastTotalVolume) * 100)
@@ -67,14 +73,17 @@ const SessionSummary = ({ session, previousSessions = [], workoutTypes = [], gen
   const { avgTonnage, avgSampleSize, avgPct } = useMemo(() => {
     const past = previousSessions.filter(s => s.workoutTypeId === session.workoutTypeId && s.id !== session.id);
     if (past.length === 0) return { avgTonnage: 0, avgSampleSize: 0, avgPct: null as number | null };
-    const total = past.reduce((acc, s) => acc + s.sets.filter(x => x.completed).reduce((a, x) => a + x.weight * x.reps, 0), 0);
+    const total = past.reduce((acc, s) => {
+      const bw = resolveBodyWeightAtDate(bodyWeightLogs, s.date);
+      return acc + s.sets.filter(x => x.completed).reduce((a, x) => a + computeSetTonnage(x, bw), 0);
+    }, 0);
     const avg = total / past.length;
     return {
       avgTonnage: Math.round(avg),
       avgSampleSize: past.length,
       avgPct: avg > 0 ? Math.round(((totalVolume - avg) / avg) * 100) : null,
     };
-  }, [previousSessions, session.workoutTypeId, session.id, totalVolume]);
+  }, [previousSessions, session.workoutTypeId, session.id, totalVolume, bodyWeightLogs]);
 
   // Progression vs last session of same type
   const progressions = useMemo(() => {

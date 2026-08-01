@@ -116,7 +116,11 @@ export interface SessionLog {
   startTime: number;
   endTime?: number;
   duration?: number; // minutes
-  difficulty?: number; // 1-10
+  difficulty?: number; // 1-10, overall session feel (filled in the end-of-session recap)
+  // Per-exercise RPE (1-10), filled live during the session (WorkoutTab), keyed by
+  // exerciseId — distinct from `difficulty` above, which is a single session-wide value.
+  // Optional/sparse: only exercises she actually rated are present.
+  exerciseDifficulty?: Record<string, number>;
   notes?: string;
 }
 

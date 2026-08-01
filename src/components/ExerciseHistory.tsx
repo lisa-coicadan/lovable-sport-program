@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { AppData, calculate1RM } from '@/lib/types';
 import { splitEquipmentVariant, isBodyweightOptionalExercise } from '@/lib/exerciseNormalize';
 import { STANDARD_MOVEMENTS, StandardMovement, getFranceRecord, getRecordMessage, getLevel, getLevelMessage } from '@/lib/strengthStandards';
+import { computeBodyweightAdjustedE1RM, resolveBodyWeightAtDate } from '@/lib/tonnage';
 import { ArrowLeft, Trophy } from 'lucide-react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import RangeButtons, { RangeFilter, rangeCutoffDate } from './RangeButtons';
 
 interface ExerciseHistoryProps {
@@ -17,6 +18,16 @@ interface HistoryEntry {
   weight: number;
   reps: number;
   e1rm: number;
+  // Same estimated 1RM, but for bodyweight-driven exercises (tractions/dips/pompes)
+  // re-expressed as a DELTA from bodyweight (0 = a strict bodyweight rep, negative =
+  // net-assisted) — see computeBodyweightAdjustedE1RM. Identical to e1rm for every other
+  // exercise. Used for the chart line only; the Record headline/list below and the
+  // France-record comparison deliberately keep using the raw e1rm above.
+  chartValue: number;
+  exerciseId: string;
+  // Per-exercise RPE logged live during that session (WorkoutTab), not the session-wide
+  // `difficulty` — absent when she didn't rate this exercise that day.
+  difficulty?: number;
 }
 
 interface VariantGroup {
@@ -24,7 +35,8 @@ interface VariantGroup {
   history: HistoryEntry[];
 }
 
-type DotProps = { cx: number; cy: number; index: number; payload: { date: number; e1rm: number; weight: number; reps: number } };
+type DotProps = { cx: number; cy: number; index: number; payload: { date: number; value: number; weight: number; reps: number } };
+type DifficultyDotProps = { cx: number; cy: number; index: number; payload: { date: number; difficulty: number } };
 
 const chartStyle = { fontSize: 10, fill: 'hsl(240 12% 72%)' };
 const tooltipStyle = {
@@ -50,6 +62,7 @@ const ExerciseHistory = ({ exerciseName, data, onClose }: ExerciseHistoryProps) 
       .slice()
       .sort((a, b) => a.date.localeCompare(b.date))
       .forEach(session => {
+        const sessionBodyWeight = resolveBodyWeightAtDate(data.bodyWeightLogs, session.date);
         session.sets
           .filter(s => s.completed && (s.weight > 0 || bodyweightOptional))
           .forEach(s => {
@@ -62,6 +75,9 @@ const ExerciseHistory = ({ exerciseName, data, onClose }: ExerciseHistoryProps) 
               weight: s.weight,
               reps: s.reps,
               e1rm: calculate1RM(s.weight, s.reps),
+              chartValue: computeBodyweightAdjustedE1RM(s, sessionBodyWeight),
+              exerciseId: s.exerciseId,
+              difficulty: session.exerciseDifficulty?.[s.exerciseId],
             });
           });
       });
@@ -152,14 +168,14 @@ const ExerciseHistory = ({ exerciseName, data, onClose }: ExerciseHistoryProps) 
         </div>
       ) : (
         variantGroups.map(group => (
-          <VariantSection key={group.label ?? '__default__'} group={group} showHeader={showSubGroups} />
+          <VariantSection key={group.label ?? '__default__'} group={group} showHeader={showSubGroups} bodyweightOptional={bodyweightOptional} />
         ))
       )}
     </div>
   );
 };
 
-const VariantSection = ({ group, showHeader }: { group: VariantGroup; showHeader: boolean }) => {
+const VariantSection = ({ group, showHeader, bodyweightOptional }: { group: VariantGroup; showHeader: boolean; bodyweightOptional: boolean }) => {
   const [range, setRange] = useState<RangeFilter>('3m');
   const [selected, setSelected] = useState<DotProps['payload'] | null>(null);
 
@@ -168,10 +184,25 @@ const VariantSection = ({ group, showHeader }: { group: VariantGroup; showHeader
     const byDate: Record<string, HistoryEntry> = {};
     group.history.forEach(h => {
       if (cutoff && new Date(h.date + 'T00:00:00') < cutoff) return;
-      if (!byDate[h.date] || h.e1rm > byDate[h.date].e1rm) byDate[h.date] = h;
+      if (!byDate[h.date] || h.chartValue > byDate[h.date].chartValue) byDate[h.date] = h;
     });
     return Object.values(byDate)
-      .map(h => ({ date: new Date(h.date + 'T00:00:00').getTime(), e1rm: h.e1rm, weight: h.weight, reps: h.reps }))
+      .map(h => ({ date: new Date(h.date + 'T00:00:00').getTime(), value: h.chartValue, weight: h.weight, reps: h.reps }))
+      .sort((a, b) => a.date - b.date);
+  }, [group.history, range]);
+
+  // One point per session date (not per set — RPE is a single value per exercise per
+  // session, already the same across every set of that exercise that day).
+  const difficultyChartData = useMemo(() => {
+    const cutoff = rangeCutoffDate(range);
+    const byDate: Record<string, number> = {};
+    group.history.forEach(h => {
+      if (h.difficulty === undefined) return;
+      if (cutoff && new Date(h.date + 'T00:00:00') < cutoff) return;
+      byDate[h.date] = h.difficulty;
+    });
+    return Object.entries(byDate)
+      .map(([date, difficulty]) => ({ date: new Date(date + 'T00:00:00').getTime(), difficulty }))
       .sort((a, b) => a.date - b.date);
   }, [group.history, range]);
 
@@ -205,7 +236,9 @@ const VariantSection = ({ group, showHeader }: { group: VariantGroup; showHeader
       {group.history.length > 1 && (
         <div className="glass-card p-4 mb-3">
           <div className="flex items-center justify-between mb-3">
-            <h4 className="text-xs font-semibold text-muted-foreground">Évolution du 1RM estimé</h4>
+            <h4 className="text-xs font-semibold text-muted-foreground">
+              Évolution du 1RM estimé{bodyweightOptional ? ' (relatif au poids de corps)' : ''}
+            </h4>
             <RangeButtons value={range} onChange={setRange} />
           </div>
           {chartData.length > 1 ? (
@@ -220,15 +253,22 @@ const VariantSection = ({ group, showHeader }: { group: VariantGroup; showHeader
                 tickFormatter={(ts: number) => new Date(ts).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })}
                 tick={chartStyle} axisLine={false} tickLine={false}
               />
-              <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={40} />
+              <YAxis
+                domain={bodyweightOptional ? [(min: number) => Math.min(0, min), (max: number) => Math.max(0, max)] : undefined}
+                tick={chartStyle} axisLine={false} tickLine={false} width={40}
+              />
               <Tooltip
                 contentStyle={tooltipStyle}
                 labelStyle={{ color: 'hsl(0 0% 95%)' }}
                 labelFormatter={(ts: number) => new Date(ts).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })}
               />
+              {bodyweightOptional && (
+                <ReferenceLine y={0} stroke="hsl(240 12% 45%)" strokeDasharray="4 4" strokeWidth={1}
+                  label={{ value: 'Poids de corps', position: 'insideBottomLeft', fill: 'hsl(240 12% 60%)', fontSize: 9 }} />
+              )}
               <Line
                 type="monotone"
-                dataKey="e1rm"
+                dataKey="value"
                 stroke="hsl(322 100% 60%)"
                 strokeWidth={2.5}
                 dot={(props: DotProps) => (
@@ -251,9 +291,45 @@ const VariantSection = ({ group, showHeader }: { group: VariantGroup; showHeader
           )}
           {selected && (
             <p className="text-xs text-primary font-medium text-center mt-2">
-              {new Date(selected.date).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })} : {selected.weight} kg × {selected.reps} (1RM {selected.e1rm} kg)
+              {new Date(selected.date).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })} : {selected.weight} kg × {selected.reps}
+              {' '}({bodyweightOptional ? 'Δ vs pdc' : '1RM'} {selected.value} kg)
             </p>
           )}
+        </div>
+      )}
+
+      {difficultyChartData.length > 1 && (
+        <div className="glass-card p-4 mb-3">
+          <h4 className="text-xs font-semibold text-muted-foreground mb-3">Ressenti (RPE)</h4>
+          <ResponsiveContainer width="100%" height={100}>
+            <LineChart data={difficultyChartData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 12% 20%)" />
+              <XAxis
+                dataKey="date"
+                type="number"
+                domain={['dataMin', 'dataMax']}
+                scale="time"
+                tickFormatter={(ts: number) => new Date(ts).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })}
+                tick={chartStyle} axisLine={false} tickLine={false}
+              />
+              <YAxis domain={[0, 10]} tick={chartStyle} axisLine={false} tickLine={false} width={22} />
+              <Tooltip
+                contentStyle={tooltipStyle}
+                labelStyle={{ color: 'hsl(0 0% 95%)' }}
+                formatter={(value: number) => [`${value}/10`, 'RPE']}
+                labelFormatter={(ts: number) => new Date(ts).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })}
+              />
+              <Line
+                type="monotone"
+                dataKey="difficulty"
+                stroke="hsl(262 83% 66%)"
+                strokeWidth={2}
+                dot={(props: DifficultyDotProps) => (
+                  <circle key={`rpe-dot-${props.index}`} cx={props.cx} cy={props.cy} r={2.5} fill="hsl(262 83% 66%)" />
+                )}
+              />
+            </LineChart>
+          </ResponsiveContainer>
         </div>
       )}
 

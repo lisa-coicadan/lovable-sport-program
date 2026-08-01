@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { AppData, SessionLog, calculate1RM, WORKOUT_COLORS, CardioActivityType, resolveProgramName } from '@/lib/types';
 import { normalizeExerciseName } from '@/lib/exerciseNormalize';
+import { computeSetTonnage, resolveBodyWeightAtDate } from '@/lib/tonnage';
 import { calculatePaceMinPerKm, formatCardioDuration, formatPace, formatCardioDistance } from '@/lib/cardio';
 import { Trophy, Scale, Crown, ChevronDown, Search, X, Plus } from 'lucide-react';
 import {
@@ -212,7 +213,8 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession }: StatsTabProps) => 
       .filter(s => !cutoff || new Date(s.date + 'T00:00:00') >= cutoff)
       .sort((a, b) => a.date.localeCompare(b.date))
       .map(s => {
-        const volume = s.sets.reduce((acc, set) => acc + set.reps * set.weight, 0);
+        const bw = resolveBodyWeightAtDate(data.bodyWeightLogs, s.date);
+        const volume = s.sets.reduce((acc, set) => acc + computeSetTonnage(set, bw), 0);
         return {
           id: s.id,
           date: new Date(s.date).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' }),

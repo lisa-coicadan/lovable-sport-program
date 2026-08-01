@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback, useRef } from 'react';
 import { SessionLog, SetLog, AppData, calculate1RM, resolveProgramName } from '@/lib/types';
 import { isBodyweightOptionalExercise, weightFieldValue } from '@/lib/exerciseNormalize';
+import { computeSetTonnage, resolveBodyWeightAtDate } from '@/lib/tonnage';
 import { Trash2, Pencil, Share2, Plus, X, TrendingUp, TrendingDown, Minus, Check } from 'lucide-react';
 
 interface SessionDetailViewProps {
@@ -24,7 +25,11 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
   const [editDate, setEditDate] = useState('');
 
   const completedSets = useMemo(() => session.sets.filter(s => s.completed), [session.sets]);
-  const totalVolume = completedSets.reduce((acc, s) => acc + s.weight * s.reps, 0);
+  const sessionBodyWeight = useMemo(
+    () => resolveBodyWeightAtDate(data.bodyWeightLogs, session.date),
+    [data.bodyWeightLogs, session.date]
+  );
+  const totalVolume = completedSets.reduce((acc, s) => acc + computeSetTonnage(s, sessionBodyWeight), 0);
 
   const getLastPerformance = useCallback((exerciseName: string, excludeSessionId: string) => {
     for (let i = data.sessions.length - 1; i >= 0; i--) {
@@ -83,7 +88,8 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
     if (!lastSession) return null;
 
     const lastCompleted = lastSession.sets.filter(s => s.completed);
-    const lastVolume = lastCompleted.reduce((acc, s) => acc + s.weight * s.reps, 0);
+    const lastSessionBodyWeight = resolveBodyWeightAtDate(data.bodyWeightLogs, lastSession.date);
+    const lastVolume = lastCompleted.reduce((acc, s) => acc + computeSetTonnage(s, lastSessionBodyWeight), 0);
     const volDiff = lastVolume > 0 ? ((totalVolume - lastVolume) / lastVolume) * 100 : 0;
 
     const progValues = Object.values(progressions);
@@ -96,7 +102,7 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
     else if (volDiff < -2 || avg1RMDiff < -1) verdict = 'below';
 
     return { volDiff: Math.round(volDiff * 10) / 10, avg1RMDiff: Math.round(avg1RMDiff * 10) / 10, verdict };
-  }, [data.sessions, session, totalVolume, progressions]);
+  }, [data.sessions, data.bodyWeightLogs, session, totalVolume, progressions]);
 
   const sessionDate = new Date(session.date + 'T00:00:00').toLocaleDateString('fr-FR', {
     weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',

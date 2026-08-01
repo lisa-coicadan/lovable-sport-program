@@ -12,7 +12,7 @@ import EmomTimer from './EmomTimer';
 import ExerciseHistory from './ExerciseHistory';
 import SessionSummary from './SessionSummary';
 import SettingsPanel from './SettingsPanel';
-import { Check, ChevronRight, ArrowLeft, Settings, History, Plus, Trash2, ChevronDown, Timer, Pencil, TrendingDown, Activity, Footprints, Waves, Bike, Lightbulb, X } from 'lucide-react';
+import { Check, ChevronRight, ArrowLeft, Settings, History, Plus, Trash2, ChevronDown, Timer, Pencil, TrendingDown, Activity, Footprints, Waves, Bike, Lightbulb, Gauge, X } from 'lucide-react';
 import { SortableList, DragHandle } from './SortableBlock';
 import SetDots from './SetDots';
 
@@ -145,6 +145,11 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
   const [methodOverrides, setMethodOverrides] = useState<Record<string, MethodOverride>>({});
   const [showAbandonConfirm, setShowAbandonConfirm] = useState(false);
   const [reminderNoteEditor, setReminderNoteEditor] = useState<{ exerciseId: string; name: string; draft: string } | null>(null);
+  // RPE per exercise, filled live during the session (not in the end-of-session recap,
+  // which only asks for one session-wide value) — merged into the SessionLog at
+  // finishWorkout(). Reset whenever a session starts/ends, same lifecycle as sets/etc.
+  const [exerciseDifficulty, setExerciseDifficulty] = useState<Record<string, number>>({});
+  const [difficultyEditor, setDifficultyEditor] = useState<{ exerciseId: string; name: string; draft: number } | null>(null);
   // Renaming a regular exercise mid-session (e.g. "Hack squat ou leg press" -> whichever
   // one she actually did today) reuses updateExerciseName below — the card's displayed
   // name already reads live from `sets`, not from the WorkoutType template, so this is
@@ -280,6 +285,18 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     return null;
   }, [data.sessions]);
 
+  // Most recent RPE logged for this exercise (by exerciseId, stable across mid-session
+  // renames — unlike getLastPerformance above, which has to match by name), scanning
+  // newest-first. Used both to prefill the picker and to power the "augmente la charge"
+  // nudge below.
+  const getLastExerciseDifficulty = useCallback((exerciseId: string): number | null => {
+    for (let i = data.sessions.length - 1; i >= 0; i--) {
+      const val = data.sessions[i].exerciseDifficulty?.[exerciseId];
+      if (val !== undefined) return val;
+    }
+    return null;
+  }, [data.sessions]);
+
   // Absolute record (heaviest weight ever lifted) for an exercise, by exact name match
   const getAbsoluteRecord = useCallback((exerciseName: string) => {
     let best: { weight: number; reps: number } | null = null;
@@ -334,6 +351,8 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     setMethodOverrides({});
     setRenamingExerciseId(null);
     setDropSetPickerFor(null);
+    setExerciseDifficulty({});
+    setDifficultyEditor(null);
 
     const initialWeeks: Record<string, number> = {};
     type.exercises.forEach(ex => {
@@ -581,6 +600,38 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     </div>
   );
 
+  const renderDifficultyButton = (ex: Exercise) => {
+    const current = exerciseDifficulty[ex.id];
+    return (
+      <button
+        type="button"
+        onClick={() => setDifficultyEditor({ exerciseId: ex.id, name: ex.name, draft: current ?? 5 })}
+        className={`touch-target p-1.5 shrink-0 rounded-lg transition-colors ${
+          current !== undefined ? 'text-accent-blue' : 'text-muted-foreground/50 active:text-accent-blue'
+        }`}
+        aria-label={current !== undefined ? `RPE ${current}/10 pour ${ex.name}` : `Noter le RPE pour ${ex.name}`}
+        title="RPE de l'exercice"
+      >
+        <Gauge size={14} />
+      </button>
+    );
+  };
+
+  // Auto-derived (not manually dismissed like the reminder banner) — hides itself once
+  // she's rated this exercise for the current session, since at that point it's no longer
+  // "last time" advice but this session's own number.
+  const renderLowRpeBanner = (ex: Exercise) => {
+    if (exerciseDifficulty[ex.id] !== undefined) return null;
+    const last = getLastExerciseDifficulty(ex.id);
+    if (last === null || last >= 6) return null;
+    return (
+      <div className="flex items-start gap-2 bg-warning/10 border border-warning/30 rounded-lg px-3 py-2 mb-3">
+        <Gauge size={14} className="text-warning shrink-0 mt-0.5" />
+        <p className="text-xs text-foreground/90 flex-1">RPE faible la dernière fois ({last}/10) — pense à augmenter la charge.</p>
+      </div>
+    );
+  };
+
   const updateWeekSelection = (exerciseId: string, week: number) => {
     setSelectedWeeks(prev => ({ ...prev, [exerciseId]: week }));
     const ex = selectedType?.exercises.find(e => e.id === exerciseId);
@@ -624,8 +675,9 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
       startTime,
       endTime,
       duration: Math.round((endTime - startTime) / 60000) || 60,
+      exerciseDifficulty: Object.keys(exerciseDifficulty).length > 0 ? exerciseDifficulty : undefined,
     };
-    
+
     setPendingSession(session);
     setMode('summary');
   };
@@ -663,6 +715,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     setMethodOverrides({});
     setRenamingExerciseId(null);
     setDropSetPickerFor(null);
+    setExerciseDifficulty({});
     onClearSelectedDate?.();
   };
 
@@ -1133,6 +1186,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     setMethodOverrides({});
     setRenamingExerciseId(null);
     setDropSetPickerFor(null);
+    setExerciseDifficulty({});
   };
 
   const abandonSession = () => {
@@ -1258,9 +1312,11 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
               <div className="flex items-center gap-1.5 shrink-0">
                 <span className="text-xs text-muted-foreground">Cycle {method.currentCycle}</span>
                 {renderReminderNoteButton(ex)}
+                {renderDifficultyButton(ex)}
               </div>
             </div>
             {renderReminderNoteBanner(ex)}
+            {renderLowRpeBanner(ex)}
             <SetDots states={liveSets.map(s => sets[s.globalIdx].completed)} className="mb-3" />
             <div className="flex gap-1.5 mb-4">
               {[1, 2, 3, 4].map(w => (
@@ -1377,9 +1433,11 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
               <div className="flex items-center gap-1.5 shrink-0">
                 <span className="text-xs text-muted-foreground">TM {method.trainingMax} kg</span>
                 {renderReminderNoteButton(ex)}
+                {renderDifficultyButton(ex)}
               </div>
             </div>
             {renderReminderNoteBanner(ex)}
+            {renderLowRpeBanner(ex)}
             <MethodPickerRow active="cluster" onSelect={opt => applyMethodOverride(ex, opt)} />
             <label className="flex items-center justify-between mb-3 -mt-1 cursor-pointer">
               <span className="text-xs text-muted-foreground flex items-center gap-1.5">
@@ -1474,9 +1532,11 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
               <div className="flex items-center gap-1.5 shrink-0">
                 <span className="text-xs text-muted-foreground">TM {method.trainingMax} kg</span>
                 {renderReminderNoteButton(ex)}
+                {renderDifficultyButton(ex)}
               </div>
             </div>
             {renderReminderNoteBanner(ex)}
+            {renderLowRpeBanner(ex)}
             <MethodPickerRow active="emom" onSelect={opt => applyMethodOverride(ex, opt)} />
             <div className="mb-3">
               <EmomTimer totalMinutes={durationMinutes} onMinuteComplete={handleMinuteComplete} />
@@ -1549,9 +1609,11 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                   <div className="flex items-center gap-1.5">
                     <span className="text-[10px] text-muted-foreground">{block.series.length} séries</span>
                     {templateAEx && renderReminderNoteButton(templateAEx)}
+                    {templateAEx && renderDifficultyButton(templateAEx)}
                   </div>
                 </div>
                 {templateAEx && renderReminderNoteBanner(templateAEx)}
+                {templateAEx && renderLowRpeBanner(templateAEx)}
 
                 <div className="flex items-center gap-2 text-xs text-foreground font-semibold mb-3">
                   <span className="text-primary">A</span><span>{block.aName}</span>
@@ -1730,9 +1792,11 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                   <TrendingDown size={14} /> Drop set
                 </button>
                 {templateEx && renderReminderNoteButton(templateEx)}
+                {templateEx && renderDifficultyButton(templateEx)}
               </div>
 
               {templateEx && renderReminderNoteBanner(templateEx)}
+              {templateEx && renderLowRpeBanner(templateEx)}
 
               {methodEx && <MethodPickerRow active="none" onSelect={opt => applyMethodOverride(methodEx, opt)} />}
 
@@ -1947,6 +2011,59 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                 const trimmed = reminderNoteEditor.draft.trim();
                 setExerciseReminderNote(reminderNoteEditor.exerciseId, trimmed === '' ? undefined : trimmed);
                 setReminderNoteEditor(null);
+              }}
+              className="flex-1 btn-neon font-medium py-2.5 rounded-xl text-sm touch-target"
+            >
+              Enregistrer
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {difficultyEditor && (
+      <div
+        className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-6 animate-fade-in"
+        onClick={() => setDifficultyEditor(null)}
+      >
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="difficulty-editor-title"
+          className="glass-card p-6 max-w-sm w-full"
+          onClick={e => e.stopPropagation()}
+        >
+          <h3 id="difficulty-editor-title" className="text-sm font-bold text-foreground mb-3 flex items-center gap-1.5">
+            <Gauge size={14} className="text-accent-blue" /> RPE — {difficultyEditor.name}
+          </h3>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs text-muted-foreground">Comment tu t'es sentie sur cet exercice ?</span>
+            <span className="text-sm font-bold text-foreground">{difficultyEditor.draft}/10</span>
+          </div>
+          <input
+            autoFocus
+            type="range"
+            min={1}
+            max={10}
+            value={difficultyEditor.draft}
+            onChange={e => setDifficultyEditor({ ...difficultyEditor, draft: parseInt(e.target.value) })}
+            className="w-full accent-accent-blue h-2 mb-1"
+          />
+          <div className="flex justify-between text-[10px] text-muted-foreground mb-4">
+            <span>Facile</span>
+            <span>Difficile</span>
+          </div>
+          <div className="flex gap-3">
+            <button
+              onClick={() => setDifficultyEditor(null)}
+              className="flex-1 bg-secondary text-secondary-foreground font-medium py-2.5 rounded-xl text-sm touch-target"
+            >
+              Annuler
+            </button>
+            <button
+              onClick={() => {
+                setExerciseDifficulty(prev => ({ ...prev, [difficultyEditor.exerciseId]: difficultyEditor.draft }));
+                setDifficultyEditor(null);
               }}
               className="flex-1 btn-neon font-medium py-2.5 rounded-xl text-sm touch-target"
             >

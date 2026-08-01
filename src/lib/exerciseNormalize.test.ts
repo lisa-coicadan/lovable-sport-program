@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeExerciseName, isPrTracked, PR_TRACKED_CANONICAL, splitEquipmentVariant, isBodyweightOptionalExercise, weightFieldValue } from './exerciseNormalize';
+import { normalizeExerciseName, isPrTracked, PR_TRACKED_CANONICAL, splitEquipmentVariant, isBodyweightOptionalExercise, weightFieldValue, bodyweightTonnageFraction } from './exerciseNormalize';
 
 describe('normalizeExerciseName', () => {
   it('maps spelling variants to the same canonical name', () => {
@@ -36,6 +36,13 @@ describe('normalizeExerciseName', () => {
     expect(normalizeExerciseName('Single leg press')).toBe('Leg press unilatéral');
     expect(normalizeExerciseName('Single press')).toBe('Leg press unilatéral');
     expect(normalizeExerciseName('single leg press')).not.toBe('Hack Squat');
+  });
+
+  it('maps pompes/push-up spelling variants to the same canonical name', () => {
+    expect(normalizeExerciseName('pompes')).toBe('Pompes');
+    expect(normalizeExerciseName('Pompe')).toBe('Pompes');
+    expect(normalizeExerciseName('push up')).toBe('Pompes');
+    expect(normalizeExerciseName('push-up')).toBe('Pompes');
   });
 
 
@@ -158,10 +165,33 @@ describe('isBodyweightOptionalExercise', () => {
     expect(isBodyweightOptionalExercise('Dips assistés')).toBe(true);
   });
 
+  it('is true for pompes', () => {
+    expect(isBodyweightOptionalExercise('Pompes')).toBe(true);
+    expect(isBodyweightOptionalExercise('pompes')).toBe(true);
+    expect(isBodyweightOptionalExercise('push up')).toBe(true);
+  });
+
   it('is false for every other exercise', () => {
     expect(isBodyweightOptionalExercise('Squat')).toBe(false);
     expect(isBodyweightOptionalExercise('Développé couché')).toBe(false);
     expect(isBodyweightOptionalExercise('Curl biceps')).toBe(false);
+  });
+});
+
+describe('bodyweightTonnageFraction', () => {
+  it('is 1 (full bodyweight) for tractions/dips', () => {
+    expect(bodyweightTonnageFraction('Tractions lestées')).toBe(1);
+    expect(bodyweightTonnageFraction('Dips assistés')).toBe(1);
+  });
+
+  it('is 0.65 for pompes', () => {
+    expect(bodyweightTonnageFraction('Pompes')).toBe(0.65);
+    expect(bodyweightTonnageFraction('pompes')).toBe(0.65);
+  });
+
+  it('is 0 for every other exercise', () => {
+    expect(bodyweightTonnageFraction('Squat')).toBe(0);
+    expect(bodyweightTonnageFraction('Développé couché')).toBe(0);
   });
 });
 
