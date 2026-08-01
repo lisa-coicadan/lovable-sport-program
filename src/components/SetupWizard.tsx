@@ -583,7 +583,7 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
                     onClick={() => setSupersetPickerFor(supersetPickerFor === ex.id ? null : ex.id)}
                     className="text-[10px] text-muted-foreground flex items-center gap-1"
                   >
-                    <Link2 size={10} /> Associer en superset
+                    <Link2 size={10} /> Superset
                   </button>
                 );
                 const supersetPickerChips = supersetPickerFor === ex.id && !ex.supersetGroupId && freePartners.length > 0 && (

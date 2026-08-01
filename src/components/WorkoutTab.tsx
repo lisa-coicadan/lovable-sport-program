@@ -600,19 +600,23 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     </div>
   );
 
+  // Shows the rated value next to the icon once set — a color change alone (previous
+  // behavior) gave no way to see what she'd actually entered without reopening the editor,
+  // unlike the reminder note button which has its own banner showing the full text.
   const renderDifficultyButton = (ex: Exercise) => {
     const current = exerciseDifficulty[ex.id];
     return (
       <button
         type="button"
         onClick={() => setDifficultyEditor({ exerciseId: ex.id, name: ex.name, draft: current ?? 5 })}
-        className={`touch-target p-1.5 shrink-0 rounded-lg transition-colors ${
+        className={`touch-target flex items-center gap-1 px-1.5 shrink-0 rounded-lg text-[11px] font-medium transition-colors ${
           current !== undefined ? 'text-accent-blue' : 'text-muted-foreground/50 active:text-accent-blue'
         }`}
         aria-label={current !== undefined ? `RPE ${current}/10 pour ${ex.name}` : `Noter le RPE pour ${ex.name}`}
         title="RPE de l'exercice"
       >
         <Gauge size={14} />
+        {current !== undefined && <span>{current}/10</span>}
       </button>
     );
   };
@@ -1777,12 +1781,17 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                     </button>
                   </>
                 )}
+              </div>
 
+              {/* Second row for the per-exercise action buttons (drop set, note, RPE) —
+                  crammed onto the name row, their 44px touch targets left almost no room
+                  for the name itself and it was truncating down to 2-3 letters. */}
+              <div className="flex items-center gap-1.5 mb-1">
                 {/* Reveals a "+ Drop set" trigger under each plain series below — lets her
                     cascade from any of them, not just the last one. */}
                 <button
                   onClick={() => setDropSetPickerFor(dropSetPickerFor === exerciseId ? null : exerciseId)}
-                  className={`min-h-9 flex items-center gap-1 px-2 shrink-0 ml-auto rounded-lg text-[11px] font-medium transition-colors ${
+                  className={`min-h-9 flex items-center gap-1 px-2 shrink-0 rounded-lg text-[11px] font-medium transition-colors ${
                     dropSetPickerFor === exerciseId ? 'bg-warning/20 text-warning' : 'text-warning/70 active:text-warning'
                   }`}
                   aria-label="Activer le mode drop set pour cet exercice"
@@ -1791,8 +1800,10 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                 >
                   <TrendingDown size={14} /> Drop set
                 </button>
-                {templateEx && renderReminderNoteButton(templateEx)}
-                {templateEx && renderDifficultyButton(templateEx)}
+                <div className="flex items-center gap-1.5 ml-auto">
+                  {templateEx && renderReminderNoteButton(templateEx)}
+                  {templateEx && renderDifficultyButton(templateEx)}
+                </div>
               </div>
 
               {templateEx && renderReminderNoteBanner(templateEx)}
@@ -1975,47 +1986,55 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
 
     {reminderNoteEditor && (
       <div
-        className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-6 animate-fade-in"
+        className="fixed inset-0 bg-black/60 z-50 overflow-y-auto animate-fade-in"
         onClick={() => setReminderNoteEditor(null)}
       >
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="reminder-note-title"
-          className="glass-card p-6 max-w-sm w-full"
-          onClick={e => e.stopPropagation()}
-        >
-          <h3 id="reminder-note-title" className="text-sm font-bold text-foreground mb-1 flex items-center gap-1.5">
-            <Lightbulb size={14} className="text-warning" /> Note — {reminderNoteEditor.name}
-          </h3>
-          <p className="text-[11px] text-muted-foreground mb-3">
-            S'affichera au-dessus de cet exercice à ta prochaine séance de ce type.
-          </p>
-          <textarea
-            autoFocus
-            value={reminderNoteEditor.draft}
-            onChange={e => setReminderNoteEditor({ ...reminderNoteEditor, draft: e.target.value })}
-            placeholder="Ex. augmenter la charge de 2,5 kg la prochaine fois"
-            rows={3}
-            className="w-full bg-secondary text-foreground rounded-xl px-3 py-2.5 text-sm outline-none resize-none mb-4"
-          />
-          <div className="flex gap-3">
-            <button
-              onClick={() => setReminderNoteEditor(null)}
-              className="flex-1 bg-secondary text-secondary-foreground font-medium py-2.5 rounded-xl text-sm touch-target"
-            >
-              Annuler
-            </button>
-            <button
-              onClick={() => {
-                const trimmed = reminderNoteEditor.draft.trim();
-                setExerciseReminderNote(reminderNoteEditor.exerciseId, trimmed === '' ? undefined : trimmed);
-                setReminderNoteEditor(null);
-              }}
-              className="flex-1 btn-neon font-medium py-2.5 rounded-xl text-sm touch-target"
-            >
-              Enregistrer
-            </button>
+        {/* min-h-full + the scrollable overlay above (not a plain flex-centered fixed
+            div) so the card stays reachable even when the keyboard's own accessory bar
+            (prev/next + done, above the keyboard itself) eats into the space `interactive-
+            widget=resizes-content` already carved out — that resize alone isn't always
+            enough to keep a bottom-flush card's buttons clear of it, and this makes the
+            worst case "scroll a bit" instead of "button unreachable". */}
+        <div className="min-h-full flex items-end sm:items-center justify-center p-6 pb-16 sm:pb-6">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="reminder-note-title"
+            className="glass-card p-6 max-w-sm w-full"
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 id="reminder-note-title" className="text-sm font-bold text-foreground mb-1 flex items-center gap-1.5">
+              <Lightbulb size={14} className="text-warning" /> Note — {reminderNoteEditor.name}
+            </h3>
+            <p className="text-[11px] text-muted-foreground mb-3">
+              S'affichera au-dessus de cet exercice à ta prochaine séance de ce type.
+            </p>
+            <textarea
+              autoFocus
+              value={reminderNoteEditor.draft}
+              onChange={e => setReminderNoteEditor({ ...reminderNoteEditor, draft: e.target.value })}
+              placeholder="Ex. augmenter la charge de 2,5 kg la prochaine fois"
+              rows={3}
+              className="w-full bg-secondary text-foreground rounded-xl px-3 py-2.5 text-sm outline-none resize-none mb-4"
+            />
+            <div className="flex gap-3">
+              <button
+                onClick={() => setReminderNoteEditor(null)}
+                className="flex-1 bg-secondary text-secondary-foreground font-medium py-2.5 rounded-xl text-sm touch-target"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={() => {
+                  const trimmed = reminderNoteEditor.draft.trim();
+                  setExerciseReminderNote(reminderNoteEditor.exerciseId, trimmed === '' ? undefined : trimmed);
+                  setReminderNoteEditor(null);
+                }}
+                className="flex-1 btn-neon font-medium py-2.5 rounded-xl text-sm touch-target"
+              >
+                Enregistrer
+              </button>
+            </div>
           </div>
         </div>
       </div>

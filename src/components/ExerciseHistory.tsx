@@ -47,6 +47,23 @@ const tooltipStyle = {
   boxShadow: '0 0 24px -8px hsl(189 94% 55% / 0.35)',
 };
 
+// Recharts' default Tooltip content just echoes the raw dataKey ("value : 17.1") — this
+// replaces it with the actual set (reps x weight) that produced the point, not just the
+// computed 1RM/delta, so tapping a point on mobile is useful without a second dot-click.
+const OneRepMaxTooltip = (bodyweightOptional: boolean) => ({ active, payload }: { active?: boolean; payload?: { payload: DotProps['payload'] }[] }) => {
+  if (!active || !payload || payload.length === 0) return null;
+  const p = payload[0].payload;
+  return (
+    <div style={{ ...tooltipStyle, padding: '8px 10px' }}>
+      <div style={{ color: 'hsl(0 0% 95%)' }}>
+        {new Date(p.date).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })}
+      </div>
+      <div style={{ color: 'hsl(322 100% 70%)', fontWeight: 600 }}>{p.weight} kg × {p.reps}</div>
+      <div style={{ color: 'hsl(240 12% 72%)' }}>{bodyweightOptional ? 'Δ vs pdc' : '1RM'} {p.value} kg</div>
+    </div>
+  );
+};
+
 const ExerciseHistory = ({ exerciseName, data, onClose }: ExerciseHistoryProps) => {
   // Group by base exercise (equipment-agnostic) so e.g. "Développé couché", "Développé
   // couché haltères" and "Développé couché machine" all show up under one screen — but
@@ -257,11 +274,7 @@ const VariantSection = ({ group, showHeader, bodyweightOptional }: { group: Vari
                 domain={bodyweightOptional ? [(min: number) => Math.min(0, min), (max: number) => Math.max(0, max)] : undefined}
                 tick={chartStyle} axisLine={false} tickLine={false} width={40}
               />
-              <Tooltip
-                contentStyle={tooltipStyle}
-                labelStyle={{ color: 'hsl(0 0% 95%)' }}
-                labelFormatter={(ts: number) => new Date(ts).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })}
-              />
+              <Tooltip content={OneRepMaxTooltip(bodyweightOptional)} />
               {bodyweightOptional && (
                 <ReferenceLine y={0} stroke="hsl(240 12% 45%)" strokeDasharray="4 4" strokeWidth={1}
                   label={{ value: 'Poids de corps', position: 'insideBottomLeft', fill: 'hsl(240 12% 60%)', fontSize: 9 }} />

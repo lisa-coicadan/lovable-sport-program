@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo } from 'react';
+import { useState, useRef, useMemo, useEffect } from 'react';
 import { AppData, WorkoutType, Exercise, ExerciseMethod, Program, WORKOUT_COLORS, BodyWeightLog, DEFAULT_APP_DATA, Gender } from '@/lib/types';
 import { linkSuperset, unlinkSuperset, buildExerciseBlocks, flattenBlocks, ExerciseBlock } from '@/lib/superset';
 import { parseSessionNotes, parseMultiSessionNotes, NOTES_SYNTAX_HELP, NOTES_SYNTAX_HELP_FILL } from '@/lib/notesParser';
@@ -380,20 +380,70 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
   // Left-edge swipe right, mirroring the OS back gesture. Ignored unless it starts within
   // the edge zone (a swipe starting mid-screen is more likely scrolling a horizontal row,
   // e.g. the color picker swatches) and is mostly horizontal (not a vertical page scroll).
+  // The panel follows the finger live (dragX, no transition) while dragging, then either
+  // snaps back or finishes sliding out (transition re-enabled) so the close reads as one
+  // continuous gesture instead of the panel just vanishing under the finger.
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const draggingRef = useRef(false);
+  const [dragX, setDragX] = useState(0);
+  const [dragActive, setDragActive] = useState(false);
+  const [closing, setClosing] = useState(false);
+
   const handleTouchStart = (e: React.TouchEvent) => {
     const t = e.touches[0];
     touchStartRef.current = { x: t.clientX, y: t.clientY };
+    draggingRef.current = false;
+  };
+  const handleTouchMove = (e: React.TouchEvent) => {
+    const start = touchStartRef.current;
+    if (!start || start.x > 32) return;
+    const t = e.touches[0];
+    const dx = t.clientX - start.x;
+    const dy = t.clientY - start.y;
+    if (!draggingRef.current) {
+      if (dx > 10 && Math.abs(dx) > Math.abs(dy) * 2) {
+        draggingRef.current = true;
+        setDragActive(true);
+      } else {
+        return;
+      }
+    }
+    setDragX(Math.max(0, dx));
   };
   const handleTouchEnd = (e: React.TouchEvent) => {
     const start = touchStartRef.current;
     touchStartRef.current = null;
-    if (!start || start.x > 32) return;
+    const wasDragging = draggingRef.current;
+    draggingRef.current = false;
+    setDragActive(false);
+    if (!wasDragging) { setDragX(0); return; }
     const t = e.changedTouches[0];
-    const dx = t.clientX - start.x;
-    const dy = t.clientY - start.y;
-    if (dx > 80 && Math.abs(dx) > Math.abs(dy) * 2) attemptClose();
+    const dx = start ? t.clientX - start.x : 0;
+    if (dx > 80) {
+      if (isDirty) {
+        // Snap back — the actual close is gated on the confirm dialog below.
+        setDragX(0);
+        setShowUnsavedConfirm(true);
+      } else {
+        setClosing(true);
+        setDragX(window.innerWidth);
+      }
+    } else {
+      setDragX(0);
+    }
   };
+
+  // Let the slide-out finish before unmounting (onClose), so it reads as a close
+  // transition instead of a disappearance. onClose is read via a ref rather than a direct
+  // effect dependency: it's a fresh inline function on every parent render, and depending
+  // on it directly would restart the 220ms timer on any parent re-render while closing.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  useEffect(() => {
+    if (!closing) return;
+    const timer = setTimeout(() => onCloseRef.current(), 220);
+    return () => clearTimeout(timer);
+  }, [closing]);
 
   const addWorkoutType = () => {
     const colorIdx = workoutTypes.length % WORKOUT_COLORS.length;
@@ -486,7 +536,16 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
 
   return (
     <>
-    <div className="px-4 pt-12 pb-24 animate-slide-up" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
+    <div
+      className="px-4 pt-12 pb-24 animate-slide-up"
+      style={{
+        transform: dragX ? `translateX(${dragX}px)` : undefined,
+        transition: dragActive ? 'none' : 'transform 0.22s ease-out',
+      }}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
+    >
       <div className="flex items-center gap-3 mb-6">
         <button onClick={attemptClose} className="text-muted-foreground touch-target p-1" aria-label="Fermer les réglages">
           <ArrowLeft size={20} />
@@ -877,7 +936,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                               onClick={() => setSupersetPickerFor(supersetPickerFor === ex.id ? null : ex.id)}
                               className="text-[10px] text-muted-foreground flex items-center gap-1"
                             >
-                              <Link2 size={10} /> Associer en superset
+                              <Link2 size={10} /> Superset
                             </button>
                           );
                           const supersetPickerChips = supersetPickerFor === ex.id && freePartners.length > 0 && (
