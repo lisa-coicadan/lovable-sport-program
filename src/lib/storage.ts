@@ -92,12 +92,24 @@ function migrateRpeScale(data: AppData): AppData {
   return { ...data, sessions, cardioSessions, rpeScaleV2: true };
 }
 
+// Some entries were already doubled by hand before migrateRpeScale ran, ending up at
+// 20 once it doubled them again. No legitimate /10 value can ever exceed 10, so any
+// value above it is unambiguous evidence of this — halving it is safe on any device and
+// a no-op everywhere else, without needing a date-based rule that could misfire on
+// someone else's genuinely-already-/10 entries from the same period. Self-idempotent:
+// once corrected, the value is <=10 and the condition no longer matches.
+function fixRpeOverflow(data: AppData): AppData {
+  const sessions = data.sessions.map(s => s.difficulty && s.difficulty > 10 ? { ...s, difficulty: Math.round(s.difficulty / 2) } : s);
+  const cardioSessions = (data.cardioSessions || []).map(s => s.difficulty && s.difficulty > 10 ? { ...s, difficulty: Math.round(s.difficulty / 2) } : s);
+  return { ...data, sessions, cardioSessions };
+}
+
 export function loadData(): AppData {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return { ...DEFAULT_APP_DATA };
     const parsed = { ...DEFAULT_APP_DATA, ...JSON.parse(raw) };
-    return migrateRpeScale(migrateSessionProgramNames(migrateToPrograms(migrateLegacyFiveThreeOne(parsed))));
+    return fixRpeOverflow(migrateRpeScale(migrateSessionProgramNames(migrateToPrograms(migrateLegacyFiveThreeOne(parsed)))));
   } catch {
     return { ...DEFAULT_APP_DATA };
   }

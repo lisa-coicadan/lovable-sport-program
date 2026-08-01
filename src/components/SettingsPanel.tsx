@@ -1,11 +1,11 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useMemo } from 'react';
 import { AppData, WorkoutType, Exercise, ExerciseMethod, Program, WORKOUT_COLORS, BodyWeightLog, DEFAULT_APP_DATA, Gender } from '@/lib/types';
 import { linkSuperset, unlinkSuperset, buildExerciseBlocks, flattenBlocks, ExerciseBlock } from '@/lib/superset';
 import { parseSessionNotes, parseMultiSessionNotes, NOTES_SYNTAX_HELP, NOTES_SYNTAX_HELP_FILL } from '@/lib/notesParser';
 import { getEmomConfig, getEmomWeight, getDefaultEmomPercentage } from '@/lib/emom';
 import { getClusterConfig, getMiniSeriesWeight, CLUSTER_PRESETS } from '@/lib/cluster';
 import { estimateOneRepMax, estimateTrainingMax } from '@/lib/trainingMax';
-import { ArrowLeft, Plus, Trash2, EyeOff, Eye, Scale, Link2, Link2Off, Download, Upload, Database, AlertTriangle, FileText, Zap, Timer, Clock, Layers, Check, Calculator, TrendingDown, User, Infinity as InfinityIcon, Pencil } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, EyeOff, Eye, Scale, Link2, Link2Off, Download, Upload, Database, AlertTriangle, FileText, Zap, Timer, Clock, Layers, Check, Calculator, TrendingDown, User, Infinity as InfinityIcon, Pencil, X } from 'lucide-react';
 import { SortableList, DragHandle } from './SortableBlock';
 import { loadData, saveData } from '@/lib/storage';
 import { parseBackupFile } from '@/lib/backupFile';
@@ -95,13 +95,23 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
   const [activeProgramId, setActiveProgramId] = useState<string | null>(data.activeProgramId ?? (programs[0]?.id ?? null));
   const [bodyWeight, setBodyWeight] = useState('');
   const [gender, setGender] = useState<Gender | undefined>(data.gender);
-  const [heightCm, setHeightCm] = useState(data.heightCm ? String(data.heightCm) : '');
   const [weeklyGoal, setWeeklyGoal] = useState(data.weeklyGoal);
   const [cardioWeeklyGoal, setCardioWeeklyGoal] = useState(data.cardioWeeklyGoal ?? 2);
   const [notesOpen, setNotesOpen] = useState(false);
   const [notesText, setNotesText] = useState('');
   const [notesTargetId, setNotesTargetId] = useState<string | null>(null);
   const [colorPickerFor, setColorPickerFor] = useState<string | null>(null);
+  const [supersetPickerFor, setSupersetPickerFor] = useState<string | null>(null);
+  const [showUnsavedConfirm, setShowUnsavedConfirm] = useState(false);
+  // useRef's initial value is only ever read on the very first render — freezes exactly
+  // what save() would have produced if nothing changed, so isDirty below is a plain diff
+  // against it instead of needing every one of the many mutators (updateExercise,
+  // linkExerciseSuperset, toggleHide, ...) to separately flag a "dirty" flag by hand.
+  const initialSnapshot = useRef(JSON.stringify({ workoutTypes, programs, activeProgramId, gender, weeklyGoal, cardioWeeklyGoal })).current;
+  const isDirty = useMemo(() => {
+    const current = JSON.stringify({ workoutTypes, programs, activeProgramId, gender, weeklyGoal, cardioWeeklyGoal });
+    return current !== initialSnapshot || bodyWeight.trim() !== '';
+  }, [workoutTypes, programs, activeProgramId, gender, weeklyGoal, cardioWeeklyGoal, bodyWeight, initialSnapshot]);
   // window.prompt() is silently disabled by iOS Safari in standalone (home-screen) PWAs —
   // it never shows anything and returns null, so "Nouveau"/"Renommer" would do nothing on
   // her phone. This in-app modal replaces it for both flows.
@@ -344,7 +354,6 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
     const partial: Partial<AppData> = {
       workoutTypes, weeklyGoal, cardioWeeklyGoal, programs, activeProgramId,
       gender,
-      heightCm: heightCm === '' ? undefined : parseFloat(heightCm) || undefined,
     };
 
     // Add body weight log if entered
@@ -358,6 +367,32 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
 
     onUpdateData(partial);
     onClose();
+  };
+
+  // Shared by the back-arrow button and the swipe gesture below — the back arrow used to
+  // call onClose() directly, silently discarding anything not already pushed through the
+  // "Enregistrer les réglages" button at the bottom.
+  const attemptClose = () => {
+    if (isDirty) { setShowUnsavedConfirm(true); return; }
+    onClose();
+  };
+
+  // Left-edge swipe right, mirroring the OS back gesture. Ignored unless it starts within
+  // the edge zone (a swipe starting mid-screen is more likely scrolling a horizontal row,
+  // e.g. the color picker swatches) and is mostly horizontal (not a vertical page scroll).
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const handleTouchStart = (e: React.TouchEvent) => {
+    const t = e.touches[0];
+    touchStartRef.current = { x: t.clientX, y: t.clientY };
+  };
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    const start = touchStartRef.current;
+    touchStartRef.current = null;
+    if (!start || start.x > 32) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - start.x;
+    const dy = t.clientY - start.y;
+    if (dx > 80 && Math.abs(dx) > Math.abs(dy) * 2) attemptClose();
   };
 
   const addWorkoutType = () => {
@@ -451,9 +486,9 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
 
   return (
     <>
-    <div className="px-4 pt-12 pb-24 animate-slide-up">
+    <div className="px-4 pt-12 pb-24 animate-slide-up" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
       <div className="flex items-center gap-3 mb-6">
-        <button onClick={onClose} className="text-muted-foreground touch-target p-1" aria-label="Fermer les réglages">
+        <button onClick={attemptClose} className="text-muted-foreground touch-target p-1" aria-label="Fermer les réglages">
           <ArrowLeft size={20} />
         </button>
         <h1 className="text-xl font-bold text-foreground">Réglages</h1>
@@ -508,10 +543,9 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
           </p>
         </div>
       )}
-      {/* Sexe + taille : utilisés uniquement pour la comparaison "Record de France" /
-          niveau-percentile dans l'historique d'exercice (src/lib/strengthStandards.ts).
-          Purement local, jamais envoyé nulle part. La taille n'entre dans aucune formule
-          fournie pour l'instant — stockée pour un usage futur (IMC, etc.). */}
+      {/* Sexe : utilisé uniquement pour la comparaison "Record de France" / niveau-percentile
+          dans l'historique d'exercice (src/lib/strengthStandards.ts). Purement local,
+          jamais envoyé nulle part. */}
       <div className="glass-card p-4 mb-6">
         <div className="flex items-center gap-2 mb-3">
           <User size={16} className="text-primary" />
@@ -531,25 +565,12 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
             </button>
           ))}
         </div>
-        <div className="flex items-center gap-3">
-          <input
-            type="number"
-            value={heightCm}
-            onChange={e => setHeightCm(e.target.value)}
-            className="flex-1 bg-secondary text-foreground rounded-xl px-3 py-2.5 text-sm outline-none font-mono text-center"
-            placeholder="Taille, ex. 165"
-            aria-label="Taille (cm)"
-          />
-          <span className="text-sm text-muted-foreground">cm</span>
-        </div>
-        <p className="text-[10px] text-muted-foreground mt-2">
-          Utilisés pour comparer tes performances au record de France et à ton niveau (percentile), dans l'historique d'un exercice.
+        <p className="text-[10px] text-muted-foreground mb-3">
+          Utilisé pour comparer tes performances au record de France et à ton niveau (percentile), dans l'historique d'un exercice.
         </p>
-      </div>
-      <div className="glass-card p-4 mb-6">
-        <div className="flex items-center gap-2 mb-3">
-          <Scale size={16} className="text-primary" />
-          <h3 className="text-sm font-bold text-foreground">Bodyweight</h3>
+        <div className="flex items-center gap-2 mb-2">
+          <Scale size={14} className="text-primary" />
+          <span className="text-xs font-medium text-foreground">Bodyweight</span>
         </div>
         <div className="flex items-center gap-3">
           <input
@@ -560,7 +581,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
             placeholder="ex. 75"
             aria-label="Bodyweight (kg)"
           />
-          <span className="text-sm text-muted-foreground">kg</span>
+          <span className="text-sm text-muted-foreground w-8">kg</span>
         </div>
         {(data.bodyWeightLogs || []).length > 0 && (
           <p className="text-[10px] text-muted-foreground mt-2">
@@ -643,9 +664,14 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                       ))}
                     </select>
                   )}
-                  <button onClick={() => toggleHide(ti)} className="text-muted-foreground p-1 touch-target" title="Masquer" aria-label={`Masquer ${type.name || 'cette séance'}`}>
-                    <EyeOff size={16} />
-                  </button>
+                  {/* A session belonging to the active program is always shown in the
+                      Séance tab (see WorkoutTab's activeTypes filter) — hiding it here
+                      would be a no-op that just confuses her, so the button isn't offered. */}
+                  {(activeProgramId && type.programId && type.programId !== activeProgramId) && (
+                    <button onClick={() => toggleHide(ti)} className="text-muted-foreground p-1 touch-target" title="Masquer" aria-label={`Masquer ${type.name || 'cette séance'}`}>
+                      <EyeOff size={16} />
+                    </button>
+                  )}
                   <button onClick={() => deleteType(ti)} className="text-destructive p-1 touch-target" title="Supprimer" aria-label={`Supprimer ${type.name || 'cette séance'}`}>
                     <Trash2 size={16} />
                   </button>
@@ -842,6 +868,31 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                           const method531 = ex.method?.type === '531' ? ex.method : null;
                           const methodCluster = ex.method?.type === 'cluster' ? ex.method : null;
                           const methodEmom = ex.method?.type === 'emom' ? ex.method : null;
+                          // Shared between the compact "no method" row (joins Méthode/Drop
+                          // set/Max de reps on one line) and the method-active branches
+                          // (own small line just below renderRow, no room to join a row
+                          // that doesn't exist for them).
+                          const supersetTriggerButton = freePartners.length > 0 && (
+                            <button
+                              onClick={() => setSupersetPickerFor(supersetPickerFor === ex.id ? null : ex.id)}
+                              className="text-[10px] text-muted-foreground flex items-center gap-1"
+                            >
+                              <Link2 size={10} /> Associer en superset
+                            </button>
+                          );
+                          const supersetPickerChips = supersetPickerFor === ex.id && freePartners.length > 0 && (
+                            <div className="flex flex-wrap gap-1 pt-1">
+                              {freePartners.map(p => (
+                                <button
+                                  key={p.id}
+                                  onClick={() => { linkExerciseSuperset(ti, ex.id, p.id); setSupersetPickerFor(null); }}
+                                  className="text-[10px] bg-secondary hover:bg-primary/20 text-foreground px-2 py-1 rounded-md"
+                                >
+                                  + {p.name || 'Unnamed'}
+                                </button>
+                              ))}
+                            </div>
+                          );
                           return (
                             <div className="space-y-1 mb-1.5">
                               <div className="flex justify-end -mb-1">{renderDeleteButton(ex)}</div>
@@ -849,23 +900,11 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                 <DragHandle />
                                 {renderRow(ex)}
                               </div>
-                              {freePartners.length > 0 && (
-                                <details className="pl-6">
-                                  <summary className="text-[10px] text-muted-foreground cursor-pointer flex items-center gap-1 py-0.5">
-                                    <Link2 size={10} /> Associer en superset
-                                  </summary>
-                                  <div className="flex flex-wrap gap-1 pt-1">
-                                    {freePartners.map(p => (
-                                      <button
-                                        key={p.id}
-                                        onClick={() => linkExerciseSuperset(ti, ex.id, p.id)}
-                                        className="text-[10px] bg-secondary hover:bg-primary/20 text-foreground px-2 py-1 rounded-md"
-                                      >
-                                        + {p.name || 'Unnamed'}
-                                      </button>
-                                    ))}
-                                  </div>
-                                </details>
+                              {ex.method && freePartners.length > 0 && (
+                                <div className="pl-6">
+                                  {supersetTriggerButton}
+                                  {supersetPickerChips}
+                                </div>
                               )}
                               {method531 ? (
                                 <div className="rounded-xl p-3 bg-primary/10 border border-primary/30 space-y-2.5">
@@ -1211,27 +1250,34 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                       />
                                       <InfinityIcon size={10} className="text-accent-purple" /> Max de reps
                                     </label>
-                                    {ex.dropSet && (
-                                      <>
-                                        <input
-                                          type="number"
-                                          value={Math.round((ex.dropSet.stepPercentage ?? 0.15) * 100)}
-                                          onChange={e => updateExercise(ti, exIdx, 'dropSet', { ...ex.dropSet, stepPercentage: (parseFloat(e.target.value) || 0) / 100 })}
-                                          className="w-10 bg-secondary text-foreground rounded-md px-1 py-1 text-[10px] text-center outline-none"
-                                          aria-label={`Pourcentage de réduction par palier de drop set, ${ex.name || 'exercice'}`}
-                                        />
-                                        <span className="text-[10px] text-muted-foreground">% / palier</span>
-                                        <input
-                                          type="number"
-                                          value={ex.dropSet.stepReps ?? 2}
-                                          onChange={e => updateExercise(ti, exIdx, 'dropSet', { ...ex.dropSet, stepReps: parseInt(e.target.value) || 0 })}
-                                          className="w-8 bg-secondary text-foreground rounded-md px-1 py-1 text-[10px] text-center outline-none"
-                                          aria-label={`Répétitions en moins par palier de drop set, ${ex.name || 'exercice'}`}
-                                        />
-                                        <span className="text-[10px] text-muted-foreground">reps / palier</span>
-                                      </>
-                                    )}
+                                    {supersetTriggerButton}
                                   </div>
+                                  {/* Own line, amber like the Drop set toggle above it — the
+                                      inline wrap it used to share with Méthode/Max de reps read
+                                      as an unrelated overflow, not "these two numbers configure
+                                      Drop set". */}
+                                  {ex.dropSet && (
+                                    <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
+                                      <TrendingDown size={10} className="text-warning shrink-0" />
+                                      <input
+                                        type="number"
+                                        value={Math.round((ex.dropSet.stepPercentage ?? 0.15) * 100)}
+                                        onChange={e => updateExercise(ti, exIdx, 'dropSet', { ...ex.dropSet, stepPercentage: (parseFloat(e.target.value) || 0) / 100 })}
+                                        className="w-10 bg-warning/10 text-warning rounded-md px-1 py-1 text-[10px] text-center outline-none"
+                                        aria-label={`Pourcentage de réduction par palier de drop set, ${ex.name || 'exercice'}`}
+                                      />
+                                      <span className="text-[10px] text-warning">% / palier</span>
+                                      <input
+                                        type="number"
+                                        value={ex.dropSet.stepReps ?? 2}
+                                        onChange={e => updateExercise(ti, exIdx, 'dropSet', { ...ex.dropSet, stepReps: parseInt(e.target.value) || 0 })}
+                                        className="w-8 bg-warning/10 text-warning rounded-md px-1 py-1 text-[10px] text-center outline-none"
+                                        aria-label={`Répétitions en moins par palier de drop set, ${ex.name || 'exercice'}`}
+                                      />
+                                      <span className="text-[10px] text-warning">reps / palier</span>
+                                    </div>
+                                  )}
+                                  {supersetPickerChips}
                                   {expandedMethodFor === ex.id && (
                                     <div className="flex items-center gap-3 mt-1.5 flex-wrap">
                                       <button
@@ -1475,6 +1521,49 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
               className={`flex-1 font-medium py-2.5 rounded-xl text-sm touch-target ${confirmDialog.danger ? 'bg-destructive text-destructive-foreground' : 'btn-neon'}`}
             >
               {confirmDialog.confirmLabel}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {showUnsavedConfirm && (
+      <div
+        className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-6 animate-fade-in"
+        onClick={() => setShowUnsavedConfirm(false)}
+      >
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="unsaved-changes-title"
+          className="glass-card p-6 max-w-sm w-full relative"
+          onClick={e => e.stopPropagation()}
+        >
+          <button
+            onClick={() => setShowUnsavedConfirm(false)}
+            className="absolute top-3 right-3 text-muted-foreground touch-target p-1"
+            aria-label="Annuler et rester dans les réglages"
+          >
+            <X size={18} />
+          </button>
+          <h3 id="unsaved-changes-title" className="text-lg font-bold text-foreground mb-2 pr-8">
+            Quitter sans enregistrer ?
+          </h3>
+          <p className="text-sm text-muted-foreground mb-6">
+            Des changements n'ont pas été enregistrés.
+          </p>
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={() => { setShowUnsavedConfirm(false); save(); }}
+              className="btn-neon font-medium py-2.5 rounded-xl text-sm touch-target"
+            >
+              Enregistrer et quitter
+            </button>
+            <button
+              onClick={() => { setShowUnsavedConfirm(false); onClose(); }}
+              className="bg-secondary text-secondary-foreground font-medium py-2.5 rounded-xl text-sm touch-target"
+            >
+              Ne pas enregistrer
             </button>
           </div>
         </div>

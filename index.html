@@ -2,7 +2,12 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+    <!-- interactive-widget=resizes-content (iOS 16.4+/modern Chrome): makes the on-screen
+         keyboard actually shrink the layout viewport instead of just overlaying it — fixes
+         `position: fixed` elements (bottom nav, modals) floating above/behind the keyboard
+         instead of docking correctly above it. No fallback needed: unsupported browsers
+         just ignore the token and keep today's behavior. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no, interactive-widget=resizes-content" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Lisa Muscu" />
@@ -14,14 +19,14 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <meta property="og:image" content="https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/12810cc5-1a30-4aa8-b57d-c4192e5ca021/id-preview-bcf2888e--cfab1b78-2188-4c60-9e9c-9b2c8b4eca31.lovable.app-1773065417231.png">
-  <meta name="twitter:image" content="https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/12810cc5-1a30-4aa8-b57d-c4192e5ca021/id-preview-bcf2888e--cfab1b78-2188-4c60-9e9c-9b2c8b4eca31.lovable.app-1773065417231.png">
+  <meta property="og:image" content="https://musculisa.lovable.app/og-image.png">
+  <meta name="twitter:image" content="https://musculisa.lovable.app/og-image.png">
   <meta name="twitter:card" content="summary_large_image">
   <meta property="og:type" content="website">
-  <meta property="og:title" content="Programme">
-  <meta name="twitter:title" content="Programme">
-  <meta property="og:description" content="Track your workouts, follow 5/3/1 squat programming, and monitor your fitness progress.">
-  <meta name="twitter:description" content="Track your workouts, follow 5/3/1 squat programming, and monitor your fitness progress.">
+  <meta property="og:title" content="Muscu lisa">
+  <meta name="twitter:title" content="Muscu lisa">
+  <meta property="og:description" content="Suis tes séances, active le 5/3/1, le Cluster ou l'EMOM sur les exercices de ton choix, et progresse.">
+  <meta name="twitter:description" content="Suis tes séances, active le 5/3/1, le Cluster ou l'EMOM sur les exercices de ton choix, et progresse.">
 </head>
   <body>
     <div id="root"></div>

@@ -57,7 +57,7 @@ const formatRestLabel = (seconds: number): string => {
   if (seconds < 60) return `${seconds}s`;
   const mins = Math.floor(seconds / 60);
   const rest = seconds % 60;
-  return rest === 0 ? `${mins}min` : `${mins}min${rest}`;
+  return rest === 0 ? `${mins}m` : `${mins}m${rest.toString().padStart(2, '0')}`;
 };
 
 // Generates the SetLog rows for one exercise given whichever method actually applies
@@ -1186,6 +1186,9 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                 // Cluster as "series × total reps" (the mini-series reps summed, e.g. a
                 // 2-2-2 scheme reads as "3 × 6").
                 const volumeLabel = (ex: Exercise): string => {
+                  if (ex.method?.type === '531') {
+                    return 'Méthode 5-3-1';
+                  }
                   if (ex.method?.type === 'emom') {
                     const { durationMinutes, repsPerMinute } = getEmomConfig(ex.method);
                     return `EMOM ${durationMinutes}' × ${repsPerMinute}`;

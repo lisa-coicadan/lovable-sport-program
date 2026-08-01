@@ -26,6 +26,18 @@ describe('normalizeExerciseName', () => {
     expect(normalizeExerciseName('squat pendule')).not.toBe('Squat');
   });
 
+  it('groups Leg press with Hack Squat, so renaming "Hack squat ou leg press" to just "Leg press" keeps its history', () => {
+    expect(normalizeExerciseName('Hack squat ou leg press')).toBe('Hack Squat');
+    expect(normalizeExerciseName('Leg press')).toBe('Hack Squat');
+    expect(normalizeExerciseName('Presse à cuisses')).toBe('Hack Squat');
+  });
+
+  it('isolates single-leg press from bilateral Leg press/Hack Squat (not comparable loads)', () => {
+    expect(normalizeExerciseName('Single leg press')).toBe('Leg press unilatéral');
+    expect(normalizeExerciseName('Single press')).toBe('Leg press unilatéral');
+    expect(normalizeExerciseName('single leg press')).not.toBe('Hack Squat');
+  });
+
 
   it('maps barbell-qualified variants to the canonical (barbell) name', () => {
     expect(normalizeExerciseName('Développé couché barre')).toBe('Développé couché');

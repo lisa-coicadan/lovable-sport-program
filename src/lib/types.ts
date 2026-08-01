@@ -167,7 +167,6 @@ export interface AppData {
   // (src/lib/strengthStandards.ts) — genuinely optional, no default/migration needed since
   // every reader already guards on their presence.
   gender?: Gender;
-  heightCm?: number;
   // Separate from workoutTypes/sessions on purpose — cardio isn't counted in
   // `weeklyGoal`/`sessions`'s strength stats, it has its own goal + tracking.
   cardioSessions?: CardioSession[];

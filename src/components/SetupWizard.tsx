@@ -72,6 +72,7 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
   const [workoutTypes, setWorkoutTypes] = useState<WorkoutType[]>([]);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [expandedMethodFor, setExpandedMethodFor] = useState<string | null>(null);
+  const [supersetPickerFor, setSupersetPickerFor] = useState<string | null>(null);
   const [weeklyGoal, setWeeklyGoal] = useState(4);
   const [programName, setProgramName] = useState('Mon programme');
   const [notesText, setNotesText] = useState('');
@@ -79,7 +80,6 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
   const [tmInputs, setTmInputs] = useState<Record<string, { weight: number; reps: number }>>({});
   const [showTmZeroConfirm, setShowTmZeroConfirm] = useState(false);
   const [gender, setGender] = useState<Gender | undefined>(undefined);
-  const [heightCm, setHeightCm] = useState('');
   const [bodyWeight, setBodyWeight] = useState('');
   const importFileRef = useRef<HTMLInputElement>(null);
 
@@ -298,8 +298,6 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
     // Profile/bodyweight are all optional here — only set keys that were actually
     // filled in, so an empty field doesn't stomp DEFAULT_APP_DATA's [] with undefined.
     if (gender) partial.gender = gender;
-    const height = parseFloat(heightCm);
-    if (heightCm.trim() !== '' && height > 0) partial.heightCm = height;
     const weight = parseFloat(bodyWeight);
     if (bodyWeight.trim() !== '' && weight > 0) {
       partial.bodyWeightLogs = [{ date: new Date().toISOString().split('T')[0], weight }];
@@ -577,6 +575,30 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
                 const methodType = ex.method?.type as MethodType | undefined;
                 const isExpanded = expandedMethodFor === ex.id;
                 const freePartners = type.exercises.filter(e => e.id !== ex.id && !e.supersetGroupId);
+                // Shared between the compact "no method" row (joins Méthode/Drop set/Max
+                // de reps on one line) and a method-active exercise's own small line
+                // further down — no row for it to join there.
+                const supersetTriggerButton = !ex.supersetGroupId && freePartners.length > 0 && (
+                  <button
+                    onClick={() => setSupersetPickerFor(supersetPickerFor === ex.id ? null : ex.id)}
+                    className="text-[10px] text-muted-foreground flex items-center gap-1"
+                  >
+                    <Link2 size={10} /> Associer en superset
+                  </button>
+                );
+                const supersetPickerChips = supersetPickerFor === ex.id && !ex.supersetGroupId && freePartners.length > 0 && (
+                  <div className="flex flex-wrap gap-1 pt-1">
+                    {freePartners.map(p => (
+                      <button
+                        key={p.id}
+                        onClick={() => { linkExerciseSuperset(ex.id, p.id); setSupersetPickerFor(null); }}
+                        className="text-[10px] bg-secondary hover:bg-primary/20 text-foreground px-2 py-1 rounded-md"
+                      >
+                        + {p.name || 'Sans nom'}
+                      </button>
+                    ))}
+                  </div>
+                );
                 return (
                   <div>
                     <div className="flex items-center gap-2">
@@ -658,29 +680,35 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
                             />
                             <InfinityIcon size={10} className="text-accent-purple" /> Max de reps
                           </label>
-                          {ex.dropSet && (
-                            <>
-                              <input
-                                type="number"
-                                value={Math.round((ex.dropSet.stepPercentage ?? 0.15) * 100)}
-                                onChange={e => updateExercise(ei, 'dropSet', { ...ex.dropSet, stepPercentage: (parseFloat(e.target.value) || 0) / 100 })}
-                                className="w-10 bg-secondary text-foreground rounded-md px-1 py-1 text-[10px] text-center outline-none"
-                                aria-label={`Pourcentage de réduction par palier de drop set, ${ex.name || 'exercice'}`}
-                              />
-                              <span className="text-[10px] text-muted-foreground">% / palier</span>
-                              <input
-                                type="number"
-                                value={ex.dropSet.stepReps ?? 2}
-                                onChange={e => updateExercise(ei, 'dropSet', { ...ex.dropSet, stepReps: parseInt(e.target.value) || 0 })}
-                                className="w-8 bg-secondary text-foreground rounded-md px-1 py-1 text-[10px] text-center outline-none"
-                                aria-label={`Répétitions en moins par palier de drop set, ${ex.name || 'exercice'}`}
-                              />
-                              <span className="text-[10px] text-muted-foreground">reps / palier</span>
-                            </>
-                          )}
+                          {supersetTriggerButton}
                         </>
                       )}
                     </div>
+                    {/* Own line, amber like the Drop set toggle above — sharing the wrap
+                        with Méthode/Max de reps read as unrelated overflow, not "these two
+                        numbers configure Drop set". */}
+                    {!methodType && ex.dropSet && (
+                      <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
+                        <TrendingDown size={10} className="text-warning shrink-0" />
+                        <input
+                          type="number"
+                          value={Math.round((ex.dropSet.stepPercentage ?? 0.15) * 100)}
+                          onChange={e => updateExercise(ei, 'dropSet', { ...ex.dropSet, stepPercentage: (parseFloat(e.target.value) || 0) / 100 })}
+                          className="w-10 bg-warning/10 text-warning rounded-md px-1 py-1 text-[10px] text-center outline-none"
+                          aria-label={`Pourcentage de réduction par palier de drop set, ${ex.name || 'exercice'}`}
+                        />
+                        <span className="text-[10px] text-warning">% / palier</span>
+                        <input
+                          type="number"
+                          value={ex.dropSet.stepReps ?? 2}
+                          onChange={e => updateExercise(ei, 'dropSet', { ...ex.dropSet, stepReps: parseInt(e.target.value) || 0 })}
+                          className="w-8 bg-warning/10 text-warning rounded-md px-1 py-1 text-[10px] text-center outline-none"
+                          aria-label={`Répétitions en moins par palier de drop set, ${ex.name || 'exercice'}`}
+                        />
+                        <span className="text-[10px] text-warning">reps / palier</span>
+                      </div>
+                    )}
+                    {!methodType && supersetPickerChips}
 
                     {isExpanded && (
                       <div className="mt-1.5">
@@ -722,23 +750,13 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
                       </div>
                     )}
 
-                    {!ex.supersetGroupId && freePartners.length > 0 && (
-                      <details className="mt-1.5">
-                        <summary className="text-[10px] text-muted-foreground cursor-pointer flex items-center gap-1 py-0.5">
-                          <Link2 size={10} /> Associer en superset
-                        </summary>
-                        <div className="flex flex-wrap gap-1 pt-1">
-                          {freePartners.map(p => (
-                            <button
-                              key={p.id}
-                              onClick={() => linkExerciseSuperset(ex.id, p.id)}
-                              className="text-[10px] bg-secondary hover:bg-primary/20 text-foreground px-2 py-1 rounded-md"
-                            >
-                              + {p.name || 'Sans nom'}
-                            </button>
-                          ))}
-                        </div>
-                      </details>
+                    {/* Method-active exercises have no "no method" row to join, so the
+                        trigger gets its own small line here instead. */}
+                    {methodType && (
+                      <div className="mt-1.5">
+                        {supersetTriggerButton}
+                        {supersetPickerChips}
+                      </div>
                     )}
                   </div>
                 );
@@ -871,19 +889,8 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
               </button>
             ))}
           </div>
-          <div className="flex items-center gap-3">
-            <input
-              type="number"
-              value={heightCm}
-              onChange={e => setHeightCm(e.target.value)}
-              className="flex-1 bg-secondary text-foreground rounded-xl px-3 py-2.5 text-sm outline-none font-mono text-center"
-              placeholder="Taille, ex. 165"
-              aria-label="Taille (cm)"
-            />
-            <span className="text-sm text-muted-foreground">cm</span>
-          </div>
           <p className="text-[10px] text-muted-foreground mt-2">
-            Utilisés pour comparer tes performances au record de France et à ton niveau (percentile), dans l'historique d'un exercice. Modifiable à tout moment dans Réglages.
+            Utilisé pour comparer tes performances au record de France et à ton niveau (percentile), dans l'historique d'un exercice. Modifiable à tout moment dans Réglages.
           </p>
         </div>
 

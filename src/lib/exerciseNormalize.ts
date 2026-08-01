@@ -103,12 +103,26 @@ const RULES: NormalizationRule[] = [
     keywords: ['front squat', 'squat avant'],
   },
   {
+    // Isolated from bilateral Leg press / Hack Squat, same principle as the other Squat
+    // variants above — one leg at a time isn't comparable load-wise. Must come BEFORE the
+    // Hack Squat rule below: "single leg press" contains "leg press" as a bounded
+    // substring and would otherwise match that rule's keyword first.
+    canonical: 'Leg press unilatéral',
+    baseLabel: 'Leg press unilatéral',
+    prTracked: false,
+    keywords: ['single leg press', 'single press', 'leg press unilateral', 'leg press unilatéral'],
+  },
+  {
     canonical: 'Hack Squat',
     baseLabel: 'Hack Squat',
     prTracked: false,
     // Squat pendulum machine lands here too — it's a fixed-path machine squat like hack
     // squat, its loads aren't comparable to free-weight Squat despite the shared name.
-    keywords: ['hack squat', 'squat pendule', 'pendulum squat'],
+    // Leg press too — she logs it interchangeably with hack squat (whichever machine is
+    // free at the gym), originally under the combined exercise name "Hack squat ou leg
+    // press"; renaming a session's exercise to just "Leg press" must still land in the
+    // same bucket, or its history silently looks empty.
+    keywords: ['hack squat', 'squat pendule', 'pendulum squat', 'leg press', 'legpress', 'presse a cuisses', 'presse cuisses'],
   },
   {
     canonical: 'Goblet Squat',

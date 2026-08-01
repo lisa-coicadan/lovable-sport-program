@@ -5,7 +5,8 @@
       "name": "app-muscu-dev",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
-      "port": 8080
+      "port": 8080,
+      "autoPort": true
     },
     {
       "name": "app-muscu-preview",

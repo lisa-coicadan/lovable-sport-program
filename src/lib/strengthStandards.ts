@@ -3,7 +3,7 @@ import { Gender } from './types';
 // Static reference data supplied by Lisa (records_et_standards_complet.xlsx, generated
 // from public sources — FFForce / StreetLiftings.fr). No backend: this is bundled with
 // the app like any other constant, compared locally against her own bodyweight/gender
-// (src/lib/types.ts AppData.gender/heightCm), nothing leaves the device.
+// (src/lib/types.ts AppData.gender), nothing leaves the device.
 
 // Movement keys match the canonical `base` names produced by
 // src/lib/exerciseNormalize.ts's splitEquipmentVariant — only the barbell/no-equipment

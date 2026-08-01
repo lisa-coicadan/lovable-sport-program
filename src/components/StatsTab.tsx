@@ -36,8 +36,11 @@ const mondayOf = (d: Date): Date => {
   return m;
 };
 
-const formatHM = (mins: number) => {
-  if (!mins || mins <= 0) return '0min';
+const formatHM = (minsRaw: number) => {
+  if (!minsRaw || minsRaw <= 0) return '0min';
+  // Cardio's durationMinutes is a float (min + sec/60) — rounded here so a session
+  // mixing strength (whole minutes) and cardio doesn't produce "1h32.5".
+  const mins = Math.round(minsRaw);
   const h = Math.floor(mins / 60);
   const m = mins % 60;
   if (h === 0) return `${m}min`;
@@ -183,7 +186,12 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession }: StatsTabProps) => 
       const key = mondayOf(new Date(s.date + 'T00:00:00')).toISOString().split('T')[0];
       countByWeek.set(key, (countByWeek.get(key) || 0) + 1);
     });
-    return weekRangeMondays(weeklyRange, data.sessions.map(s => s.date)).map(m => {
+    (data.cardioSessions || []).forEach(s => {
+      const key = mondayOf(new Date(s.date + 'T00:00:00')).toISOString().split('T')[0];
+      countByWeek.set(key, (countByWeek.get(key) || 0) + 1);
+    });
+    const allDates = [...data.sessions.map(s => s.date), ...(data.cardioSessions || []).map(s => s.date)];
+    return weekRangeMondays(weeklyRange, allDates).map(m => {
       const key = m.toISOString().split('T')[0];
       return {
         week: m.toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' }),
@@ -191,7 +199,7 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession }: StatsTabProps) => 
         goal: data.weeklyGoal,
       };
     });
-  }, [data.sessions, data.weeklyGoal, weeklyRange]);
+  }, [data.sessions, data.cardioSessions, data.weeklyGoal, weeklyRange]);
 
   // Tonnage per session (filterable by session NAME + time range — grouped by name rather
   // than by workoutTypeId so that e.g. "Push" from an older program and "Push" from the
@@ -256,7 +264,11 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession }: StatsTabProps) => 
         isCardio: p.isCardio,
       }));
   }, [data, difficultyRange, difficultySourceFilter]);
-  const difficultyProgramColors = useMemo(() => programColorFor(difficultyData, 1), [difficultyData]);
+  // startIndex 2 (not 1): index 0 is reserved for cardio's hardcoded cyan dot color above,
+  // and index 1 is the exact violet the line itself is stroked with — without skipping it
+  // too, a single-program view's dots become the same hue as the line they sit on and
+  // nearly disappear into it.
+  const difficultyProgramColors = useMemo(() => programColorFor(difficultyData, 2), [difficultyData]);
 
   const cardioActivityTypesPresent = useMemo(() => {
     const set = new Set<CardioActivityType>();
@@ -554,7 +566,7 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession }: StatsTabProps) => 
               <XAxis dataKey="week" tick={chartStyle} axisLine={false} tickLine={false} />
               <YAxis tick={chartStyle} axisLine={false} tickLine={false} width={30} allowDecimals={false} />
               <Tooltip contentStyle={tooltipStyle} labelStyle={{ color: 'hsl(0 0% 95%)' }} />
-              <ReferenceLine y={data.weeklyGoal} stroke="hsl(38 92% 52%)" strokeDasharray="4 4" strokeWidth={1.5} />
+              <ReferenceLine y={data.weeklyGoal + (data.cardioWeeklyGoal ?? 2)} stroke="hsl(38 92% 52%)" strokeDasharray="4 4" strokeWidth={1.5} />
               <Bar
                 dataKey="sessions"
                 fill="hsl(189 94% 55%)"
@@ -620,6 +632,9 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession }: StatsTabProps) => 
                           {/* Invisible larger circle as the real tap target — the visible
                               3px dot alone is far too small to hit reliably with a thumb. */}
                           <circle cx={props.cx} cy={props.cy} r={14} fill="transparent" />
+                          {/* Light ring so a dot still pops even when its color is close to
+                              (or, for a lone program, identical to) the line's own stroke. */}
+                          <circle cx={props.cx} cy={props.cy} r={4} fill="none" stroke="hsl(0 0% 100% / 0.85)" strokeWidth={1.25} />
                           <circle cx={props.cx} cy={props.cy} r={3} fill={`hsl(${color})`} />
                         </g>
                       );
@@ -715,6 +730,9 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession }: StatsTabProps) => 
                         style={{ cursor: 'pointer' }}
                       >
                         <circle cx={props.cx} cy={props.cy} r={14} fill="transparent" />
+                        {/* Light ring so a dot still pops even when its color is close to
+                            (or, for a lone program, identical to) the line's own stroke. */}
+                        <circle cx={props.cx} cy={props.cy} r={4} fill="none" stroke="hsl(0 0% 100% / 0.85)" strokeWidth={1.25} />
                         <circle cx={props.cx} cy={props.cy} r={3} fill={`hsl(${color})`} />
                       </g>
                     );

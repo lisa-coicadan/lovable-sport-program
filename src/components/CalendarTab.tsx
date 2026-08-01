@@ -403,7 +403,7 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession, onDe
                   <>
                     <div className="absolute inset-0 rounded-xl border-2 border-accent-blue pointer-events-none" />
                     <div className="absolute top-0.5 right-0.5 w-3.5 h-3.5 rounded-full bg-accent-blue flex items-center justify-center pointer-events-none">
-                      <Icon size={8} strokeWidth={2.5} className="text-white" />
+                      <Icon size={8} strokeWidth={2.5} className="text-black" />
                     </div>
                   </>
                 );
