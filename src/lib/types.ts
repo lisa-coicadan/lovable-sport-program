@@ -4,6 +4,15 @@ export interface FiveThreeOneMethod {
   currentCycle: number;
   currentWeek: number; // 1-4
   increment?: number; // kg added to the TM at the end of each 4-week cycle (default 2.5)
+  // Set when a deload recommendation forces this exercise straight to week 4 out of its
+  // normal order (see src/lib/deload.ts) — remembers which week to resume once that
+  // forced week is completed, instead of treating it as a natural cycle-end (which would
+  // wrongly advance the cycle and bump the Training Max). Cleared once consumed.
+  deloadResumeWeek?: number;
+  // Set after resuming from a forced deload: the next NATURAL week 4 is skipped (jumps
+  // straight into a new cycle instead) so two deloads don't land within the same stretch.
+  // Cleared once consumed.
+  skipNextDeload?: boolean;
 }
 
 // One mini-series within a cluster series: its own rep count and its own %TM,
@@ -122,6 +131,10 @@ export interface SessionLog {
   // Optional/sparse: only exercises she actually rated are present.
   exerciseDifficulty?: Record<string, number>;
   notes?: string;
+  // Set at save time when this session's workoutTypeId was still pending in an active
+  // deload (see src/lib/deload.ts) — surfaces the orange "Deload" highlight in Calendrier
+  // for this specific day, independently of whatever deload state is active *now*.
+  isDeload?: boolean;
 }
 
 // @deprecated legacy global 5/3/1 config, replaced by Exercise.method. Kept only so
@@ -158,6 +171,25 @@ export interface CardioSession {
 
 export type Gender = 'F' | 'H';
 
+// Deload week recommendation (see src/lib/deload.ts for the detection/application logic).
+// Tracked globally (not per-program): one recommendation/active deload at a time.
+export type DeloadType = 'charges' | 'volume' | 'both';
+export type DeloadIntensity = 'light' | 'medium';
+
+export interface DeloadState {
+  // Present while a deload is in progress: the workout types it applies to haven't all
+  // been completed once yet. Cleared automatically (and lastDeloadCompletedAt stamped)
+  // once pendingWorkoutTypeIds empties out — no user action needed.
+  active?: {
+    type: DeloadType;
+    intensity: DeloadIntensity;
+    pendingWorkoutTypeIds: string[]; // snapshot of activeTypes ids at acceptance; shrinks as each is completed once
+    acceptedAt: string; // ISO date
+  };
+  lastDeloadCompletedAt?: string; // ISO date — anchors the "4 weeks since last deload" criterion
+  dismissedUntil?: string; // ISO date — set by "Ignorer", snoozes the banner for 7 days
+}
+
 export interface AppData {
   workoutTypes: WorkoutType[];
   sessions: SessionLog[];
@@ -183,6 +215,7 @@ export interface AppData {
   // in src/lib/storage.ts). A doubled value is indistinguishable in shape from one
   // already on /10, so this flag is the only way to make the migration idempotent.
   rpeScaleV2?: boolean;
+  deload?: DeloadState;
 }
 
 export const WORKOUT_COLORS = [

@@ -550,6 +550,23 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
     setWorkoutTypes(updated);
   };
 
+  // 5/3/1 exercises always share the same week/cycle (see src/lib/deload.ts and
+  // WorkoutTab's handleSummaryComplete, which advance them all in lockstep) — a manual
+  // override here must propagate to every 5/3/1 exercise app-wide too, not just the one
+  // whose buttons she tapped, or they'd immediately fall back out of sync. Training Max
+  // stays untouched (per-exercise), and any pending forced-deload bookkeeping is cleared
+  // since a manual edit supersedes it.
+  const syncFiveThreeOneWeekCycle = (currentWeek: number, currentCycle: number) => {
+    setWorkoutTypes(prev => prev.map(t => ({
+      ...t,
+      exercises: t.exercises.map(ex =>
+        ex.method?.type === '531'
+          ? { ...ex, method: { ...ex.method, currentWeek, currentCycle, deloadResumeWeek: undefined, skipNextDeload: undefined } }
+          : ex
+      ),
+    })));
+  };
+
   const linkExerciseSuperset = (typeIndex: number, exId: string, partnerId: string) => {
     const updated = [...workoutTypes];
     updated[typeIndex].exercises = linkSuperset(updated[typeIndex].exercises, exId, partnerId);
@@ -1057,7 +1074,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                     <span className="text-[10px] text-muted-foreground block mb-1">Cycle actuel</span>
                                     <div className="flex items-center gap-2">
                                       <button
-                                        onClick={() => updateExerciseMethod(ti, exIdx, { ...method531, currentCycle: Math.max(1, method531.currentCycle - 1) })}
+                                        onClick={() => syncFiveThreeOneWeekCycle(method531.currentWeek, Math.max(1, method531.currentCycle - 1))}
                                         className="bg-background/60 text-foreground rounded-lg w-9 h-9 text-base font-bold touch-target"
                                         aria-label="Cycle précédent"
                                       >
@@ -1065,7 +1082,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                       </button>
                                       <span className="text-foreground text-base font-bold flex-1 text-center">{method531.currentCycle}</span>
                                       <button
-                                        onClick={() => updateExerciseMethod(ti, exIdx, { ...method531, currentCycle: method531.currentCycle + 1 })}
+                                        onClick={() => syncFiveThreeOneWeekCycle(method531.currentWeek, method531.currentCycle + 1)}
                                         className="bg-background/60 text-foreground rounded-lg w-9 h-9 text-base font-bold touch-target"
                                         aria-label="Cycle suivant"
                                       >
@@ -1079,7 +1096,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                       {[1, 2, 3, 4].map(w => (
                                         <button
                                           key={w}
-                                          onClick={() => updateExerciseMethod(ti, exIdx, { ...method531, currentWeek: w })}
+                                          onClick={() => syncFiveThreeOneWeekCycle(w, method531.currentCycle)}
                                           className={`flex-1 py-2 rounded-lg text-xs font-medium transition-all ${
                                             method531.currentWeek === w ? 'bg-primary text-primary-foreground' : 'bg-background/60 text-muted-foreground'
                                           }`}

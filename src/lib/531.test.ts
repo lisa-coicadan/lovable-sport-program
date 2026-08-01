@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getWeekSets, getWeekLabel } from './531';
+import { getWeekSets, getWeekLabel, computeNextFiveThreeOneWeekState } from './531';
 
 describe('getWeekSets', () => {
   it('computes week 1 (5s) sets rounded to nearest 2.5kg', () => {
@@ -49,5 +49,34 @@ describe('getWeekLabel', () => {
 
   it('falls back to week 1 label for an out-of-range week', () => {
     expect(getWeekLabel(9)).toBe('Semaine 1 — 5 reps');
+  });
+});
+
+describe('computeNextFiveThreeOneWeekState', () => {
+  it('advances week normally within a cycle', () => {
+    expect(computeNextFiveThreeOneWeekState({ currentWeek: 1, currentCycle: 2 }))
+      .toEqual({ currentWeek: 2, currentCycle: 2, cycleAdvanced: false });
+    expect(computeNextFiveThreeOneWeekState({ currentWeek: 2, currentCycle: 2 }))
+      .toEqual({ currentWeek: 3, currentCycle: 2, cycleAdvanced: false });
+  });
+
+  it('advances to a new cycle after the natural week 4', () => {
+    expect(computeNextFiveThreeOneWeekState({ currentWeek: 4, currentCycle: 2 }))
+      .toEqual({ currentWeek: 1, currentCycle: 3, cycleAdvanced: true });
+  });
+
+  it('resumes the saved week instead of advancing the cycle after a forced deload', () => {
+    expect(computeNextFiveThreeOneWeekState({ currentWeek: 4, currentCycle: 2, deloadResumeWeek: 2 }))
+      .toEqual({ currentWeek: 2, currentCycle: 2, skipNextDeload: true, cycleAdvanced: false });
+  });
+
+  it('skips the next natural week 4 and jumps to a new cycle when resuming from week 3', () => {
+    expect(computeNextFiveThreeOneWeekState({ currentWeek: 3, currentCycle: 2, skipNextDeload: true }))
+      .toEqual({ currentWeek: 1, currentCycle: 3, skipNextDeload: false, cycleAdvanced: true });
+  });
+
+  it('carries skipNextDeload forward untouched until week 3 is reached', () => {
+    expect(computeNextFiveThreeOneWeekState({ currentWeek: 2, currentCycle: 2, skipNextDeload: true }))
+      .toEqual({ currentWeek: 3, currentCycle: 2, skipNextDeload: true, cycleAdvanced: false });
   });
 });

@@ -1,12 +1,17 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { AppData, WorkoutType, SetLog, SessionLog, FiveThreeOneMethod, ClusterMethod, EMOMMethod, ExerciseMethod, Exercise, calculate1RM, CardioSession, CardioActivityType } from '@/lib/types';
-import { getWeekSets, getWeekLabel } from '@/lib/531';
+import { AppData, WorkoutType, SetLog, SessionLog, FiveThreeOneMethod, ClusterMethod, EMOMMethod, ExerciseMethod, Exercise, calculate1RM, CardioSession, CardioActivityType, DeloadType, DeloadIntensity } from '@/lib/types';
+import { getWeekSets, getWeekLabel, computeNextFiveThreeOneWeekState } from '@/lib/531';
 import { getClusterConfig, getMiniSeriesWeight } from '@/lib/cluster';
 import { getEmomConfig, getEmomWeight } from '@/lib/emom';
 import { buildExerciseBlocks } from '@/lib/superset';
 import { isBodyweightOptionalExercise, weightFieldValue } from '@/lib/exerciseNormalize';
 import { getDropSetConfig, getDropSetStage } from '@/lib/dropset';
 import { compareCardioSession, formatCardioDuration, formatPace } from '@/lib/cardio';
+import {
+  shouldShowDeloadRecommendation, DeloadCriteria, buildDeloadAcceptPatch, buildDeloadDismissPatch,
+  consumeDeloadOnSessionSave, getDeloadTargetWorkoutTypes, applyDeloadToWeight, applyDeloadToTrainingMax,
+  getDeloadSetCount, shouldReduceSets,
+} from '@/lib/deload';
 import RestTimer, { RestTimerHandle } from './RestTimer';
 import EmomTimer from './EmomTimer';
 import ExerciseHistory from './ExerciseHistory';
@@ -160,6 +165,11 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
   // set can cascade from ANY regular series, not just the last one, so tapping "Drop
   // set" opens a small chip picker instead of assuming a fixed anchor.
   const [dropSetPickerFor, setDropSetPickerFor] = useState<string | null>(null);
+  // Type/Intensity popup shown after tapping "Accepter" on the deload recommendation
+  // banner — defaults match the spec's "(recommandé)" picks.
+  const [deloadPopupOpen, setDeloadPopupOpen] = useState(false);
+  const [deloadTypeDraft, setDeloadTypeDraft] = useState<DeloadType>('both');
+  const [deloadIntensityDraft, setDeloadIntensityDraft] = useState<DeloadIntensity>('medium');
   const restTimerRef = useRef<RestTimerHandle>(null);
 
   // Cardio logging is a simple after-the-fact form (not an interactive session like the
@@ -363,18 +373,34 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     const lastWeights = getLastSessionWeights(type.id, type.exercises);
     const initialSets: SetLog[] = [];
 
+    // 5/3/1 exercises are never adjusted here: their deload is applied by forcing
+    // currentWeek straight to 4 at accept time (buildDeloadAcceptPatch), so they just read
+    // like any other week by the time a session actually starts. Cluster/EMOM only ever
+    // get a charge (Training Max) cut, never a volume one (no clean equivalent — see
+    // getDeloadSetCount's doc comment); regular exercises get whichever of the two the
+    // chosen deload type calls for.
+    const deloadActive = data.deload?.active;
+    const isDeloadPending = !!deloadActive?.pendingWorkoutTypeIds.includes(type.id);
+    const deloadReduceCharge = isDeloadPending && deloadActive!.type !== 'volume';
+    const deloadReduceSets = isDeloadPending && shouldReduceSets(deloadActive!.type);
+    const deloadWeight = (w: number) => deloadReduceCharge ? applyDeloadToWeight(w, deloadActive!.type, deloadActive!.intensity) : w;
+    const deloadSets = (n: number) => deloadReduceSets ? getDeloadSetCount(n, deloadActive!.intensity) : n;
+
     const exerciseMap = new Map(type.exercises.map(e => [e.id, e]));
     buildExerciseBlocks(type.exercises).forEach(block => {
       if (block.isSuperset) {
         const a = exerciseMap.get(block.exerciseIds[0])!;
         const b = exerciseMap.get(block.exerciseIds[1])!;
-        for (let i = 0; i < a.sets; i++) {
+        const sharedSets = deloadSets(a.sets);
+        const aWeight = deloadWeight(lastWeights[a.id] || a.weight || 0);
+        const bWeight = deloadWeight(lastWeights[b.id] || b.weight || 0);
+        for (let i = 0; i < sharedSets; i++) {
           initialSets.push({
             exerciseId: a.id,
             exerciseName: a.name,
             setNumber: i + 1,
             reps: a.amrap ? 0 : a.reps,
-            weight: lastWeights[a.id] || a.weight || 0,
+            weight: aWeight,
             completed: false,
             supersetGroupId: a.supersetGroupId,
             supersetRole: 'A',
@@ -385,7 +411,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
             exerciseName: b.name,
             setNumber: i + 1,
             reps: b.amrap ? 0 : b.reps,
-            weight: lastWeights[b.id] || b.weight || 0,
+            weight: bWeight,
             completed: false,
             supersetGroupId: b.supersetGroupId,
             supersetRole: 'B',
@@ -397,7 +423,19 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
         // live picker to switch Cluster/EMOM/Normal only appears once inside the session.
         const ex = exerciseMap.get(block.exerciseIds[0])!;
         const lastWeight = lastWeights[ex.id] || 0;
-        const exSets = buildSetsForExercise(ex, ex.method, lastWeight);
+        let effectiveEx = ex;
+        let effectiveWeight = lastWeight;
+        if (isDeloadPending && ex.method?.type !== '531') {
+          if (ex.method?.type === 'cluster' || ex.method?.type === 'emom') {
+            if (deloadReduceCharge) {
+              effectiveEx = { ...ex, method: { ...ex.method, trainingMax: applyDeloadToTrainingMax(ex.method.trainingMax, deloadActive!.type, deloadActive!.intensity) } };
+            }
+          } else if (!ex.method) {
+            effectiveWeight = deloadWeight(lastWeight);
+            effectiveEx = { ...ex, sets: deloadSets(ex.sets) };
+          }
+        }
+        const exSets = buildSetsForExercise(effectiveEx, effectiveEx.method, effectiveWeight);
         initialSets.push(...exSets);
         // Pre-configured drop set (Settings): auto-cascade stage 1 below the last
         // regular set so it's ready without having to tap "+ Drop set" first.
@@ -688,29 +726,55 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
   };
 
   const handleSummaryComplete = (session: SessionLog) => {
-    onSaveSession(session);
+    // Stamped here (not in finishWorkout) so it reflects whether this workout type was
+    // still pending in the active deload at the moment it's actually saved — powers the
+    // orange "Deload" day highlight in Calendrier (see consumeDeloadOnSessionSave below
+    // for how the pending list itself is shrunk).
+    const wasDeloadPending = !!data.deload?.active?.pendingWorkoutTypeIds.includes(session.workoutTypeId);
+    const finalSession = wasDeloadPending ? { ...session, isDeload: true } : session;
+    onSaveSession(finalSession);
+
+    const updatePatch: { workoutTypes?: WorkoutType[]; deload?: AppData['deload'] } = {};
 
     if (selectedType) {
       const progressed = selectedType.exercises.filter(
         ex => ex.method?.type === '531' && session.sets.some(s => s.exerciseId === ex.id)
       );
       if (progressed.length > 0) {
-        const workoutTypes = data.workoutTypes.map(t => {
-          if (t.id !== selectedType.id) return t;
-          return {
-            ...t,
-            exercises: t.exercises.map(ex => {
-              if (ex.method?.type !== '531' || !progressed.some(p => p.id === ex.id)) return ex;
-              const m = ex.method;
-              const next: FiveThreeOneMethod = m.currentWeek < 4
-                ? { ...m, currentWeek: m.currentWeek + 1 }
-                : { ...m, currentCycle: m.currentCycle + 1, currentWeek: 1, trainingMax: m.trainingMax + (m.increment ?? 2.5) };
-              return { ...ex, method: next };
-            }),
-          };
-        });
-        onUpdateData({ workoutTypes });
+        // All 5/3/1 exercises across the whole app are kept in lockstep on the same
+        // week/cycle (never independently drifting) — advancing from whichever exercise
+        // was actually progressed today is applied to every 5/3/1 exercise, not just the
+        // ones in this session. Training Max stays per-exercise (each lift has its own),
+        // only bumped for a given exercise when the shared cycle actually advances.
+        const shared = computeNextFiveThreeOneWeekState(progressed[0].method as FiveThreeOneMethod);
+        updatePatch.workoutTypes = data.workoutTypes.map(t => ({
+          ...t,
+          exercises: t.exercises.map(ex => {
+            if (ex.method?.type !== '531') return ex;
+            const m = ex.method;
+            return {
+              ...ex,
+              method: {
+                ...m,
+                currentWeek: shared.currentWeek,
+                currentCycle: shared.currentCycle,
+                deloadResumeWeek: shared.deloadResumeWeek,
+                skipNextDeload: shared.skipNextDeload,
+                trainingMax: shared.cycleAdvanced ? m.trainingMax + (m.increment ?? 2.5) : m.trainingMax,
+              },
+            };
+          }),
+        }));
       }
+    }
+
+    if (wasDeloadPending) {
+      const { deload } = consumeDeloadOnSessionSave(data, session.workoutTypeId);
+      updatePatch.deload = deload;
+    }
+
+    if (updatePatch.workoutTypes || updatePatch.deload) {
+      onUpdateData(updatePatch);
     }
 
     setMode('select');
@@ -776,6 +840,8 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
         .filter(ex => ex.method?.type === '531')
         .map(ex => ({ type, exercise: ex, method: ex.method as FiveThreeOneMethod }))
     );
+    const deloadRec = shouldShowDeloadRecommendation(data);
+    const pendingDeloadIds = data.deload?.active?.pendingWorkoutTypeIds;
     return (
       <>
       <div className="px-4 pt-12 pb-24 animate-slide-up">
@@ -809,6 +875,38 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
             >
               Aujourd'hui
             </button>
+          </div>
+        )}
+
+        {/* Deload recommendation — see src/lib/deload.ts for the trigger criteria. Shown
+            above the 5/3/1 block so it's the first thing she sees on this screen. */}
+        {deloadRec.show && (
+          <div className="bg-warning/10 border border-warning/30 rounded-xl p-4 mb-4">
+            <p className="text-sm font-semibold text-warning mb-2">
+              💪 Une semaine de récupération est recommandée
+            </p>
+            <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold mb-1.5">Pourquoi ?</p>
+            <ul className="space-y-1 mb-3">
+              {deloadRec.criteria.reasons.map((reason, i) => (
+                <li key={i} className="text-xs text-foreground/90 flex items-start gap-1.5">
+                  <Check size={12} className="text-warning shrink-0 mt-0.5" /> {reason}
+                </li>
+              ))}
+            </ul>
+            <div className="flex gap-2">
+              <button
+                onClick={() => onUpdateData({ deload: buildDeloadDismissPatch(data) })}
+                className="flex-1 bg-secondary text-secondary-foreground font-medium py-2 rounded-lg text-xs touch-target"
+              >
+                Ignorer
+              </button>
+              <button
+                onClick={() => { setDeloadTypeDraft('both'); setDeloadIntensityDraft('medium'); setDeloadPopupOpen(true); }}
+                className="flex-1 btn-neon font-medium py-2 rounded-lg text-xs touch-target"
+              >
+                Accepter
+              </button>
+            </div>
           </div>
         )}
 
@@ -854,11 +952,16 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
           </div>
         ) : (
         <div className="space-y-2">
-          {activeTypes.map(type => (
-            <div key={type.id} className="glass-card p-4">
+          {activeTypes.map(type => {
+            const isDeloadPending = !!pendingDeloadIds?.includes(type.id);
+            return (
+            <div key={type.id} className={`glass-card p-4 ${isDeloadPending ? 'border-warning/40 bg-warning/5' : ''}`}>
               <div className="flex items-center gap-3 mb-3">
                 <div className="w-3 h-3 rounded-full" style={{ backgroundColor: `hsl(${type.color})` }} />
                 <span className="text-foreground font-semibold flex-1">{type.name}</span>
+                {isDeloadPending && (
+                  <span className="text-[10px] font-medium text-warning bg-warning/10 px-2 py-0.5 rounded-full">Deload</span>
+                )}
                 {type.exercises.some(e => e.method?.type === '531') && (
                   <span className="text-[10px] font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-full">5/3/1</span>
                 )}
@@ -879,7 +982,8 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                 <Check size={14} /> Démarrer la séance
               </button>
             </div>
-          ))}
+            );
+          })}
         </div>
         )}
 
@@ -904,6 +1008,81 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
           />
           {selectedType && <RestTimer ref={restTimerRef} defaultSeconds={restDuration} />}
         </>
+      )}
+      {deloadPopupOpen && (
+        <div
+          className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-6 animate-fade-in"
+          onClick={() => setDeloadPopupOpen(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="deload-popup-title"
+            className="glass-card p-6 max-w-sm w-full"
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 id="deload-popup-title" className="text-lg font-bold text-foreground mb-4">Semaine de récupération</h3>
+
+            <p className="text-xs text-muted-foreground mb-2">Type de deload</p>
+            <div className="space-y-2 mb-4">
+              {([
+                { value: 'charges', label: 'Diminuer les charges' },
+                { value: 'volume', label: 'Diminuer le volume' },
+                { value: 'both', label: 'Les deux (recommandé)' },
+              ] as { value: DeloadType; label: string }[]).map(opt => (
+                <button
+                  key={opt.value}
+                  onClick={() => setDeloadTypeDraft(opt.value)}
+                  className={`w-full flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm text-left transition-colors touch-target ${
+                    deloadTypeDraft === opt.value ? 'bg-warning/15 text-warning border border-warning/40' : 'bg-secondary text-foreground border border-transparent'
+                  }`}
+                  aria-pressed={deloadTypeDraft === opt.value}
+                >
+                  <span className={`w-4 h-4 rounded-full border-2 shrink-0 ${deloadTypeDraft === opt.value ? 'border-warning bg-warning' : 'border-muted-foreground'}`} />
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+
+            <p className="text-xs text-muted-foreground mb-2">Intensité</p>
+            <div className="space-y-2 mb-6">
+              {([
+                { value: 'light', label: 'Léger' },
+                { value: 'medium', label: 'Moyen (recommandé)' },
+              ] as { value: DeloadIntensity; label: string }[]).map(opt => (
+                <button
+                  key={opt.value}
+                  onClick={() => setDeloadIntensityDraft(opt.value)}
+                  className={`w-full flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm text-left transition-colors touch-target ${
+                    deloadIntensityDraft === opt.value ? 'bg-warning/15 text-warning border border-warning/40' : 'bg-secondary text-foreground border border-transparent'
+                  }`}
+                  aria-pressed={deloadIntensityDraft === opt.value}
+                >
+                  <span className={`w-4 h-4 rounded-full border-2 shrink-0 ${deloadIntensityDraft === opt.value ? 'border-warning bg-warning' : 'border-muted-foreground'}`} />
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setDeloadPopupOpen(false)}
+                className="flex-1 bg-secondary text-secondary-foreground font-medium py-2.5 rounded-xl text-sm touch-target"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={() => {
+                  onUpdateData(buildDeloadAcceptPatch(data, deloadTypeDraft, deloadIntensityDraft));
+                  setDeloadPopupOpen(false);
+                }}
+                className="flex-1 btn-neon font-medium py-2.5 rounded-xl text-sm touch-target"
+              >
+                Confirmer
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       </>
     );
@@ -1996,13 +2175,11 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
         className="fixed inset-0 bg-black/60 z-50 overflow-y-auto animate-fade-in"
         onClick={() => setReminderNoteEditor(null)}
       >
-        {/* min-h-full + the scrollable overlay above (not a plain flex-centered fixed
-            div) so the card stays reachable even when the keyboard's own accessory bar
-            (prev/next + done, above the keyboard itself) eats into the space `interactive-
-            widget=resizes-content` already carved out — that resize alone isn't always
-            enough to keep a bottom-flush card's buttons clear of it, and this makes the
-            worst case "scroll a bit" instead of "button unreachable". */}
-        <div className="min-h-full flex items-end sm:items-center justify-center p-6 pb-16 sm:pb-6">
+        {/* Centered (not bottom-anchored) now that BottomTabBar hides itself whenever a
+            text field is focused (see Index.tsx) — the keyboard accessory bar no longer
+            has anything to collide with. min-h-full + overflow-y-auto on the parent is
+            kept so the card stays scrollable into view on very short viewports. */}
+        <div className="min-h-full flex items-center justify-center p-6">
           <div
             role="dialog"
             aria-modal="true"
@@ -2049,7 +2226,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
 
     {difficultyEditor && (
       <div
-        className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-6 animate-fade-in"
+        className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-6 animate-fade-in"
         onClick={() => setDifficultyEditor(null)}
       >
         <div

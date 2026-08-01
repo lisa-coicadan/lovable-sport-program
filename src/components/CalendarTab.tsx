@@ -376,6 +376,7 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession, onDe
           const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
           const sessions = sessionsByDate[dateStr] || [];
           const cardioSessions = cardioByDate[dateStr] || [];
+          const hasDeload = sessions.some(s => s.isDeload);
           const isToday = dateStr === today;
           const dayLabel = new Date(dateStr + 'T00:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
           const sessionsLabel = sessions.length === 0
@@ -392,7 +393,10 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession, onDe
                 isToday && sessions.length === 0 ? 'bg-primary/20 ring-1 ring-primary' : isToday ? 'ring-1 ring-primary' : 'active:bg-secondary'
               }`}
               style={sessions.length > 0 ? {
-                backgroundColor: `hsl(${getColorForType(sessions[0].workoutTypeId)} / 0.25)`,
+                // A deload day's own workout-type color would look identical to any other
+                // day and defeat the point of being able to spot recovery weeks at a
+                // glance — orange wins over whatever color that session's type normally is.
+                backgroundColor: hasDeload ? 'hsl(var(--warning) / 0.3)' : `hsl(${getColorForType(sessions[0].workoutTypeId)} / 0.25)`,
               } : undefined}
             >
               {/* Outline rather than a fill so a cardio day can be superimposed on a
@@ -439,6 +443,10 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession, onDe
         <div className="flex items-center gap-1.5">
           <div className="w-2.5 h-2.5 rounded-sm border-2 border-accent-blue" />
           <span className="text-xs text-muted-foreground">Cardio</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="w-2.5 h-2.5 rounded-full bg-warning" />
+          <span className="text-xs text-muted-foreground">Deload</span>
         </div>
       </div>
     </div>
