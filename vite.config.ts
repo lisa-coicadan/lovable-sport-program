@@ -58,6 +58,17 @@ export default defineConfig(({ mode }) => ({
         skipWaiting: true,
         clientsClaim: true,
         navigateFallbackDenylist: [/^\/~oauth/],
+        // Piège restant même avec navigateFallback:null (confirmé en lisant le code source
+        // de workbox-precaching/PrecacheRoute.js) : le SW précache "index.html" et ajoute
+        // une route qui matche explicitement "/" vers cette entrée précachée (résolution
+        // "directoryIndex"), INDÉPENDAMMENT de navigateFallback — ça ne concerne que les
+        // navigations non matchées. Donc "/" restait servi depuis le cache du SW installé,
+        // jamais depuis le réseau, sur reload comme sur réouverture d'icône. C'est aussi ce
+        // qui rendait notre propre check de version (fetch('/') dans PWAUpdatePrompt.tsx)
+        // aveugle : il comparait la version au SW... avec lui-même. On exclut totalement
+        // index.html du précache : plus aucune route SW ne matche "/", il tombe toujours
+        // sur le réseau (fallbackToNetwork, comportement par défaut du PrecacheController).
+        globIgnores: ["**/index.html"],
       },
       manifest: {
         name: "Lisa Muscu",
