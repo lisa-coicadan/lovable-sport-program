@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
-import { AppData, SessionLog, CardioSession, resolveProgramName } from '@/lib/types';
+import { AppData, SessionLog, CardioSession, PlannedSession, resolveProgramName } from '@/lib/types';
 import { ChevronLeft, ChevronRight, Plus, Trash2, X, Activity } from 'lucide-react';
 import { formatCardioDuration, calculatePaceMinPerKm, formatPace, formatCardioDistance } from '@/lib/cardio';
 import SessionDetailView from './SessionDetailView';
@@ -11,9 +11,10 @@ interface CalendarTabProps {
   onUpdateSession: (updated: SessionLog) => void;
   onDeleteSession?: (sessionId: string) => void;
   onDeleteCardioSession?: (cardioSessionId: string) => void;
+  onUpdateData: (partial: Partial<AppData>) => void;
 }
 
-const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession, onDeleteCardioSession }: CalendarTabProps) => {
+const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession, onDeleteCardioSession, onUpdateData }: CalendarTabProps) => {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [viewingSession, setViewingSession] = useState<SessionLog | null>(null);
@@ -61,6 +62,26 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession, onDe
   const getColorForType = (typeId: string) => {
     const wt = data.workoutTypes.find(w => w.id === typeId);
     return wt?.color || '189 94% 55%';
+  };
+
+  const activeWorkoutTypes = data.workoutTypes.filter(
+    t => !t.hidden && (!data.activeProgramId || !t.programId || t.programId === data.activeProgramId)
+  );
+
+  // One planned entry per day — a fresh pick on an already-planned day replaces it.
+  const plannedByDate = useMemo(() => {
+    const map: Record<string, PlannedSession> = {};
+    (data.plannedSessions || []).forEach(p => { map[p.date] = p; });
+    return map;
+  }, [data.plannedSessions]);
+
+  const setPlannedSession = (date: string, workoutTypeId: string) => {
+    const others = (data.plannedSessions || []).filter(p => p.date !== date);
+    onUpdateData({ plannedSessions: [...others, { id: `planned-${Date.now()}`, date, workoutTypeId }] });
+  };
+
+  const removePlannedSession = (date: string) => {
+    onUpdateData({ plannedSessions: (data.plannedSessions || []).filter(p => p.date !== date) });
   };
 
   // Weekly goal
@@ -138,6 +159,8 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession, onDe
     const daySessions = sessionsByDate[selectedDate] || [];
     const dayCardioSessions = cardioByDate[selectedDate] || [];
     const dateLabel = new Date(selectedDate + 'T00:00:00').toLocaleDateString('fr-FR', { weekday: 'long', month: 'long', day: 'numeric' });
+    const isFutureDate = selectedDate > today;
+    const plannedForDay = plannedByDate[selectedDate];
 
     return (
       <div className="px-4 pt-12 pb-24 animate-slide-up">
@@ -294,6 +317,44 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession, onDe
           ))}
         </div>
 
+        {isFutureDate && daySessions.length === 0 && (
+          <div className="glass-card p-4 mb-6">
+            <h3 className="text-sm font-bold text-foreground mb-3">Planifier une séance</h3>
+            {plannedForDay ? (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: `hsl(${getColorForType(plannedForDay.workoutTypeId)})` }} />
+                  <span className="text-sm text-foreground font-medium">
+                    {data.workoutTypes.find(t => t.id === plannedForDay.workoutTypeId)?.name || plannedForDay.workoutTypeId}
+                  </span>
+                </div>
+                <button
+                  onClick={() => removePlannedSession(selectedDate)}
+                  className="text-xs text-muted-foreground underline touch-target px-2 py-1"
+                >
+                  Retirer
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {activeWorkoutTypes.map(wt => (
+                  <button
+                    key={wt.id}
+                    onClick={() => setPlannedSession(selectedDate, wt.id)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-secondary text-xs font-medium text-foreground active:scale-95 transition-transform"
+                  >
+                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: `hsl(${wt.color})` }} />
+                    {wt.name}
+                  </button>
+                ))}
+              </div>
+            )}
+            <p className="text-[11px] text-muted-foreground mt-3">
+              Juste un repère visuel — aucune série n'est enregistrée. Disparaît automatiquement si non réalisée le jour venu.
+            </p>
+          </div>
+        )}
+
         <button
           onClick={() => {
             onDaySelect(selectedDate);
@@ -378,9 +439,10 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession, onDe
           const cardioSessions = cardioByDate[dateStr] || [];
           const hasDeload = sessions.some(s => s.isDeload);
           const isToday = dateStr === today;
+          const planned = sessions.length === 0 ? plannedByDate[dateStr] : undefined;
           const dayLabel = new Date(dateStr + 'T00:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
           const sessionsLabel = sessions.length === 0
-            ? 'aucune séance'
+            ? (planned ? `séance prévue : ${data.workoutTypes.find(t => t.id === planned.workoutTypeId)?.name || ''}` : 'aucune séance')
             : `${sessions.length} séance${sessions.length > 1 ? 's' : ''} : ${sessions.map(s => s.workoutTypeName).join(', ')}`;
           const cardioLabel = cardioSessions.length > 0 ? `, ${cardioSessions.length} activité${cardioSessions.length > 1 ? 's' : ''} cardio` : '';
 
@@ -391,12 +453,17 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession, onDe
               aria-label={`${dayLabel}${isToday ? ' (aujourd\'hui)' : ''} — ${sessionsLabel}${cardioLabel}`}
               className={`relative aspect-square flex flex-col items-center justify-center rounded-xl transition-colors touch-target ${
                 isToday && sessions.length === 0 ? 'bg-primary/20 ring-1 ring-primary' : isToday ? 'ring-1 ring-primary' : 'active:bg-secondary'
-              }`}
+              } ${planned ? 'border border-dashed' : ''}`}
               style={sessions.length > 0 ? {
                 // A deload day's own workout-type color would look identical to any other
                 // day and defeat the point of being able to spot recovery weeks at a
                 // glance — orange wins over whatever color that session's type normally is.
                 backgroundColor: hasDeload ? 'hsl(var(--warning) / 0.3)' : `hsl(${getColorForType(sessions[0].workoutTypeId)} / 0.25)`,
+              } : planned ? {
+                // Lower alpha than a real logged day (0.25) so a planned day reads as
+                // tentative/translucent, never mistaken for a completed session.
+                backgroundColor: `hsl(${getColorForType(planned.workoutTypeId)} / 0.12)`,
+                borderColor: `hsl(${getColorForType(planned.workoutTypeId)} / 0.5)`,
               } : undefined}
             >
               {/* Outline rather than a fill so a cardio day can be superimposed on a

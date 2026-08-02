@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { AppData, WorkoutType, SetLog, SessionLog, FiveThreeOneMethod, ClusterMethod, EMOMMethod, ExerciseMethod, Exercise, calculate1RM, CardioSession, CardioActivityType, DeloadType, DeloadIntensity } from '@/lib/types';
+import { AppData, WorkoutType, SetLog, SessionLog, FiveThreeOneMethod, ClusterMethod, EMOMMethod, ExerciseMethod, Exercise, calculate1RM, CardioSession, CardioActivityType, DeloadType, DeloadIntensity, PlannedSession } from '@/lib/types';
 import { getWeekSets, getWeekLabel, computeNextFiveThreeOneWeekState } from '@/lib/531';
 import { getClusterConfig, getMiniSeriesWeight } from '@/lib/cluster';
 import { getEmomConfig, getEmomWeight } from '@/lib/emom';
@@ -734,7 +734,12 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     const finalSession = wasDeloadPending ? { ...session, isDeload: true } : session;
     onSaveSession(finalSession);
 
-    const updatePatch: { workoutTypes?: WorkoutType[]; deload?: AppData['deload'] } = {};
+    const updatePatch: { workoutTypes?: WorkoutType[]; deload?: AppData['deload']; plannedSessions?: PlannedSession[] } = {};
+
+    const matchingPlanned = data.plannedSessions?.find(p => p.date === session.date && p.workoutTypeId === session.workoutTypeId);
+    if (matchingPlanned) {
+      updatePatch.plannedSessions = (data.plannedSessions || []).filter(p => p.id !== matchingPlanned.id);
+    }
 
     if (selectedType) {
       const progressed = selectedType.exercises.filter(
@@ -773,7 +778,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
       updatePatch.deload = deload;
     }
 
-    if (updatePatch.workoutTypes || updatePatch.deload) {
+    if (updatePatch.workoutTypes || updatePatch.deload || updatePatch.plannedSessions) {
       onUpdateData(updatePatch);
     }
 
@@ -842,6 +847,8 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     );
     const deloadRec = shouldShowDeloadRecommendation(data);
     const pendingDeloadIds = getActiveDeload(data)?.pendingWorkoutTypeIds;
+    const todayISO = new Date().toISOString().split('T')[0];
+    const plannedTodayTypeId = data.plannedSessions?.find(p => p.date === todayISO)?.workoutTypeId;
     return (
       <>
       <div className="px-4 pt-12 pb-24 animate-slide-up">
@@ -954,11 +961,24 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
         <div className="space-y-2">
           {activeTypes.map(type => {
             const isDeloadPending = !!pendingDeloadIds?.includes(type.id);
+            const isPlannedToday = plannedTodayTypeId === type.id;
             return (
-            <div key={type.id} className={`glass-card p-4 ${isDeloadPending ? 'border-warning/40 bg-warning/5' : ''}`}>
+            <div
+              key={type.id}
+              className={`glass-card p-4 ${isDeloadPending ? 'border-warning/40 bg-warning/5' : isPlannedToday ? 'border-2' : ''}`}
+              style={isPlannedToday && !isDeloadPending ? { borderColor: `hsl(${type.color})` } : undefined}
+            >
               <div className="flex items-center gap-3 mb-3">
                 <div className="w-3 h-3 rounded-full" style={{ backgroundColor: `hsl(${type.color})` }} />
                 <span className="text-foreground font-semibold flex-1">{type.name}</span>
+                {isPlannedToday && (
+                  <span
+                    className="text-[10px] font-medium px-2 py-0.5 rounded-full"
+                    style={{ color: `hsl(${type.color})`, backgroundColor: `hsl(${type.color} / 0.1)` }}
+                  >
+                    Prévue aujourd'hui
+                  </span>
+                )}
                 {isDeloadPending && (
                   <span className="text-[10px] font-medium text-warning bg-warning/10 px-2 py-0.5 rounded-full">Deload</span>
                 )}

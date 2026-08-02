@@ -104,12 +104,23 @@ function fixRpeOverflow(data: AppData): AppData {
   return { ...data, sessions, cardioSessions };
 }
 
+// A planned session is a same-day visibility marker only — once its date has passed, it's
+// removed unconditionally (whether or not the session actually happened; if it did, the
+// real SessionLog already covers it). Idempotent — a day with no expired entries is a no-op.
+function pruneExpiredPlannedSessions(data: AppData): AppData {
+  if (!data.plannedSessions?.length) return data;
+  const today = new Date().toISOString().split('T')[0];
+  const plannedSessions = data.plannedSessions.filter(p => p.date >= today);
+  if (plannedSessions.length === data.plannedSessions.length) return data;
+  return { ...data, plannedSessions };
+}
+
 export function loadData(): AppData {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return { ...DEFAULT_APP_DATA };
     const parsed = { ...DEFAULT_APP_DATA, ...JSON.parse(raw) };
-    return fixRpeOverflow(migrateRpeScale(migrateSessionProgramNames(migrateToPrograms(migrateLegacyFiveThreeOne(parsed)))));
+    return pruneExpiredPlannedSessions(fixRpeOverflow(migrateRpeScale(migrateSessionProgramNames(migrateToPrograms(migrateLegacyFiveThreeOne(parsed))))));
   } catch {
     return { ...DEFAULT_APP_DATA };
   }

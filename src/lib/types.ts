@@ -169,6 +169,16 @@ export interface CardioSession {
   notes?: string;
 }
 
+// A session picked ahead of time on a future calendar day, purely for visibility — no
+// sets/weights, just a marker. Auto-removed the day after its date passes regardless of
+// whether it was actually done (see pruneExpiredPlannedSessions in storage.ts), and removed
+// immediately once the matching session is logged (see WorkoutTab's handleSummaryComplete).
+export interface PlannedSession {
+  id: string;
+  date: string; // YYYY-MM-DD, always a future date at creation time
+  workoutTypeId: string;
+}
+
 export type Gender = 'F' | 'H';
 
 // Deload week recommendation (see src/lib/deload.ts for the detection/application logic).
@@ -213,6 +223,9 @@ export interface AppData {
   // `weeklyGoal`/`sessions`'s strength stats, it has its own goal + tracking.
   cardioSessions?: CardioSession[];
   cardioWeeklyGoal?: number;
+  // Sessions picked ahead of time on a future calendar day, for visibility only — see
+  // PlannedSession above.
+  plannedSessions?: PlannedSession[];
   // @deprecated legacy fields — migrated into a per-exercise `method` on load (see
   // src/lib/storage.ts). New AppData never sets these; only present on old stored JSON.
   fiveThreeOne?: FiveThreeOneConfig;
@@ -246,6 +259,7 @@ export const DEFAULT_APP_DATA: AppData = {
   activeProgramId: null,
   cardioSessions: [],
   cardioWeeklyGoal: 2,
+  plannedSessions: [],
 };
 
 // `SessionLog.programName` is a snapshot frozen at log time (survives a deleted/renamed

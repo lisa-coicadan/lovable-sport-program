@@ -96,7 +96,7 @@ const Index = () => {
   return (
     <div className="min-h-screen bg-background max-w-lg mx-auto relative overflow-x-hidden">
       {activeTab === 0 && (
-        <CalendarTab data={data} onDaySelect={handleDaySelect} onUpdateSession={handleUpdateSession} onDeleteSession={handleDeleteSession} onDeleteCardioSession={handleDeleteCardioSession} />
+        <CalendarTab data={data} onDaySelect={handleDaySelect} onUpdateSession={handleUpdateSession} onDeleteSession={handleDeleteSession} onDeleteCardioSession={handleDeleteCardioSession} onUpdateData={handleUpdateData} />
       )}
       {/* WorkoutTab always mounted to preserve session state (timer, entered sets) across tab navigation */}
       <div style={{ display: activeTab === 1 ? 'block' : 'none' }}>

@@ -107,3 +107,51 @@ describe('loadData — legacy 5/3/1 migration', () => {
     expect(data.activeProgramId).toBe(data.programs![0].id);
   });
 });
+
+describe('loadData — pruneExpiredPlannedSessions', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('removes a planned session whose date has passed, keeps today and future ones', () => {
+    const today = new Date().toISOString().split('T')[0];
+    const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+    const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+    const stored: AppData = {
+      workoutTypes: [],
+      sessions: [],
+      weeklyGoal: 4,
+      setupComplete: true,
+      restDuration: 90,
+      bodyWeightLogs: [],
+      plannedSessions: [
+        { id: 'p1', date: yesterday, workoutTypeId: 'w1' },
+        { id: 'p2', date: today, workoutTypeId: 'w1' },
+        { id: 'p3', date: tomorrow, workoutTypeId: 'w1' },
+      ],
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+
+    const data = loadData();
+
+    expect(data.plannedSessions?.map(p => p.id)).toEqual(['p2', 'p3']);
+  });
+
+  it('is a no-op when nothing has expired', () => {
+    const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+    const stored: AppData = {
+      workoutTypes: [],
+      sessions: [],
+      weeklyGoal: 4,
+      setupComplete: true,
+      restDuration: 90,
+      bodyWeightLogs: [],
+      plannedSessions: [{ id: 'p1', date: tomorrow, workoutTypeId: 'w1' }],
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+
+    const data = loadData();
+
+    expect(data.plannedSessions).toHaveLength(1);
+  });
+});
