@@ -21,7 +21,7 @@ import EmomTimer from './EmomTimer';
 import ExerciseHistory from './ExerciseHistory';
 import SessionSummary from './SessionSummary';
 import SettingsPanel from './SettingsPanel';
-import { Check, ChevronRight, ArrowLeft, Settings, History, Plus, Trash2, ChevronDown, Timer, Pencil, TrendingDown, Activity, Footprints, Waves, Bike, Lightbulb, Gauge, X } from 'lucide-react';
+import { Check, ChevronRight, ArrowLeft, Settings, History, Plus, Trash2, ChevronDown, Timer, Pencil, TrendingDown, Activity, Footprints, Waves, Bike, Lightbulb, Gauge, X, Dumbbell } from 'lucide-react';
 import { SortableList, DragHandle } from './SortableBlock';
 import SetDots from './SetDots';
 
@@ -53,6 +53,7 @@ export const CARDIO_ACTIVITY_TYPES: { type: CardioActivityType; icon: typeof Foo
   { type: 'Course à pied', icon: Footprints },
   { type: 'Natation', icon: Waves },
   { type: 'Vélo', icon: Bike },
+  { type: 'Hyrox', icon: Dumbbell },
   { type: 'Autre', icon: Activity },
 ];
 

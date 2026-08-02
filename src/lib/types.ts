@@ -182,7 +182,7 @@ export interface BodyWeightLog {
 // SessionLog/Exercise — a simple after-the-fact log, not an interactive in-session
 // tracker like WorkoutTab. Distance is optional (some sessions are duration-only, e.g.
 // swimming without a tracked distance); pace is derived at display time, never stored.
-export type CardioActivityType = 'Course à pied' | 'Natation' | 'Vélo' | 'Autre';
+export type CardioActivityType = 'Course à pied' | 'Natation' | 'Vélo' | 'Hyrox' | 'Autre';
 
 export interface CardioSession {
   id: string;
