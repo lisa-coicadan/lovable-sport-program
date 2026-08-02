@@ -128,7 +128,21 @@ const RestTimer = forwardRef<RestTimerHandle, RestTimerProps>(({ defaultSeconds 
     const interval = setInterval(syncFromWallClock, 1000);
     const onVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        getSharedAudioContext(); // try to resume the audio context now that we're back in the foreground
+        const ctx = getSharedAudioContext(); // try to resume the audio context now that we're back in the foreground
+        // The rest period hasn't ended yet — iOS may well have suspended the audio
+        // context at some point while backgrounded, silently dropping the beep
+        // originally scheduled in beginCountdown (its absolute AudioContext time can
+        // already be in the past by the time the context resumes). Rescheduling fresh,
+        // right now, on a context we just confirmed is live, is the only way to
+        // guarantee it still sounds — this is what actually fixed the "sonne 3 fois sur
+        // 4" flakiness, the previous fix only covered resuming AFTER expiry below.
+        if (ctx && endAtRef.current !== null) {
+          const remainingMs = endAtRef.current - Date.now();
+          if (remainingMs > 0) {
+            cancelBeep(scheduledBeepRef.current);
+            scheduledBeepRef.current = scheduleBeep(ctx.currentTime + remainingMs / 1000);
+          }
+        }
         syncFromWallClock({ resumed: true });
       }
     };
