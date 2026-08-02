@@ -107,6 +107,15 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
   const [notesText, setNotesText] = useState('');
   const [notesTargetId, setNotesTargetId] = useState<string | null>(null);
   const [colorPickerFor, setColorPickerFor] = useState<string | null>(null);
+  // Scrolls a just-added workout type into view (see addWorkoutType) — cleared right after
+  // so editing/reordering later never re-triggers a scroll.
+  const [newlyAddedTypeId, setNewlyAddedTypeId] = useState<string | null>(null);
+  const typeCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  useEffect(() => {
+    if (!newlyAddedTypeId) return;
+    typeCardRefs.current[newlyAddedTypeId]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setNewlyAddedTypeId(null);
+  }, [newlyAddedTypeId]);
   const [supersetPickerFor, setSupersetPickerFor] = useState<string | null>(null);
   const [showUnsavedConfirm, setShowUnsavedConfirm] = useState(false);
   // useRef's initial value is only ever read on the very first render — freezes exactly
@@ -514,15 +523,21 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
     return () => clearTimeout(timer);
   }, [closing]);
 
+  // Appended at the end (not prepended) so the "Ajouter un type de séance" button — itself
+  // at the bottom of the list — lands right next to the card it just created; newlyAddedTypeId
+  // then drives the scroll-into-view below since a card added at the bottom of a long,
+  // already-scrolled list is otherwise invisible without her scrolling down herself.
   const addWorkoutType = () => {
     const colorIdx = workoutTypes.length % WORKOUT_COLORS.length;
-    setWorkoutTypes([{
-      id: `wt${Date.now()}`,
+    const newId = `wt${Date.now()}`;
+    setWorkoutTypes([...workoutTypes, {
+      id: newId,
       name: '',
       color: WORKOUT_COLORS[colorIdx],
       exercises: [],
       programId: activeProgramId ?? undefined,
-    }, ...workoutTypes]);
+    }]);
+    setNewlyAddedTypeId(newId);
   };
 
   const toggleHide = (index: number) => {
@@ -778,7 +793,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
           {workoutTypes.map((type, ti) => {
             if (type.hidden) return null;
             return (
-              <div key={type.id} className="glass-card p-4">
+              <div key={type.id} ref={el => { typeCardRefs.current[type.id] = el; }} className="glass-card p-4">
                 <div className="flex items-center gap-2 mb-3">
                   <button
                     onClick={() => setColorPickerFor(colorPickerFor === type.id ? null : type.id)}
