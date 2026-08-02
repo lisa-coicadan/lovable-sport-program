@@ -1,5 +1,5 @@
 import { useState, useRef, useMemo, useEffect } from 'react';
-import { AppData, WorkoutType, Exercise, ExerciseMethod, Program, WORKOUT_COLORS, BodyWeightLog, DEFAULT_APP_DATA, Gender, DeloadType, DeloadIntensity } from '@/lib/types';
+import { AppData, WorkoutType, Exercise, ExerciseMethod, Program, WORKOUT_COLORS, BodyWeightLog, DEFAULT_APP_DATA, Gender, DeloadType, DeloadIntensity, ExerciseEquipment, EQUIPMENT_LABELS } from '@/lib/types';
 import { linkSuperset, unlinkSuperset, buildExerciseBlocks, flattenBlocks, ExerciseBlock } from '@/lib/superset';
 import { parseSessionNotes, parseMultiSessionNotes, NOTES_SYNTAX_HELP, NOTES_SYNTAX_HELP_FILL } from '@/lib/notesParser';
 import { getEmomConfig, getEmomWeight, getDefaultEmomPercentage } from '@/lib/emom';
@@ -7,7 +7,7 @@ import { getClusterConfig, getMiniSeriesWeight, CLUSTER_PRESETS } from '@/lib/cl
 import { estimateOneRepMax, estimateTrainingMax } from '@/lib/trainingMax';
 import { splitEquipmentVariant } from '@/lib/exerciseNormalize';
 import { STANDARD_MOVEMENTS, StandardMovement } from '@/lib/strengthStandards';
-import { ArrowLeft, Plus, Trash2, EyeOff, Eye, Scale, Link2, Link2Off, Download, Upload, Database, AlertTriangle, FileText, Zap, Timer, Clock, Layers, Check, Calculator, TrendingDown, User, Infinity as InfinityIcon, Pencil, X, RefreshCw, Dumbbell } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, EyeOff, Eye, Scale, Link2, Link2Off, Download, Upload, Database, AlertTriangle, FileText, Zap, Timer, Clock, Layers, Check, Calculator, TrendingDown, User, Infinity as InfinityIcon, Pencil, X, RefreshCw, Dumbbell, Repeat } from 'lucide-react';
 import { SortableList, DragHandle } from './SortableBlock';
 import { loadData, saveData } from '@/lib/storage';
 import { parseBackupFile } from '@/lib/backupFile';
@@ -1427,6 +1427,37 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                       </label>
                                     )}
                                     {supersetTriggerButton}
+                                  </div>
+                                  {/* Display-only attributes (no behavior attached) — kept on
+                                      their own line so they never compete for space with the
+                                      functional toggles above. Editable any time, including on
+                                      an exercise with existing history, so past logs left
+                                      unspecified can be completed after the fact for
+                                      consistent comparisons. */}
+                                  <div className="flex items-center gap-3 flex-wrap mt-1.5">
+                                    <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                                      <input
+                                        type="checkbox"
+                                        checked={!!ex.unilateral}
+                                        onChange={e => updateExercise(ti, exIdx, 'unilateral', e.target.checked ? true : undefined)}
+                                        className="w-3.5 h-3.5 accent-accent-blue"
+                                      />
+                                      <Repeat size={10} className="text-accent-blue" /> Unilatéral
+                                    </label>
+                                    <div className="flex items-center gap-1">
+                                      <span className="text-[10px] text-muted-foreground">Équipement</span>
+                                      <select
+                                        value={ex.equipment ?? ''}
+                                        onChange={e => updateExercise(ti, exIdx, 'equipment', e.target.value === '' ? undefined : e.target.value as ExerciseEquipment)}
+                                        className="bg-secondary text-foreground text-[10px] rounded-md px-1.5 py-1 outline-none"
+                                        aria-label={`Équipement de ${ex.name || 'cet exercice'}`}
+                                      >
+                                        <option value="">—</option>
+                                        {(Object.keys(EQUIPMENT_LABELS) as ExerciseEquipment[]).map(eq => (
+                                          <option key={eq} value={eq}>{EQUIPMENT_LABELS[eq]}</option>
+                                        ))}
+                                      </select>
+                                    </div>
                                   </div>
                                   {/* Own line, amber like the Drop set toggle above it — the
                                       inline wrap it used to share with Méthode/Max de reps read

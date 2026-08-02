@@ -51,6 +51,14 @@ export type ExerciseMethod = FiveThreeOneMethod | ClusterMethod | EMOMMethod;
 
 export type ExerciseEquipment = 'barre' | 'halteres' | 'machine' | 'smith' | 'poulie';
 
+export const EQUIPMENT_LABELS: Record<ExerciseEquipment, string> = {
+  barre: 'Barre',
+  halteres: 'Haltères',
+  machine: 'Machine',
+  smith: 'Smith',
+  poulie: 'Poulie',
+};
+
 // Drop set: not a standing "method" like 531/Cluster/EMOM (those generate every set
 // upfront from a Training Max) — a drop set instead cascades live, in-session, below
 // whichever regular set she's actually doing, computed from ITS actual weight/reps.
