@@ -1920,6 +1920,10 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
           // ad hoc for this session only, never saved to the template) has nothing to
           // attach a note to, so it just doesn't get the button.
           const templateEx = !isTemp ? selectedType?.exercises.find(e => e.id === exerciseId) : undefined;
+          // RPE has no such constraint — it's local session state keyed by exerciseId
+          // (exerciseDifficulty), not persisted on the template — so a temp exercise gets
+          // a lightweight stand-in Exercise just to satisfy renderDifficultyButton's shape.
+          const rpeEx: Exercise = templateEx ?? { id: exerciseId, name, sets: 0, reps: 0 };
           // "Série N" numbers only the plain rows, skipping over any interleaved drop-set
           // rows — a drop set inserted after Série 2 must not bump the plain Série 3 that
           // follows it to "Série 4". Shared between the row list and the picker chips
@@ -2008,7 +2012,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                 </button>
                 <div className="flex items-center gap-1.5 ml-auto">
                   {templateEx && renderReminderNoteButton(templateEx)}
-                  {templateEx && renderDifficultyButton(templateEx)}
+                  {renderDifficultyButton(rpeEx)}
                 </div>
               </div>
 
