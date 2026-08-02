@@ -810,7 +810,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                   <input
                     value={type.name}
                     onChange={e => updateTypeName(ti, e.target.value)}
-                    className="bg-transparent text-foreground font-semibold outline-none flex-1"
+                    className="bg-transparent text-foreground font-semibold outline-none flex-1 min-w-0"
                     placeholder="Nom de la séance"
                   />
                   {programs.length > 1 && (
