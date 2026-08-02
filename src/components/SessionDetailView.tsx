@@ -181,14 +181,24 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
   const handleShare = async () => {
     // Read the live theme tokens instead of hardcoding a parallel palette, so the one
     // artifact that leaves the app (a shared PNG) never drifts from the in-app neon
-    // identity the way the old Apple-system-gray version had.
-    const token = (name: string) => `hsl(${getComputedStyle(document.documentElement).getPropertyValue(name).trim()})`;
-    const bgColor = token('--background');
-    const fgColor = token('--foreground');
-    const mutedColor = token('--muted-foreground');
-    const borderColor = token('--border');
-    const successColor = token('--success');
-    const destructiveColor = token('--destructive');
+    // identity the way the old Apple-system-gray version had. Raw triples (not wrapped in
+    // hsl(...)) so card panels below can compose their own alpha, matching how .glass-card
+    // itself is a translucent tint over the background rather than a flat opaque fill.
+    const raw = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    const rawBg = raw('--background');
+    const rawCard = raw('--card');
+    const rawFg = raw('--foreground');
+    const rawMuted = raw('--muted-foreground');
+    const rawBorder = raw('--border');
+    const rawSuccess = raw('--success');
+    const rawDestructive = raw('--destructive');
+    const hsl = (t: string, a = 1) => (a === 1 ? `hsl(${t})` : `hsl(${t} / ${a})`);
+    const bgColor = hsl(rawBg);
+    const fgColor = hsl(rawFg);
+    const mutedColor = hsl(rawMuted);
+    const borderColor = hsl(rawBorder);
+    const successColor = hsl(rawSuccess);
+    const destructiveColor = hsl(rawDestructive);
 
     // The app's fixed brand hues (same trio BrandMark.tsx draws) — a stable identity
     // constant, not a themeable token, so hardcoded here exactly as there.
@@ -227,223 +237,305 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
 
     const canvas = document.createElement('canvas');
     const w = 1080;
-    const ctx = canvas.getContext('2d')!;
-    const padding = 60;
-    const lineH = 36;
+    const padding = 56;
+    const cardGap = 20;
+    const cardPad = 32;
+    const cardRadius = 24;
     const color = getColorForType();
-    const accentBarGradient = (x0: number, x1: number, y: number) => {
+    const left = padding;
+    const right = w - padding;
+
+    const accentBarGradient = (ctx: CanvasRenderingContext2D, x0: number, x1: number, y: number) => {
       const grad = ctx.createLinearGradient(x0, y, x1, y);
       grad.addColorStop(0, 'hsl(189 94% 55%)');
       grad.addColorStop(0.5, 'hsl(262 83% 66%)');
       grad.addColorStop(1, 'hsl(322 100% 60%)');
       return grad;
     };
-
-    // Pre-calculate height
-    let totalLines = 0;
-    totalLines += 5; // header area (logo + wordmark, session name, date, type, spacing)
-    totalLines += 1; // divider
-    groupedExercises.forEach(([, sets]) => {
-      totalLines += 2; // exercise name + 1rm
-      totalLines += sets.length; // each set
-      const prog = progressions[sets[0]?.exerciseName || ''];
-      if (prog) totalLines += 1;
-      totalLines += 1; // spacing
-    });
-    totalLines += 3; // tonnage, duration, RPE
-    if (session.notes) totalLines += 2;
-    if (overallComparison) totalLines += 3;
-    totalLines += 2; // footer
-
-    const h = Math.max(1200, padding * 2 + totalLines * lineH + 100);
-    canvas.width = w;
-    canvas.height = h;
-
-    // Background
-    ctx.fillStyle = bgColor;
-    ctx.fillRect(0, 0, w, h);
-
-    // Subtle gradient overlay at top, in the workout type's own accent hue
-    const grad = ctx.createLinearGradient(0, 0, 0, 300);
-    grad.addColorStop(0, `hsl(${color} / 0.12)`);
-    grad.addColorStop(1, 'transparent');
-    ctx.fillRect(0, 0, w, 300);
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, w, 300);
-
-    // Top accent strip: the app's cyan -> violet -> magenta identity trio
-    ctx.fillStyle = accentBarGradient(0, w, 0);
-    ctx.fillRect(0, 0, w, 6);
-
-    let y = padding + 20;
-    const left = padding;
-    const right = w - padding;
-
-    // Logo mark + wordmark
-    const logoSize = 44;
-    ctx.save();
-    ctx.shadowColor = `hsl(${color})`;
-    ctx.shadowBlur = 18;
-    ctx.drawImage(logoImg, left, y - logoSize + 6, logoSize, logoSize);
-    ctx.restore();
-    ctx.font = "600 30px 'Space Grotesk', -apple-system, sans-serif";
-    ctx.fillStyle = `hsl(${color})`;
-    ctx.fillText('MUSCULISA', left + logoSize + 16, y);
-    y += lineH + 14;
-
-    // Session name
-    ctx.font = "bold 48px 'Space Grotesk', -apple-system, sans-serif";
-    ctx.fillStyle = fgColor;
-    ctx.fillText(session.workoutTypeName, left, y);
-    y += 54;
-
-    // Date
-    ctx.font = "400 28px 'Space Grotesk', -apple-system, sans-serif";
-    ctx.fillStyle = mutedColor;
-    ctx.fillText(sessionDate, left, y);
-    y += lineH + 20;
-
-    // Divider
-    ctx.fillStyle = borderColor;
-    ctx.fillRect(left, y, right - left, 1);
-    y += 30;
-
-    // Exercises
-    groupedExercises.forEach(([name, sets]) => {
-      const bestSet = sets.reduce((b, s) => calculate1RM(s.weight, s.reps) > calculate1RM(b.weight, b.reps) ? s : b, sets[0]);
-      const e1rm = calculate1RM(bestSet.weight, bestSet.reps);
-      const prog = progressions[name];
-
-      // Exercise name + 1RM
-      ctx.font = "600 30px 'Space Grotesk', -apple-system, sans-serif";
-      ctx.fillStyle = fgColor;
-      ctx.fillText(name, left, y);
-      if (e1rm > 0) {
-        ctx.font = "600 26px 'Space Grotesk', -apple-system, sans-serif";
-        ctx.fillStyle = `hsl(${color})`;
-        const rmText = `1RM: ${e1rm} kg`;
-        ctx.fillText(rmText, right - ctx.measureText(rmText).width, y);
-      }
-      y += lineH + 4;
-
-      // Sets
-      sets.forEach((s, i) => {
-        ctx.font = "400 26px 'Space Grotesk', -apple-system, sans-serif";
-        ctx.fillStyle = mutedColor;
-        ctx.fillText(`  Série ${i + 1}`, left, y);
-        ctx.fillStyle = fgColor;
-        ctx.font = "500 26px 'JetBrains Mono', monospace";
-        const setText = `${s.weight} kg × ${s.reps}`;
-        ctx.fillText(setText, right - ctx.measureText(setText).width, y);
-        y += lineH;
-      });
-
-      // Progression
-      if (prog) {
-        ctx.font = "500 24px 'Space Grotesk', -apple-system, sans-serif";
-        if (prog.e1rmPct > 0) {
-          ctx.fillStyle = successColor;
-          ctx.fillText(`↑ +${prog.e1rmPct}% vs séance précédente`, left + 16, y);
-        } else if (prog.e1rmPct < 0) {
-          ctx.fillStyle = destructiveColor;
-          ctx.fillText(`↓ ${prog.e1rmPct}% vs séance précédente`, left + 16, y);
-        } else {
-          ctx.fillStyle = mutedColor;
-          ctx.fillText('= Identique à la séance précédente', left + 16, y);
-        }
-        y += lineH;
-      }
-      y += 14;
-    });
-
-    // Divider
-    ctx.fillStyle = borderColor;
-    ctx.fillRect(left, y, right - left, 1);
-    y += 30;
-
-    // Tonnage
-    ctx.font = "500 28px 'Space Grotesk', -apple-system, sans-serif";
-    ctx.fillStyle = fgColor;
-    ctx.fillText('Tonnage total', left, y);
-    ctx.font = "bold 28px 'JetBrains Mono', monospace";
-    ctx.fillStyle = `hsl(${color})`;
-    const tonText = `${Math.round(totalVolume)} kg`;
-    ctx.fillText(tonText, right - ctx.measureText(tonText).width, y);
-    y += lineH + 4;
-
-    // Duration
-    if (session.duration) {
-      ctx.font = "500 28px 'Space Grotesk', -apple-system, sans-serif";
-      ctx.fillStyle = fgColor;
-      ctx.fillText('Durée', left, y);
-      ctx.font = "500 28px 'JetBrains Mono', monospace";
-      ctx.fillStyle = fgColor;
-      const durText = `${session.duration} min`;
-      ctx.fillText(durText, right - ctx.measureText(durText).width, y);
-      y += lineH + 4;
-    }
-
-    // RPE
-    if (session.difficulty) {
-      ctx.font = "500 28px 'Space Grotesk', -apple-system, sans-serif";
-      ctx.fillStyle = fgColor;
-      ctx.fillText('RPE', left, y);
-      ctx.font = "500 28px 'JetBrains Mono', monospace";
-      ctx.fillStyle = fgColor;
-      const rpeText = `${session.difficulty}/10`;
-      ctx.fillText(rpeText, right - ctx.measureText(rpeText).width, y);
-      y += lineH + 4;
-    }
-
-    // Notes
-    if (session.notes) {
-      y += 10;
-      ctx.font = "italic 24px 'Space Grotesk', -apple-system, sans-serif";
-      ctx.fillStyle = mutedColor;
-      const maxW = right - left;
-      const words = session.notes.split(' ');
+    // Manual arc-based rounded rect (not ctx.roundRect) for compatibility with older
+    // in-app WebViews the PWA may run under.
+    const roundRect = (ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, r: number) => {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + width, y, x + width, y + height, r);
+      ctx.arcTo(x + width, y + height, x, y + height, r);
+      ctx.arcTo(x, y + height, x, y, r);
+      ctx.arcTo(x, y, x + width, y, r);
+      ctx.closePath();
+    };
+    const wrapText = (ctx: CanvasRenderingContext2D, text: string, maxWidth: number) => {
+      const words = text.split(' ');
+      const lines: string[] = [];
       let line = '';
       for (const word of words) {
         const test = line + word + ' ';
-        if (ctx.measureText(test).width > maxW && line) {
-          ctx.fillText(`"${line.trim()}"`, left, y);
-          y += lineH;
+        if (ctx.measureText(test).width > maxWidth && line) {
+          lines.push(line.trim());
           line = word + ' ';
         } else {
           line = test;
         }
       }
-      if (line) { ctx.fillText(`"${line.trim()}"`, left, y); y += lineH; }
-    }
+      if (line) lines.push(line.trim());
+      return lines;
+    };
 
-    // Overall comparison
-    if (overallComparison) {
-      y += 16;
-      ctx.fillStyle = borderColor;
-      ctx.fillRect(left, y, right - left, 1);
-      y += 24;
+    // Two-pass layout: `draw=false` against a throwaway context measures the exact height
+    // every section needs (word-wrapped notes included) so nothing is ever clipped by a
+    // fixed line-count guess; `draw=true` replays the identical sequence for real once the
+    // canvas is sized to that exact height. Panel backgrounds are drawn from `panelHeights`
+    // (filled during the measure pass) before their content each time, since a card's own
+    // height — number of sets, presence of a progression pill — is only known after laying
+    // out what goes inside it.
+    const panelHeights: number[] = [];
+    let finalHeight = 0;
 
-      ctx.font = "600 26px 'Space Grotesk', -apple-system, sans-serif";
-      if (overallComparison.verdict === 'better') {
-        ctx.fillStyle = successColor;
-        ctx.fillText('📈 Meilleure que la précédente', left, y);
-      } else if (overallComparison.verdict === 'below') {
-        ctx.fillStyle = destructiveColor;
-        ctx.fillText('📉 En dessous de la précédente', left, y);
-      } else {
-        ctx.fillStyle = mutedColor;
-        ctx.fillText('📊 Similaire à la précédente', left, y);
+    const runLayout = (ctx: CanvasRenderingContext2D, draw: boolean): number => {
+      let y = padding;
+      let panelIdx = 0;
+
+      if (draw) {
+        ctx.fillStyle = bgColor;
+        ctx.fillRect(0, 0, w, finalHeight);
+        const wash = ctx.createLinearGradient(0, 0, 0, 320);
+        wash.addColorStop(0, hsl(color, 0.12));
+        wash.addColorStop(1, 'transparent');
+        ctx.fillStyle = wash;
+        ctx.fillRect(0, 0, w, 320);
+        ctx.fillStyle = accentBarGradient(ctx, 0, w, 0);
+        ctx.fillRect(0, 0, w, 6);
       }
-      y += lineH;
+      y += 6;
 
-      ctx.font = "400 22px 'Space Grotesk', -apple-system, sans-serif";
-      ctx.fillStyle = mutedColor;
-      ctx.fillText(`Volume : ${overallComparison.volDiff > 0 ? '+' : ''}${overallComparison.volDiff}%  •  1RM moy. : ${overallComparison.avg1RMDiff > 0 ? '+' : ''}${overallComparison.avg1RMDiff}%`, left, y);
-    }
+      // Header: logo + wordmark
+      y += 30;
+      const logoSize = 44;
+      if (draw) {
+        ctx.save();
+        ctx.shadowColor = hsl(color);
+        ctx.shadowBlur = 16;
+        ctx.drawImage(logoImg, left, y - logoSize + 8, logoSize, logoSize);
+        ctx.restore();
+        ctx.font = "600 26px 'Space Grotesk', -apple-system, sans-serif";
+        ctx.fillStyle = hsl(color);
+        ctx.fillText('MUSCULISA', left + logoSize + 18, y);
+      }
+      y += 56;
+
+      // Session title: workout-type color dot + name, same pairing used everywhere in-app
+      ctx.font = "700 46px 'Space Grotesk', -apple-system, sans-serif";
+      if (draw) {
+        ctx.fillStyle = hsl(color);
+        ctx.beginPath();
+        ctx.arc(left + 11, y - 15, 11, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = fgColor;
+        ctx.fillText(session.workoutTypeName, left + 38, y);
+      }
+      y += 50;
+
+      ctx.font = "400 26px 'Space Grotesk', -apple-system, sans-serif";
+      if (draw) {
+        ctx.fillStyle = mutedColor;
+        ctx.fillText(sessionDate, left, y);
+      }
+      y += 52;
+
+      // One glass-card-style panel per exercise
+      groupedExercises.forEach(([name, sets]) => {
+        const bestSet = sets.reduce((b, s) => calculate1RM(s.weight, s.reps) > calculate1RM(b.weight, b.reps) ? s : b, sets[0]);
+        const e1rm = calculate1RM(bestSet.weight, bestSet.reps);
+        const prog = progressions[name];
+
+        const panelTop = y;
+        const panelH = panelHeights[panelIdx] ?? 0;
+        if (draw) {
+          ctx.fillStyle = hsl(rawCard, 0.65);
+          ctx.strokeStyle = hsl(rawBorder, 0.8);
+          ctx.lineWidth = 1.5;
+          roundRect(ctx, left, panelTop, right - left, panelH, cardRadius);
+          ctx.fill();
+          ctx.stroke();
+        }
+
+        let cy = panelTop + cardPad + 4;
+        const innerLeft = left + cardPad;
+        const innerRight = right - cardPad;
+
+        ctx.font = "600 30px 'Space Grotesk', -apple-system, sans-serif";
+        if (draw) {
+          ctx.fillStyle = fgColor;
+          ctx.fillText(name, innerLeft, cy);
+          if (e1rm > 0) {
+            ctx.font = "600 24px 'Space Grotesk', -apple-system, sans-serif";
+            ctx.fillStyle = hsl(color);
+            const rmText = `1RM ${e1rm} kg`;
+            ctx.fillText(rmText, innerRight - ctx.measureText(rmText).width, cy);
+          }
+        }
+        cy += 42;
+
+        sets.forEach((s, i) => {
+          ctx.font = "400 24px 'Space Grotesk', -apple-system, sans-serif";
+          if (draw) {
+            ctx.fillStyle = mutedColor;
+            ctx.fillText(`Série ${i + 1}`, innerLeft, cy);
+            ctx.font = "500 24px 'JetBrains Mono', monospace";
+            ctx.fillStyle = fgColor;
+            const setText = `${s.weight} kg × ${s.reps}`;
+            ctx.fillText(setText, innerRight - ctx.measureText(setText).width, cy);
+          }
+          cy += 34;
+        });
+
+        if (prog) {
+          cy += 10;
+          const pillText = prog.e1rmPct > 0 ? `↑ +${prog.e1rmPct}%` : prog.e1rmPct < 0 ? `↓ ${prog.e1rmPct}%` : '= Stable';
+          const pillRaw = prog.e1rmPct > 0 ? rawSuccess : prog.e1rmPct < 0 ? rawDestructive : rawMuted;
+          ctx.font = "600 22px 'Space Grotesk', -apple-system, sans-serif";
+          const pillH = 40;
+          if (draw) {
+            const pillW = ctx.measureText(pillText).width + 32;
+            ctx.fillStyle = hsl(pillRaw, 0.15);
+            roundRect(ctx, innerLeft, cy, pillW, pillH, pillH / 2);
+            ctx.fill();
+            ctx.fillStyle = hsl(pillRaw);
+            ctx.fillText(pillText, innerLeft + 16, cy + 27);
+          }
+          cy += pillH;
+        }
+
+        cy += cardPad;
+        if (!draw) panelHeights.push(cy - panelTop);
+        panelIdx++;
+        y = cy + cardGap;
+      });
+
+      // Stats panel: tonnage as the hero figure, duration/RPE as secondary stats beside it
+      const statsPanelTop = y;
+      const statsPanelH = panelHeights[panelIdx] ?? 0;
+      if (draw) {
+        ctx.fillStyle = hsl(rawCard, 0.65);
+        ctx.strokeStyle = hsl(rawBorder, 0.8);
+        ctx.lineWidth = 1.5;
+        roundRect(ctx, left, statsPanelTop, right - left, statsPanelH, cardRadius);
+        ctx.fill();
+        ctx.stroke();
+      }
+      {
+        let cy = statsPanelTop + cardPad + 4;
+        const innerLeft = left + cardPad;
+        ctx.font = "600 20px 'Space Grotesk', -apple-system, sans-serif";
+        if (draw) {
+          ctx.fillStyle = mutedColor;
+          ctx.fillText('TONNAGE TOTAL', innerLeft, cy);
+        }
+        cy += 48;
+        ctx.font = "700 52px 'JetBrains Mono', monospace";
+        if (draw) {
+          ctx.fillStyle = hsl(color);
+          ctx.fillText(`${Math.round(totalVolume)} kg`, innerLeft, cy);
+        }
+        cy += 50;
+
+        const secondary: string[] = [];
+        if (session.duration) secondary.push(`Durée ${session.duration} min`);
+        if (session.difficulty) secondary.push(`RPE ${session.difficulty}/10`);
+        if (secondary.length > 0) {
+          ctx.font = "500 24px 'Space Grotesk', -apple-system, sans-serif";
+          if (draw) {
+            ctx.fillStyle = mutedColor;
+            ctx.fillText(secondary.join('   •   '), innerLeft, cy);
+          }
+          cy += 40;
+        }
+        cy += cardPad - 10;
+        if (!draw) panelHeights.push(cy - statsPanelTop);
+      }
+      panelIdx++;
+      y = statsPanelTop + (panelHeights[panelIdx - 1] ?? 0) + cardGap;
+
+      // Notes
+      let notesLines: string[] = [];
+      if (session.notes) {
+        ctx.font = "italic 24px 'Space Grotesk', -apple-system, sans-serif";
+        notesLines = wrapText(ctx, `"${session.notes}"`, right - left - cardPad * 2);
+        const notesPanelTop = y;
+        const notesPanelH = cardPad * 2 + notesLines.length * 34;
+        if (draw) {
+          ctx.fillStyle = hsl(rawCard, 0.4);
+          ctx.strokeStyle = hsl(rawBorder, 0.6);
+          ctx.lineWidth = 1.5;
+          roundRect(ctx, left, notesPanelTop, right - left, notesPanelH, cardRadius);
+          ctx.fill();
+          ctx.stroke();
+          ctx.fillStyle = mutedColor;
+          let cy = notesPanelTop + cardPad + 4;
+          notesLines.forEach(line => {
+            ctx.fillText(line, left + cardPad, cy);
+            cy += 34;
+          });
+        }
+        y = notesPanelTop + notesPanelH + cardGap;
+      }
+
+      // Overall comparison — a verdict pill plus the two deltas that back it up
+      if (overallComparison) {
+        const verdictLabel = overallComparison.verdict === 'better' ? '📈 Meilleure que la précédente'
+          : overallComparison.verdict === 'below' ? '📉 En dessous de la précédente'
+          : '📊 Similaire à la précédente';
+        const verdictRaw = overallComparison.verdict === 'better' ? rawSuccess
+          : overallComparison.verdict === 'below' ? rawDestructive : rawMuted;
+
+        const compPanelTop = y;
+        const compPanelH = panelHeights[panelIdx] ?? 0;
+        if (draw) {
+          ctx.fillStyle = hsl(verdictRaw, 0.1);
+          ctx.strokeStyle = hsl(verdictRaw, 0.4);
+          ctx.lineWidth = 1.5;
+          roundRect(ctx, left, compPanelTop, right - left, compPanelH, cardRadius);
+          ctx.fill();
+          ctx.stroke();
+        }
+        let cy = compPanelTop + cardPad + 4;
+        const innerLeft = left + cardPad;
+        ctx.font = "600 28px 'Space Grotesk', -apple-system, sans-serif";
+        if (draw) {
+          ctx.fillStyle = hsl(verdictRaw);
+          ctx.fillText(verdictLabel, innerLeft, cy);
+        }
+        cy += 38;
+        ctx.font = "400 22px 'Space Grotesk', -apple-system, sans-serif";
+        if (draw) {
+          ctx.fillStyle = mutedColor;
+          ctx.fillText(
+            `Volume : ${overallComparison.volDiff > 0 ? '+' : ''}${overallComparison.volDiff}%   •   1RM moy. : ${overallComparison.avg1RMDiff > 0 ? '+' : ''}${overallComparison.avg1RMDiff}%`,
+            innerLeft, cy
+          );
+        }
+        cy += cardPad - 6;
+        if (!draw) panelHeights.push(cy - compPanelTop);
+        panelIdx++;
+        y = compPanelTop + (panelHeights[panelIdx - 1] ?? 0) + cardGap;
+      }
+
+      y += padding - cardGap;
+      return y;
+    };
+
+    // Measure pass
+    const measureCtx = document.createElement('canvas').getContext('2d')!;
+    finalHeight = runLayout(measureCtx, false);
+
+    // Draw pass, at the exact height just measured
+    canvas.width = w;
+    canvas.height = Math.max(1200, finalHeight);
+    const ctx = canvas.getContext('2d')!;
+    runLayout(ctx, true);
 
     // Bottom accent strip, mirroring the top one
-    ctx.fillStyle = accentBarGradient(0, w, h - 6);
-    ctx.fillRect(0, h - 6, w, 6);
+    ctx.fillStyle = accentBarGradient(ctx, 0, w, canvas.height - 6);
+    ctx.fillRect(0, canvas.height - 6, w, 6);
 
     // Convert to blob and share
     canvas.toBlob(async (blob) => {
