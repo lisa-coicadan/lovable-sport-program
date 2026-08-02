@@ -356,7 +356,7 @@ const VariantSection = ({ group, showHeader, bodyweightOptional }: { group: Vari
               {sets.map((s, i) => (
                 <div key={i} className="flex items-center justify-between bg-secondary rounded-lg px-3 py-2">
                   <span className="text-sm text-foreground font-mono">{s.weight} kg × {s.reps}</span>
-                  <span className="text-xs text-muted-foreground">1RM: {s.e1rm} kg</span>
+                  <span className="text-xs text-muted-foreground">{bodyweightOptional ? 'Δ vs pdc' : '1RM'}: {bodyweightOptional ? s.chartValue : s.e1rm} kg</span>
                 </div>
               ))}
             </div>
