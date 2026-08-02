@@ -138,6 +138,12 @@ export interface SetLog {
   // handleSummaryComplete, so testing a max on one exercise never desyncs its week/cycle
   // from every other 5/3/1 exercise (which stay in lockstep, see computeNextFiveThreeOneWeekState).
   isTestMax?: boolean;
+  // A warm-up ramp-up set (see "+ Échauffement" in WorkoutTab, only offered for 531/Cluster/
+  // EMOM exercises) — pre-filled from a % of the exercise's working weight, displayed above
+  // the working sets in a muted style, but otherwise a normal completed set: it counts in
+  // tonnage/history like any other, and is excluded only from each method's own structural
+  // set-slicing/indexing (liveSets filters in WorkoutTab), not from tonnage or e1RM.
+  isWarmup?: boolean;
 }
 
 export interface SessionLog {

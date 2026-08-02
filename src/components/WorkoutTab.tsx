@@ -11,6 +11,7 @@ import { STANDARD_MOVEMENTS, StandardMovement } from '@/lib/strengthStandards';
 import { computeEffectiveLoadAtOneRep, resolveBodyWeightAtDate } from '@/lib/tonnage';
 import { estimateTrainingMax } from '@/lib/trainingMax';
 import { RAMP_STAGES, generateRampPlan, generateBonusStage, getOuvertureGuidance, getFailureGuidance } from '@/lib/oneRepMaxTest';
+import { roundWeightSmart } from '@/lib/weightRounding';
 import {
   shouldShowDeloadRecommendation, DeloadCriteria, buildDeloadAcceptPatch, buildDeloadDismissPatch,
   consumeDeloadOnSessionSave, getDeloadTargetWorkoutTypes, applyDeloadToWeight, applyDeloadToTrainingMax,
@@ -707,6 +708,103 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
   const cancelTestMaxRamp = (ex: Exercise) => {
     const normalSets = buildSetsForExercise(ex, ex.method, 0);
     setSets(prev => [...prev.filter(s => s.exerciseId !== ex.id), ...normalSets]);
+  };
+
+  // Only offered on 531/Cluster/EMOM exercises — those are the ones with a defined
+  // TM-derived working weight to ramp toward; a plain exercise has nothing to anchor a %
+  // to. 3 stages max (40/60/80% of the working weight), one added per tap.
+  const WARMUP_PERCENTAGES = [0.4, 0.6, 0.8];
+
+  const getWorkingWeight = (ex: Exercise): number => {
+    const method = getEffectiveMethod(ex);
+    if (method?.type === '531') return getWeekSets(method.trainingMax, (ex.method as FiveThreeOneMethod).currentWeek)[0]?.weight ?? 0;
+    if (method?.type === 'cluster') {
+      const { miniSeries } = getClusterConfig(method);
+      return getMiniSeriesWeight(method.trainingMax, miniSeries[0]?.percentage ?? 0.9);
+    }
+    if (method?.type === 'emom') {
+      const { percentage } = getEmomConfig(method);
+      return getEmomWeight(method.trainingMax, percentage);
+    }
+    return 0;
+  };
+
+  const addWarmupSet = (ex: Exercise) => {
+    const existingWarmups = sets.filter(s => s.exerciseId === ex.id && s.isWarmup);
+    if (existingWarmups.length >= WARMUP_PERCENTAGES.length) return;
+    const pct = WARMUP_PERCENTAGES[existingWarmups.length];
+    const weight = roundWeightSmart(getWorkingWeight(ex) * pct);
+    const newSet: SetLog = {
+      exerciseId: ex.id, exerciseName: ex.name, setNumber: existingWarmups.length + 1,
+      reps: 5, weight, completed: false, isWarmup: true,
+    };
+    const firstIdx = sets.findIndex(s => s.exerciseId === ex.id);
+    const insertAt = firstIdx === -1 ? sets.length : firstIdx + existingWarmups.length;
+    const updated = [...sets];
+    updated.splice(insertAt, 0, newSet);
+    setSets(updated);
+  };
+
+  // Shared across the 531/Cluster/EMOM cards below — same muted row style regardless of
+  // which method the working sets underneath use, since a warm-up set isn't tied to that
+  // method's own structure (no percentage-of-TM label, no mini-series/minute grouping).
+  const renderWarmupSection = (ex: Exercise) => {
+    const warmupSets = sets.map((s, i) => ({ ...s, globalIdx: i })).filter(s => s.exerciseId === ex.id && s.isWarmup);
+    return (
+      <div className="mb-3">
+        {warmupSets.map((s, i) => (
+          <div
+            key={s.globalIdx}
+            className={`flex items-center gap-2 rounded-xl px-3 py-2 mb-1.5 transition-all ${
+              sets[s.globalIdx].completed ? 'bg-success/10 border border-success/25' : 'bg-secondary/25 border border-border/40'
+            }`}
+          >
+            <span className="text-xs text-muted-foreground w-16 shrink-0">Éch. {i + 1}</span>
+            <input
+              type="number"
+              value={sets[s.globalIdx].weight || ''}
+              onChange={e => updateSet(s.globalIdx, 'weight', e.target.value)}
+              className="w-14 bg-transparent text-foreground text-sm text-center outline-none font-mono"
+              placeholder="kg"
+              aria-label={`Poids échauffement ${i + 1}, ${ex.name} (kg)`}
+            />
+            <span className="text-muted-foreground text-xs">kg ×</span>
+            <input
+              type="number"
+              value={sets[s.globalIdx].reps || ''}
+              onChange={e => updateSet(s.globalIdx, 'reps', e.target.value)}
+              className="w-10 bg-transparent text-foreground text-sm text-center outline-none font-mono"
+              aria-label={`Répétitions échauffement ${i + 1}, ${ex.name}`}
+            />
+            <button
+              onClick={() => removeSet(s.globalIdx)}
+              className="touch-target inline-flex items-center justify-center text-muted-foreground active:text-destructive ml-auto"
+              aria-label={`Supprimer échauffement ${i + 1}`}
+            >
+              <Trash2 size={14} />
+            </button>
+            <button
+              onClick={() => toggleSet(s.globalIdx)}
+              className={`touch-target rounded-lg p-1.5 transition-colors ${
+                sets[s.globalIdx].completed ? 'text-success glow-success' : 'text-muted-foreground active:text-success'
+              }`}
+              aria-label={sets[s.globalIdx].completed ? `Échauffement ${i + 1} validé` : `Valider l'échauffement ${i + 1}`}
+              aria-pressed={sets[s.globalIdx].completed}
+            >
+              <Check size={16} />
+            </button>
+          </div>
+        ))}
+        {warmupSets.length < WARMUP_PERCENTAGES.length && (
+          <button
+            onClick={() => addWarmupSet(ex)}
+            className="min-h-9 flex items-center gap-1 text-muted-foreground text-[11px] font-medium"
+          >
+            <Plus size={10} /> Échauffement ({warmupSets.length}/{WARMUP_PERCENTAGES.length})
+          </button>
+        )}
+      </div>
+    );
   };
 
   // Plain helper functions (not components) so they don't get a fresh type identity
@@ -1608,7 +1706,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
         const method = ex.method as FiveThreeOneMethod;
         const liveSets = sets
           .map((s, i) => ({ ...s, globalIdx: i }))
-          .filter(s => s.exerciseId === ex.id);
+          .filter(s => s.exerciseId === ex.id && !s.isWarmup);
         if (liveSets.length === 0) return null;
         const week = selectedWeeks[ex.id] ?? method.currentWeek;
         const weekSetsForDisplay = getWeekSets(method.trainingMax, week);
@@ -1636,6 +1734,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
             </div>
             {renderReminderNoteBanner(ex)}
             {renderLowRpeBanner(ex)}
+            {!isTestMaxActive && renderWarmupSection(ex)}
 
             {ex.trainingFocus === 'force' && !isTestMaxActive && (
               testMaxSetupOpen[ex.id] ? (
@@ -1862,7 +1961,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
         const { numSeries, miniSeries, restMiniSeries, restSeries } = getClusterConfig(method);
         const liveSets = sets
           .map((s, i) => ({ ...s, globalIdx: i }))
-          .filter(s => s.exerciseId === ex.id);
+          .filter(s => s.exerciseId === ex.id && !s.isWarmup);
         if (liveSets.length === 0) return null;
         const miniPerSeries = miniSeries.length;
 
@@ -1897,6 +1996,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
             </div>
             {renderReminderNoteBanner(ex)}
             {renderLowRpeBanner(ex)}
+            {renderWarmupSection(ex)}
             <MethodPickerRow active="cluster" onSelect={opt => applyMethodOverride(ex, opt)} />
             <label className="flex items-center justify-between mb-3 -mt-1 cursor-pointer">
               <span className="text-xs text-muted-foreground flex items-center gap-1.5">
@@ -1970,7 +2070,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
         const { durationMinutes } = getEmomConfig(method);
         const liveSets = sets
           .map((s, i) => ({ ...s, globalIdx: i }))
-          .filter(s => s.exerciseId === ex.id);
+          .filter(s => s.exerciseId === ex.id && !s.isWarmup);
         if (liveSets.length === 0) return null;
 
         const handleMinuteComplete = (minuteNumber: number) => {
@@ -1996,6 +2096,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
             </div>
             {renderReminderNoteBanner(ex)}
             {renderLowRpeBanner(ex)}
+            {renderWarmupSection(ex)}
             <MethodPickerRow active="emom" onSelect={opt => applyMethodOverride(ex, opt)} />
             <div className="mb-3">
               <EmomTimer totalMinutes={durationMinutes} onMinuteComplete={handleMinuteComplete} />
