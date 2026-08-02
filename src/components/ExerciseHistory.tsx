@@ -2,14 +2,15 @@ import { useEffect, useMemo, useState } from 'react';
 import { AppData, calculate1RM } from '@/lib/types';
 import { splitEquipmentVariant, isBodyweightOptionalExercise } from '@/lib/exerciseNormalize';
 import { STANDARD_MOVEMENTS, StandardMovement, getFranceRecord, getRecordMessage, getLevel, getLevelMessage } from '@/lib/strengthStandards';
-import { computeBodyweightAdjustedE1RM, resolveBodyWeightAtDate } from '@/lib/tonnage';
-import { ArrowLeft, Trophy } from 'lucide-react';
+import { computeBodyweightAdjustedE1RM, computeEffectiveLoadAtOneRep, resolveBodyWeightAtDate } from '@/lib/tonnage';
+import { ArrowLeft, Trophy, Dumbbell, Plus } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import RangeButtons, { RangeFilter, rangeCutoffDate } from './RangeButtons';
 
 interface ExerciseHistoryProps {
   exerciseName: string;
   data: AppData;
+  onUpdateData: (partial: Partial<AppData>) => void;
   onClose: () => void;
 }
 
@@ -64,7 +65,7 @@ const OneRepMaxTooltip = (bodyweightOptional: boolean) => ({ active, payload }: 
   );
 };
 
-const ExerciseHistory = ({ exerciseName, data, onClose }: ExerciseHistoryProps) => {
+const ExerciseHistory = ({ exerciseName, data, onUpdateData, onClose }: ExerciseHistoryProps) => {
   // Group by base exercise (equipment-agnostic) so e.g. "Développé couché", "Développé
   // couché haltères" and "Développé couché machine" all show up under one screen — but
   // each equipment variant keeps its own PR/history, since their loads aren't comparable.
@@ -126,7 +127,22 @@ const ExerciseHistory = ({ exerciseName, data, onClose }: ExerciseHistoryProps) 
     return logs.slice().sort((a, b) => b.date.localeCompare(a.date))[0].weight;
   }, [data.bodyWeightLogs]);
 
+  // Tested (not estimated) 1RM history for this movement — see TrueOneRepMax in types.ts.
+  // Independent of the Force/Hypertrophie toggle (that only gates the live-session "1RM ?"
+  // shortcut) — manually logging a real test is always available for these 5 lifts.
+  const trueOneRepMaxHistory = useMemo(() => {
+    return (data.trueOneRepMaxes || [])
+      .filter(t => t.exerciseName === base)
+      .slice()
+      .sort((a, b) => b.date.localeCompare(a.date));
+  }, [data.trueOneRepMaxes, base]);
+  const latestTrueOneRM = trueOneRepMaxHistory[0];
+
+  const [showAddTrueOneRM, setShowAddTrueOneRM] = useState(false);
+  const [addTrueOneRMDraft, setAddTrueOneRMDraft] = useState({ date: new Date().toISOString().split('T')[0], weight: '' });
+
   return (
+    <>
     <div className="px-4 pt-12 pb-24 animate-slide-up">
       <div className="flex items-center gap-3 mb-6">
         <button onClick={onClose} className="text-muted-foreground touch-target p-1">
@@ -179,6 +195,44 @@ const ExerciseHistory = ({ exerciseName, data, onClose }: ExerciseHistoryProps) 
         </div>
       )}
 
+      {isStandardMovement && (
+        <div className="glass-card p-4 mb-4">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-1.5">
+              <Dumbbell size={14} className="text-warning" />
+              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Vrai 1RM (testé)</h3>
+            </div>
+            <button
+              onClick={() => { setAddTrueOneRMDraft({ date: new Date().toISOString().split('T')[0], weight: '' }); setShowAddTrueOneRM(true); }}
+              className="touch-target p-1 text-warning"
+              aria-label="Ajouter un vrai 1RM"
+            >
+              <Plus size={16} />
+            </button>
+          </div>
+          {latestTrueOneRM ? (
+            <div className="space-y-1">
+              <p className="text-sm text-foreground font-semibold">
+                {latestTrueOneRM.weight} kg{' '}
+                <span className="text-xs text-muted-foreground font-normal">
+                  — {new Date(latestTrueOneRM.date + 'T00:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
+                </span>
+              </p>
+              {defaultVariantPR > 0 && (
+                <p className="text-[11px] text-muted-foreground">
+                  1RM estimé : {defaultVariantPR} kg ({latestTrueOneRM.weight >= defaultVariantPR ? '+' : ''}
+                  {Math.round((latestTrueOneRM.weight - defaultVariantPR) * 10) / 10} kg d'écart)
+                </p>
+              )}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Aucun vrai 1RM enregistré — valide une série à 1 rep en séance (mode Force dans Réglages) ou ajoute-le ici.
+            </p>
+          )}
+        </div>
+      )}
+
       {variantGroups.length === 0 ? (
         <div className="glass-card p-8 text-center">
           <p className="text-muted-foreground">Pas encore d'historique pour cet exercice.</p>
@@ -189,6 +243,73 @@ const ExerciseHistory = ({ exerciseName, data, onClose }: ExerciseHistoryProps) 
         ))
       )}
     </div>
+
+    {showAddTrueOneRM && (
+      <div
+        className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-6 animate-fade-in"
+        onClick={() => setShowAddTrueOneRM(false)}
+      >
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="add-true-1rm-title"
+          className="glass-card p-6 max-w-sm w-full"
+          onClick={e => e.stopPropagation()}
+        >
+          <h3 id="add-true-1rm-title" className="text-sm font-bold text-foreground mb-1">Ajouter un vrai 1RM — {base}</h3>
+          <p className="text-[11px] text-muted-foreground mb-4">
+            {bodyweightOptional
+              ? 'Poids ajouté (0 = poids de corps, négatif = assisté), comme en séance — pas le total.'
+              : 'Charge totale soulevée pour cette unique répétition.'}
+          </p>
+          <div className="space-y-3 mb-4">
+            <div>
+              <label className="text-xs text-muted-foreground block mb-1">Date</label>
+              <input
+                type="date"
+                value={addTrueOneRMDraft.date}
+                onChange={e => setAddTrueOneRMDraft({ ...addTrueOneRMDraft, date: e.target.value })}
+                className="w-full bg-secondary text-foreground rounded-xl px-3 py-2.5 text-sm outline-none"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground block mb-1">Poids (kg)</label>
+              <input
+                autoFocus
+                type="number"
+                value={addTrueOneRMDraft.weight}
+                onChange={e => setAddTrueOneRMDraft({ ...addTrueOneRMDraft, weight: e.target.value })}
+                className="w-full bg-secondary text-foreground rounded-xl px-3 py-2.5 text-sm outline-none font-mono"
+                placeholder="kg"
+              />
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <button
+              onClick={() => setShowAddTrueOneRM(false)}
+              className="flex-1 bg-secondary text-secondary-foreground font-medium py-2.5 rounded-xl text-sm touch-target"
+            >
+              Annuler
+            </button>
+            <button
+              disabled={addTrueOneRMDraft.weight === ''}
+              onClick={() => {
+                const enteredWeight = parseFloat(addTrueOneRMDraft.weight) || 0;
+                const bodyWeight = resolveBodyWeightAtDate(data.bodyWeightLogs, addTrueOneRMDraft.date);
+                const effectiveLoad = computeEffectiveLoadAtOneRep({ weight: enteredWeight, exerciseName: base }, bodyWeight);
+                const entry = { id: `true1rm-${Date.now()}`, date: addTrueOneRMDraft.date, exerciseName: base, weight: effectiveLoad };
+                onUpdateData({ trueOneRepMaxes: [...(data.trueOneRepMaxes || []), entry] });
+                setShowAddTrueOneRM(false);
+              }}
+              className="flex-1 btn-neon font-medium py-2.5 rounded-xl text-sm touch-target disabled:opacity-40"
+            >
+              Enregistrer
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 };
 

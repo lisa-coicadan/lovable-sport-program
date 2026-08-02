@@ -4,9 +4,13 @@ import { getWeekSets, getWeekLabel, computeNextFiveThreeOneWeekState } from '@/l
 import { getClusterConfig, getMiniSeriesWeight } from '@/lib/cluster';
 import { getEmomConfig, getEmomWeight } from '@/lib/emom';
 import { buildExerciseBlocks } from '@/lib/superset';
-import { isBodyweightOptionalExercise, weightFieldValue } from '@/lib/exerciseNormalize';
+import { isBodyweightOptionalExercise, weightFieldValue, splitEquipmentVariant } from '@/lib/exerciseNormalize';
 import { getDropSetConfig, getDropSetStage } from '@/lib/dropset';
 import { compareCardioSession, formatCardioDuration, formatPace } from '@/lib/cardio';
+import { STANDARD_MOVEMENTS, StandardMovement } from '@/lib/strengthStandards';
+import { computeEffectiveLoadAtOneRep, resolveBodyWeightAtDate } from '@/lib/tonnage';
+import { estimateTrainingMax } from '@/lib/trainingMax';
+import { RAMP_STAGES, generateRampPlan, generateBonusStage, getOuvertureGuidance, getFailureGuidance } from '@/lib/oneRepMaxTest';
 import {
   shouldShowDeloadRecommendation, DeloadCriteria, buildDeloadAcceptPatch, buildDeloadDismissPatch,
   consumeDeloadOnSessionSave, getDeloadTargetWorkoutTypes, applyDeloadToWeight, applyDeloadToTrainingMax,
@@ -170,6 +174,18 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
   const [deloadPopupOpen, setDeloadPopupOpen] = useState(false);
   const [deloadTypeDraft, setDeloadTypeDraft] = useState<DeloadType>('both');
   const [deloadIntensityDraft, setDeloadIntensityDraft] = useState<DeloadIntensity>('medium');
+  // "1RM ?" confirmation on a genuine 1-rep set (Force-focus exercises only, see
+  // Exercise.trainingFocus) — the checkbox below is the RPE 9-10 self-report that makes
+  // this a TESTED 1RM rather than just another logged set.
+  const [trueOneRMConfirm, setTrueOneRMConfirm] = useState<{ exerciseId: string; name: string; globalIdx: number; rpeConfirmed: boolean } | null>(null);
+  // Shown right after a true 1RM is saved, only when it implies a different TM than the
+  // one currently set on that exercise's method — never automatic (see item 5 design note).
+  const [tmUpdatePrompt, setTmUpdatePrompt] = useState<{ exerciseId: string; currentTM: number; newTM: number } | null>(null);
+  // "Tester un 1RM" setup panel (target 1RM input) shown before the ramp is generated —
+  // once generated, the ramp's own isTestMax sets are the source of truth for whether it's
+  // active, so no separate "active" flag is needed here.
+  const [testMaxSetupOpen, setTestMaxSetupOpen] = useState<Record<string, boolean>>({});
+  const [testMaxTargetDraft, setTestMaxTargetDraft] = useState<Record<string, string>>({});
   const restTimerRef = useRef<RestTimerHandle>(null);
 
   // Cardio logging is a simple after-the-fact form (not an interactive session like the
@@ -481,6 +497,12 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     setSets(updated);
   };
 
+  // Only used by the "Tester un 1RM" ramp rows — rpe/failed have no place in the
+  // reps/weight-only updateSet above, and there's no other flow that sets them.
+  const setRampSetField = (index: number, patch: Partial<Pick<SetLog, 'rpe' | 'failed'>>) => {
+    setSets(prev => prev.map((s, i) => i === index ? { ...s, ...patch } : s));
+  };
+
   // Tractions/dips: a negative weight materializes band/machine assistance. Toggling from
   // exactly 0 has nothing to negate (-0 === 0), which read as "the button does nothing" —
   // jump to -1 instead so the switch to assisted mode is always visible; she then edits
@@ -606,6 +628,84 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
       ...prev,
       exercises: prev.exercises.map(ex => ex.id === exerciseId ? { ...ex, reminderNote: note } : ex),
     } : prev);
+  };
+
+  // Saves a confirmed 1RM (RPE 9-10 single) into the app-wide history, then — only when
+  // this exercise has a method whose Training Max no longer matches — offers to update it
+  // (never automatic, see item 5 design note in the conversation this feature came from).
+  const confirmTrueOneRM = (exerciseId: string, exerciseName: string, weight: number) => {
+    const sessionDate = selectedDate || new Date().toISOString().split('T')[0];
+    const bodyWeight = resolveBodyWeightAtDate(data.bodyWeightLogs, sessionDate);
+    const effectiveLoad = computeEffectiveLoadAtOneRep({ weight, exerciseName }, bodyWeight);
+    const movement = splitEquipmentVariant(exerciseName).base;
+    const entry = { id: `true1rm-${Date.now()}`, date: sessionDate, exerciseName: movement, weight: effectiveLoad };
+    onUpdateData({ trueOneRepMaxes: [...(data.trueOneRepMaxes || []), entry] });
+
+    const templateEx = selectedType?.exercises.find(e => e.id === exerciseId);
+    const currentTM = templateEx?.method?.trainingMax;
+    if (currentTM !== undefined) {
+      const newTM = estimateTrainingMax(effectiveLoad);
+      if (Math.abs(newTM - currentTM) >= 0.5) {
+        setTmUpdatePrompt({ exerciseId, currentTM, newTM });
+      }
+    }
+  };
+
+  const applyTmUpdate = () => {
+    if (!tmUpdatePrompt) return;
+    const { exerciseId, newTM } = tmUpdatePrompt;
+    const patchExercise = (ex: Exercise) => ex.id === exerciseId && ex.method ? { ...ex, method: { ...ex.method, trainingMax: newTM } } : ex;
+    onUpdateData({ workoutTypes: data.workoutTypes.map(t => ({ ...t, exercises: t.exercises.map(patchExercise) })) });
+    // Same reason as setExerciseReminderNote above: selectedType is a snapshot, not live.
+    setSelectedType(prev => prev ? { ...prev, exercises: prev.exercises.map(patchExercise) } : prev);
+    setTmUpdatePrompt(null);
+  };
+
+  // Opens the target-1RM setup panel, pre-filled from the latest confirmed true 1RM for
+  // this movement if any, otherwise reverse-derived from the current TM (TM = 1RM * 0.9).
+  const openTestMaxSetup = (ex: Exercise) => {
+    const movement = splitEquipmentVariant(ex.name).base;
+    const latestTrue = (data.trueOneRepMaxes || [])
+      .filter(t => t.exerciseName === movement)
+      .sort((a, b) => b.date.localeCompare(a.date))[0];
+    const method = ex.method as FiveThreeOneMethod | undefined;
+    const defaultTarget = latestTrue?.weight ?? (method ? Math.round((method.trainingMax / 0.9) * 10) / 10 : 0);
+    setTestMaxTargetDraft(prev => ({ ...prev, [ex.id]: defaultTarget > 0 ? String(defaultTarget) : '' }));
+    setTestMaxSetupOpen(prev => ({ ...prev, [ex.id]: true }));
+  };
+
+  // Replaces this exercise's normal 5/3/1 sets with the ramp — session-only, the
+  // WorkoutType template's week/cycle is never touched here (see isTestMax exclusion in
+  // handleSummaryComplete below).
+  const startTestMaxRamp = (ex: Exercise) => {
+    const target = parseFloat(testMaxTargetDraft[ex.id]) || 0;
+    if (target <= 0) return;
+    const plan = generateRampPlan(target);
+    const rampSets: SetLog[] = plan.map((p, i) => ({
+      exerciseId: ex.id, exerciseName: ex.name, setNumber: i + 1,
+      reps: p.reps, weight: p.weight, completed: false, isTestMax: true,
+    }));
+    setSets(prev => [...prev.filter(s => s.exerciseId !== ex.id), ...rampSets]);
+    setTestMaxSetupOpen(prev => ({ ...prev, [ex.id]: false }));
+  };
+
+  // Adds the 102% bonus attempt after a clean "Le PR" success — its own action rather than
+  // part of the initial plan, since it only makes sense once she knows 100% went well.
+  const addBonusStage = (ex: Exercise) => {
+    const target = parseFloat(testMaxTargetDraft[ex.id]) || 0;
+    if (target <= 0) return;
+    const bonus = generateBonusStage(target);
+    setSets(prev => [...prev, {
+      exerciseId: ex.id, exerciseName: ex.name, setNumber: RAMP_STAGES.length + 1,
+      reps: bonus.reps, weight: bonus.weight, completed: false, isTestMax: true,
+    }]);
+  };
+
+  // Abandons the ramp and rebuilds this exercise's normal prescribed week sets — she never
+  // loses her place in the 5/3/1 program by trying (and backing out of) a test.
+  const cancelTestMaxRamp = (ex: Exercise) => {
+    const normalSets = buildSetsForExercise(ex, ex.method, 0);
+    setSets(prev => [...prev.filter(s => s.exerciseId !== ex.id), ...normalSets]);
   };
 
   // Plain helper functions (not components) so they don't get a fresh type identity
@@ -743,7 +843,10 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
 
     if (selectedType) {
       const progressed = selectedType.exercises.filter(
-        ex => ex.method?.type === '531' && session.sets.some(s => s.exerciseId === ex.id)
+        // isTestMax sets (see "Tester un 1RM", src/lib/oneRepMaxTest.ts) don't count as
+        // having progressed this exercise's normal week — a max test on Squat alone must
+        // never advance the shared week/cycle that every 5/3/1 exercise stays in lockstep on.
+        ex => ex.method?.type === '531' && session.sets.some(s => s.exerciseId === ex.id && !s.isTestMax)
       );
       if (progressed.length > 0) {
         // All 5/3/1 exercises across the whole app are kept in lockstep on the same
@@ -825,6 +928,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
         <ExerciseHistory
           exerciseName={historyExercise}
           data={data}
+          onUpdateData={onUpdateData}
           onClose={() => { setHistoryExercise(null); setMode(selectedType ? 'recap' : 'select'); }}
         />
         {selectedType && <RestTimer ref={restTimerRef} defaultSeconds={restDuration} />}
@@ -1508,6 +1612,10 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
         const week = selectedWeeks[ex.id] ?? method.currentWeek;
         const weekSetsForDisplay = getWeekSets(method.trainingMax, week);
         const isAmrap = (setIdx: number) => weekSetsForDisplay[setIdx]?.reps?.includes('+');
+        const isTestMaxActive = liveSets.some(s => sets[s.globalIdx].isTestMax);
+        const prStage = liveSets.find(s => sets[s.globalIdx].isTestMax && sets[s.globalIdx].setNumber === RAMP_STAGES.length);
+        const prSucceeded = !!prStage && sets[prStage.globalIdx].completed && !sets[prStage.globalIdx].failed;
+        const hasBonusStage = liveSets.some(s => sets[s.globalIdx].setNumber === RAMP_STAGES.length + 1);
 
         return (
           <div key={ex.id} className="glass-card p-4 mb-4 border-primary/30">
@@ -1527,82 +1635,222 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
             </div>
             {renderReminderNoteBanner(ex)}
             {renderLowRpeBanner(ex)}
-            <SetDots states={liveSets.map(s => sets[s.globalIdx].completed)} className="mb-3" />
-            <div className="flex gap-1.5 mb-4">
-              {[1, 2, 3, 4].map(w => (
-                <button
-                  key={w}
-                  onClick={() => updateWeekSelection(ex.id, w)}
-                  className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                    week === w ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
-                  }`}
-                >
-                  {w === 4 ? 'Deload' : `S${w}`}
-                </button>
-              ))}
-            </div>
-            <div className="space-y-2">
-              {liveSets.map((s, localIdx) => {
-                const globalIdx = s.globalIdx;
-                const amrap = isAmrap(localIdx);
-                const actualWeight = sets[globalIdx].weight;
-                const actualReps = amrapReps[globalIdx] !== undefined ? amrapReps[globalIdx] : sets[globalIdx].reps;
-                const realE1rm = actualWeight > 0 && actualReps > 0 ? calculate1RM(actualWeight, actualReps) : 0;
 
-                return (
-                  <div
-                    key={globalIdx}
-                    className={`flex items-center gap-2 rounded-xl px-3 py-2.5 transition-all ${
-                      sets[globalIdx].completed ? 'bg-success/10 border border-success/25' : 'bg-secondary/50'
-                    }`}
-                  >
-                    <span className="text-xs text-muted-foreground w-6">S{localIdx + 1}</span>
-                    <input
-                      type="number"
-                      value={sets[globalIdx].weight || ''}
-                      onChange={e => updateSet(globalIdx, 'weight', e.target.value)}
-                      className="w-14 bg-transparent text-foreground text-sm text-center outline-none font-mono"
-                      placeholder="kg"
-                      aria-label={`Poids série ${localIdx + 1}, ${ex.name} (kg)`}
-                    />
-                    <span className="text-muted-foreground text-xs">×</span>
-                    {amrap ? (
-                      <div className="flex items-center gap-1">
-                        <input
-                          type="number"
-                          value={amrapReps[globalIdx] !== undefined ? (amrapReps[globalIdx] || '') : (sets[globalIdx].reps || '')}
-                          onChange={e => setAmrapReps(prev => ({ ...prev, [globalIdx]: e.target.value === '' ? 0 : parseInt(e.target.value) || 0 }))}
-                          className="w-12 bg-primary/10 text-primary text-sm text-center outline-none font-mono rounded-lg py-1 border border-primary/30"
-                          placeholder="reps"
-                          aria-label={`Répétitions AMRAP série ${localIdx + 1}, ${ex.name}`}
-                        />
-                        <span className="text-[10px] text-primary font-bold">AMRAP</span>
-                      </div>
-                    ) : (
-                      <span className="text-sm text-foreground font-mono w-12 text-center">
-                        {weekSetsForDisplay[localIdx]?.reps}
-                      </span>
-                    )}
-                    {realE1rm > 0 && sets[globalIdx].completed && (
-                      <span className="text-[10px] text-primary ml-1">{realE1rm}kg</span>
-                    )}
-                    <span className="text-[10px] text-muted-foreground ml-auto">
-                      {Math.round((weekSetsForDisplay[localIdx]?.percentage || 0) * 100)}%
-                    </span>
+            {ex.trainingFocus === 'force' && !isTestMaxActive && (
+              testMaxSetupOpen[ex.id] ? (
+                <div className="bg-warning/10 border border-warning/30 rounded-xl p-3 mb-3">
+                  <label className="text-xs text-muted-foreground block mb-1.5">1RM visé (kg)</label>
+                  <input
+                    type="number"
+                    autoFocus
+                    value={testMaxTargetDraft[ex.id] ?? ''}
+                    onChange={e => setTestMaxTargetDraft(prev => ({ ...prev, [ex.id]: e.target.value }))}
+                    className="w-full bg-background/60 text-foreground rounded-lg px-3 py-2 text-sm outline-none font-mono mb-2"
+                  />
+                  <div className="flex gap-2">
                     <button
-                      onClick={() => toggleSet(globalIdx)}
-                      className={`touch-target rounded-lg p-2 transition-colors ${
-                        sets[globalIdx].completed ? 'text-success glow-success' : 'text-muted-foreground active:text-success'
-                      }`}
-                      aria-label={sets[globalIdx].completed ? `Série ${localIdx + 1} validée` : `Valider la série ${localIdx + 1}`}
-                      aria-pressed={sets[globalIdx].completed}
+                      onClick={() => setTestMaxSetupOpen(prev => ({ ...prev, [ex.id]: false }))}
+                      className="flex-1 bg-secondary text-secondary-foreground font-medium py-2 rounded-lg text-xs touch-target"
                     >
-                      <Check size={18} />
+                      Annuler
+                    </button>
+                    <button
+                      onClick={() => startTestMaxRamp(ex)}
+                      className="flex-1 btn-neon font-medium py-2 rounded-lg text-xs touch-target"
+                    >
+                      Démarrer
                     </button>
                   </div>
-                );
-              })}
-            </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => openTestMaxSetup(ex)}
+                  className="w-full mb-3 flex items-center justify-center gap-1.5 text-warning text-xs font-medium py-2 rounded-lg bg-warning/10"
+                >
+                  🎯 Tester un 1RM
+                </button>
+              )
+            )}
+
+            {isTestMaxActive ? (
+              <div className="space-y-2">
+                {liveSets.map(s => {
+                  const globalIdx = s.globalIdx;
+                  const set = sets[globalIdx];
+                  const stage = RAMP_STAGES[set.setNumber - 1];
+                  const label = stage?.label ?? 'Tentative bonus';
+                  const isMaxAttempt = set.setNumber >= RAMP_STAGES.length; // "Le PR" and any bonus
+                  return (
+                    <div key={globalIdx}>
+                      <div
+                        className={`flex items-center gap-2 rounded-xl px-3 py-2.5 transition-all ${
+                          set.completed ? (set.failed ? 'bg-destructive/10 border border-destructive/25' : 'bg-success/10 border border-success/25') : 'bg-secondary/50'
+                        }`}
+                      >
+                        <span className="text-[10px] text-muted-foreground w-16 shrink-0">{label}</span>
+                        <input
+                          type="number"
+                          value={set.weight || ''}
+                          onChange={e => updateSet(globalIdx, 'weight', e.target.value)}
+                          className="w-14 bg-transparent text-foreground text-sm text-center outline-none font-mono"
+                          placeholder="kg"
+                          aria-label={`Poids ${label}, ${ex.name} (kg)`}
+                        />
+                        <span className="text-muted-foreground text-xs">×</span>
+                        <input
+                          type="number"
+                          value={set.reps || ''}
+                          onChange={e => updateSet(globalIdx, 'reps', e.target.value)}
+                          className="w-10 bg-transparent text-foreground text-sm text-center outline-none font-mono"
+                          aria-label={`Répétitions ${label}, ${ex.name}`}
+                        />
+                        <input
+                          type="number"
+                          min={1}
+                          max={10}
+                          value={set.rpe ?? ''}
+                          onChange={e => setRampSetField(globalIdx, { rpe: e.target.value === '' ? undefined : (parseInt(e.target.value) || undefined) })}
+                          className="w-10 bg-accent-blue/10 text-accent-blue text-xs text-center outline-none font-mono rounded-lg py-1 ml-auto"
+                          placeholder="RPE"
+                          aria-label={`RPE ${label}, ${ex.name}`}
+                        />
+                        <button
+                          onClick={() => { setRampSetField(globalIdx, { failed: false }); if (!set.completed) toggleSet(globalIdx); }}
+                          className={`touch-target rounded-lg p-1.5 transition-colors ${
+                            set.completed && !set.failed ? 'text-success glow-success' : 'text-muted-foreground active:text-success'
+                          }`}
+                          aria-label={`${label} réussie`}
+                        >
+                          <Check size={16} />
+                        </button>
+                        {isMaxAttempt && (
+                          <button
+                            onClick={() => { setRampSetField(globalIdx, { failed: true }); if (!set.completed) toggleSet(globalIdx); }}
+                            className={`touch-target rounded-lg p-1.5 transition-colors ${
+                              set.completed && set.failed ? 'text-destructive' : 'text-muted-foreground active:text-destructive'
+                            }`}
+                            aria-label={`${label} échouée`}
+                          >
+                            <X size={16} />
+                          </button>
+                        )}
+                      </div>
+                      {stage?.key === 'ouverture' && set.completed && set.rpe !== undefined && getOuvertureGuidance(set.rpe) && (
+                        <p className="text-[11px] text-warning bg-warning/10 border border-warning/30 rounded-lg px-3 py-2 mt-1.5">
+                          {getOuvertureGuidance(set.rpe)}
+                        </p>
+                      )}
+                      {isMaxAttempt && set.completed && set.failed && (
+                        <p className="text-[11px] text-destructive bg-destructive/10 border border-destructive/30 rounded-lg px-3 py-2 mt-1.5">
+                          {getFailureGuidance()}
+                        </p>
+                      )}
+                      {isMaxAttempt && set.completed && !set.failed && set.reps === 1 && (
+                        <button
+                          onClick={() => setTrueOneRMConfirm({ exerciseId: ex.id, name: ex.name, globalIdx, rpeConfirmed: false })}
+                          className="w-full mt-1.5 touch-target flex items-center justify-center gap-1 rounded-lg text-xs font-medium text-warning bg-warning/10 py-1.5"
+                        >
+                          1RM ?
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+                {prSucceeded && !hasBonusStage && (
+                  <button
+                    onClick={() => addBonusStage(ex)}
+                    className="w-full min-h-11 flex items-center justify-center gap-1 text-warning text-xs font-medium"
+                  >
+                    <Plus size={12} /> Tentative bonus (102%)
+                  </button>
+                )}
+                <button
+                  onClick={() => cancelTestMaxRamp(ex)}
+                  className="w-full min-h-9 flex items-center justify-center text-muted-foreground text-[11px] mt-1"
+                >
+                  Annuler le test — reprendre le 5/3/1 normal
+                </button>
+              </div>
+            ) : (
+              <>
+                <SetDots states={liveSets.map(s => sets[s.globalIdx].completed)} className="mb-3" />
+                <div className="flex gap-1.5 mb-4">
+                  {[1, 2, 3, 4].map(w => (
+                    <button
+                      key={w}
+                      onClick={() => updateWeekSelection(ex.id, w)}
+                      className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                        week === w ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
+                      }`}
+                    >
+                      {w === 4 ? 'Deload' : `S${w}`}
+                    </button>
+                  ))}
+                </div>
+                <div className="space-y-2">
+                  {liveSets.map((s, localIdx) => {
+                    const globalIdx = s.globalIdx;
+                    const amrap = isAmrap(localIdx);
+                    const actualWeight = sets[globalIdx].weight;
+                    const actualReps = amrapReps[globalIdx] !== undefined ? amrapReps[globalIdx] : sets[globalIdx].reps;
+                    const realE1rm = actualWeight > 0 && actualReps > 0 ? calculate1RM(actualWeight, actualReps) : 0;
+
+                    return (
+                      <div
+                        key={globalIdx}
+                        className={`flex items-center gap-2 rounded-xl px-3 py-2.5 transition-all ${
+                          sets[globalIdx].completed ? 'bg-success/10 border border-success/25' : 'bg-secondary/50'
+                        }`}
+                      >
+                        <span className="text-xs text-muted-foreground w-6">S{localIdx + 1}</span>
+                        <input
+                          type="number"
+                          value={sets[globalIdx].weight || ''}
+                          onChange={e => updateSet(globalIdx, 'weight', e.target.value)}
+                          className="w-14 bg-transparent text-foreground text-sm text-center outline-none font-mono"
+                          placeholder="kg"
+                          aria-label={`Poids série ${localIdx + 1}, ${ex.name} (kg)`}
+                        />
+                        <span className="text-muted-foreground text-xs">×</span>
+                        {amrap ? (
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="number"
+                              value={amrapReps[globalIdx] !== undefined ? (amrapReps[globalIdx] || '') : (sets[globalIdx].reps || '')}
+                              onChange={e => setAmrapReps(prev => ({ ...prev, [globalIdx]: e.target.value === '' ? 0 : parseInt(e.target.value) || 0 }))}
+                              className="w-12 bg-primary/10 text-primary text-sm text-center outline-none font-mono rounded-lg py-1 border border-primary/30"
+                              placeholder="reps"
+                              aria-label={`Répétitions AMRAP série ${localIdx + 1}, ${ex.name}`}
+                            />
+                            <span className="text-[10px] text-primary font-bold">AMRAP</span>
+                          </div>
+                        ) : (
+                          <span className="text-sm text-foreground font-mono w-12 text-center">
+                            {weekSetsForDisplay[localIdx]?.reps}
+                          </span>
+                        )}
+                        {realE1rm > 0 && sets[globalIdx].completed && (
+                          <span className="text-[10px] text-primary ml-1">{realE1rm}kg</span>
+                        )}
+                        <span className="text-[10px] text-muted-foreground ml-auto">
+                          {Math.round((weekSetsForDisplay[localIdx]?.percentage || 0) * 100)}%
+                        </span>
+                        <button
+                          onClick={() => toggleSet(globalIdx)}
+                          className={`touch-target rounded-lg p-2 transition-colors ${
+                            sets[globalIdx].completed ? 'text-success glow-success' : 'text-muted-foreground active:text-success'
+                          }`}
+                          aria-label={sets[globalIdx].completed ? `Série ${localIdx + 1} validée` : `Valider la série ${localIdx + 1}`}
+                          aria-pressed={sets[globalIdx].completed}
+                        >
+                          <Check size={18} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
           </div>
         );
       })}
@@ -2092,6 +2340,17 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                           placeholder={sets[globalIdx].amrap ? 'Max' : 'reps'}
                           aria-label={`Répétitions ${rowLabel}, ${name}`}
                         />
+                        {templateEx?.trainingFocus === 'force' && sets[globalIdx].reps === 1 &&
+                          STANDARD_MOVEMENTS.includes(splitEquipmentVariant(name).base as StandardMovement) && (
+                          <button
+                            onClick={() => setTrueOneRMConfirm({ exerciseId, name, globalIdx, rpeConfirmed: false })}
+                            className="touch-target shrink-0 flex items-center gap-0.5 px-1.5 rounded-lg text-[10px] font-medium text-warning bg-warning/10"
+                            aria-label={`Valider cette série comme vrai 1RM pour ${name}`}
+                            title="1RM testé ?"
+                          >
+                            1RM ?
+                          </button>
+                        )}
                         <button
                           onClick={() => removeSet(globalIdx)}
                           className="touch-target inline-flex items-center justify-center text-muted-foreground active:text-destructive"
@@ -2295,6 +2554,89 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
               className="flex-1 btn-neon font-medium py-2.5 rounded-xl text-sm touch-target"
             >
               Enregistrer
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {trueOneRMConfirm && (
+      <div
+        className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-6 animate-fade-in"
+        onClick={() => setTrueOneRMConfirm(null)}
+      >
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="true-1rm-title"
+          className="glass-card p-6 max-w-sm w-full"
+          onClick={e => e.stopPropagation()}
+        >
+          <h3 id="true-1rm-title" className="text-sm font-bold text-foreground mb-1 flex items-center gap-1.5">
+            🏆 Vrai 1RM — {trueOneRMConfirm.name}
+          </h3>
+          <p className="text-[11px] text-muted-foreground mb-4">
+            {sets[trueOneRMConfirm.globalIdx].weight} kg × 1 — à valider uniquement si c'était un vrai maximum.
+          </p>
+          <label className="flex items-start gap-2 text-sm text-foreground mb-4">
+            <input
+              type="checkbox"
+              checked={trueOneRMConfirm.rpeConfirmed}
+              onChange={e => setTrueOneRMConfirm({ ...trueOneRMConfirm, rpeConfirmed: e.target.checked })}
+              className="w-4 h-4 mt-0.5 accent-warning shrink-0"
+            />
+            RPE 9-10 sur cette série (proche de l'échec)
+          </label>
+          <div className="flex gap-3">
+            <button
+              onClick={() => setTrueOneRMConfirm(null)}
+              className="flex-1 bg-secondary text-secondary-foreground font-medium py-2.5 rounded-xl text-sm touch-target"
+            >
+              Annuler
+            </button>
+            <button
+              disabled={!trueOneRMConfirm.rpeConfirmed}
+              onClick={() => {
+                confirmTrueOneRM(trueOneRMConfirm.exerciseId, trueOneRMConfirm.name, sets[trueOneRMConfirm.globalIdx].weight);
+                setTrueOneRMConfirm(null);
+              }}
+              className="flex-1 btn-neon font-medium py-2.5 rounded-xl text-sm touch-target disabled:opacity-40"
+            >
+              Confirmer
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {tmUpdatePrompt && (
+      <div
+        className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-6 animate-fade-in"
+        onClick={() => setTmUpdatePrompt(null)}
+      >
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="tm-update-title"
+          className="glass-card p-6 max-w-sm w-full"
+          onClick={e => e.stopPropagation()}
+        >
+          <h3 id="tm-update-title" className="text-sm font-bold text-foreground mb-2">Mettre à jour le TM ?</h3>
+          <p className="text-sm text-muted-foreground mb-4">
+            Ce vrai 1RM implique un Training Max de <span className="text-foreground font-medium">{tmUpdatePrompt.newTM} kg</span>, différent de celui enregistré (<span className="text-foreground font-medium">{tmUpdatePrompt.currentTM} kg</span>).
+          </p>
+          <div className="flex gap-3">
+            <button
+              onClick={() => setTmUpdatePrompt(null)}
+              className="flex-1 bg-secondary text-secondary-foreground font-medium py-2.5 rounded-xl text-sm touch-target"
+            >
+              Non
+            </button>
+            <button
+              onClick={applyTmUpdate}
+              className="flex-1 btn-neon font-medium py-2.5 rounded-xl text-sm touch-target"
+            >
+              Mettre à jour
             </button>
           </div>
         </div>

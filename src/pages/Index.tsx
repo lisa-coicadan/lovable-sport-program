@@ -109,7 +109,7 @@ const Index = () => {
           onProgressChange={setSessionProgress}
         />
       </div>
-      {activeTab === 2 && <StatsTab data={data} onUpdateSession={handleUpdateSession} onDeleteSession={handleDeleteSession} />}
+      {activeTab === 2 && <StatsTab data={data} onUpdateSession={handleUpdateSession} onDeleteSession={handleDeleteSession} onUpdateData={handleUpdateData} />}
       {!keyboardOpen && (
         <BottomTabBar activeTab={activeTab} onTabChange={(tab) => { setActiveTab(tab); }} sessionProgress={sessionProgress} />
       )}

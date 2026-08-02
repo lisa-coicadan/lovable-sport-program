@@ -16,6 +16,7 @@ interface StatsTabProps {
   data: AppData;
   onUpdateSession: (updated: SessionLog) => void;
   onDeleteSession?: (sessionId: string) => void;
+  onUpdateData: (partial: Partial<AppData>) => void;
 }
 
 type PR = { name: string; e1rm: number; weight: number; reps: number; date: string };
@@ -80,7 +81,7 @@ const weekRangeMondays = (range: RangeFilter, referenceDates: string[]): Date[] 
   return out;
 };
 
-const StatsTab = ({ data, onUpdateSession, onDeleteSession }: StatsTabProps) => {
+const StatsTab = ({ data, onUpdateSession, onDeleteSession, onUpdateData }: StatsTabProps) => {
   const [volumeFilter, setVolumeFilter] = useState<string | null>(null);
   const [weeklyRange, setWeeklyRange] = useState<RangeFilter>('all');
   const [volumeRange, setVolumeRange] = useState<RangeFilter>('3m');
@@ -371,7 +372,7 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession }: StatsTabProps) => 
   }
 
   if (historyExercise) {
-    return <ExerciseHistory exerciseName={historyExercise} data={data} onClose={() => setHistoryExercise(null)} />;
+    return <ExerciseHistory exerciseName={historyExercise} data={data} onUpdateData={onUpdateData} onClose={() => setHistoryExercise(null)} />;
   }
 
   return (

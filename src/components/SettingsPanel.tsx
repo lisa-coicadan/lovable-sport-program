@@ -5,7 +5,9 @@ import { parseSessionNotes, parseMultiSessionNotes, NOTES_SYNTAX_HELP, NOTES_SYN
 import { getEmomConfig, getEmomWeight, getDefaultEmomPercentage } from '@/lib/emom';
 import { getClusterConfig, getMiniSeriesWeight, CLUSTER_PRESETS } from '@/lib/cluster';
 import { estimateOneRepMax, estimateTrainingMax } from '@/lib/trainingMax';
-import { ArrowLeft, Plus, Trash2, EyeOff, Eye, Scale, Link2, Link2Off, Download, Upload, Database, AlertTriangle, FileText, Zap, Timer, Clock, Layers, Check, Calculator, TrendingDown, User, Infinity as InfinityIcon, Pencil, X, RefreshCw } from 'lucide-react';
+import { splitEquipmentVariant } from '@/lib/exerciseNormalize';
+import { STANDARD_MOVEMENTS, StandardMovement } from '@/lib/strengthStandards';
+import { ArrowLeft, Plus, Trash2, EyeOff, Eye, Scale, Link2, Link2Off, Download, Upload, Database, AlertTriangle, FileText, Zap, Timer, Clock, Layers, Check, Calculator, TrendingDown, User, Infinity as InfinityIcon, Pencil, X, RefreshCw, Dumbbell } from 'lucide-react';
 import { SortableList, DragHandle } from './SortableBlock';
 import { loadData, saveData } from '@/lib/storage';
 import { parseBackupFile } from '@/lib/backupFile';
@@ -1394,6 +1396,21 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                       />
                                       <InfinityIcon size={10} className="text-accent-purple" /> Max de reps
                                     </label>
+                                    {/* Only for the 5 standard barbell/bodyweight lifts — gates the
+                                        "1RM ?" live-session button and true-1RM tracking in
+                                        l'historique. Opt-in per exercice ; par défaut (décoché) le
+                                        comportement reste inchangé (1RM estimé uniquement). */}
+                                    {STANDARD_MOVEMENTS.includes(splitEquipmentVariant(ex.name).base as StandardMovement) && (
+                                      <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                                        <input
+                                          type="checkbox"
+                                          checked={ex.trainingFocus === 'force'}
+                                          onChange={e => updateExercise(ti, exIdx, 'trainingFocus', e.target.checked ? 'force' : undefined)}
+                                          className="w-3.5 h-3.5 accent-primary"
+                                        />
+                                        <Dumbbell size={10} className="text-primary" /> Force
+                                      </label>
+                                    )}
                                     {supersetTriggerButton}
                                   </div>
                                   {/* Own line, amber like the Drop set toggle above it — the

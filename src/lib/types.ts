@@ -62,6 +62,12 @@ export interface DropSetConfig {
   stepReps?: number; // reps shed per stage (from the base reps), default 2
 }
 
+// Only meaningful for the 5 standard barbell/bodyweight lifts (see StandardMovement in
+// strengthStandards.ts) — gates the "1RM ?" live-session button and the TrueOneRepMax
+// tracking in ExerciseHistory. Undefined/'hypertrophie' keeps today's behavior (estimated
+// 1RM only, no extra UI) — 'force' is an opt-in per exercise, not a global setting.
+export type TrainingFocus = 'force' | 'hypertrophie';
+
 export interface Exercise {
   id: string;
   name: string;
@@ -73,6 +79,7 @@ export interface Exercise {
   method?: ExerciseMethod; // optional per-exercise training method (5/3/1, later cluster/EMOM)
   unilateral?: boolean; // display-only attribute (execution mode)
   equipment?: ExerciseEquipment; // display-only attribute (equipment tag)
+  trainingFocus?: TrainingFocus;
   dropSet?: DropSetConfig;
   // "As many reps as possible" — configured ahead of time in Réglages (like dropSet),
   // not toggled mid-set: every set built for this exercise starts with no pre-filled
@@ -112,6 +119,17 @@ export interface SetLog {
   supersetRole?: 'A' | 'B';
   dropSetStage?: number; // 1, 2, ... — present only on auto-generated drop-set rows, cascading below their anchor set
   amrap?: boolean; // "as many reps as possible" — no pre-filled target, she logs whatever she actually got
+  // Fields below are only ever set by the "Tester un 1RM" ramp (see src/lib/oneRepMaxTest.ts)
+  // — a dedicated PR-testing flow, distinct from the normal per-exercise RPE
+  // (SessionLog.exerciseDifficulty) which is a single session-wide value per exercise, not
+  // per set. Absent on every other set in the app.
+  rpe?: number; // 1-10, self-reported effort on THIS ramp stage specifically
+  failed?: boolean; // explicit miss on a max attempt — distinct from `completed` (not done yet)
+  // Marks a set as belonging to a 1RM-test ramp rather than the exercise's normal
+  // prescribed sets — excluded from the shared 5/3/1 week/cycle advance in WorkoutTab's
+  // handleSummaryComplete, so testing a max on one exercise never desyncs its week/cycle
+  // from every other 5/3/1 exercise (which stay in lockstep, see computeNextFiveThreeOneWeekState).
+  isTestMax?: boolean;
 }
 
 export interface SessionLog {
@@ -179,6 +197,19 @@ export interface PlannedSession {
   workoutTypeId: string;
 }
 
+// A tested (not estimated) 1RM — a single rep actually performed at RPE 9-10, either
+// confirmed live from a logged set (see the "1RM ?" button in WorkoutTab) or entered
+// manually from ExerciseHistory. Kept as its own timestamped history (not a single current
+// value) so it can be tracked alongside the estimated 1RM over time. `weight` is the
+// effective absolute load at that rep (bodyweight-adjusted for tractions/dips lestés — see
+// computeEffectiveLoadAtOneRep in tonnage.ts), never a delta.
+export interface TrueOneRepMax {
+  id: string;
+  date: string; // YYYY-MM-DD
+  exerciseName: string; // the base movement name, e.g. 'Squat', 'Tractions lestées'
+  weight: number;
+}
+
 export type Gender = 'F' | 'H';
 
 // Deload week recommendation (see src/lib/deload.ts for the detection/application logic).
@@ -226,6 +257,8 @@ export interface AppData {
   // Sessions picked ahead of time on a future calendar day, for visibility only — see
   // PlannedSession above.
   plannedSessions?: PlannedSession[];
+  // Tested 1RM history for the 5 standard lifts — see TrueOneRepMax above.
+  trueOneRepMaxes?: TrueOneRepMax[];
   // @deprecated legacy fields — migrated into a per-exercise `method` on load (see
   // src/lib/storage.ts). New AppData never sets these; only present on old stored JSON.
   fiveThreeOne?: FiveThreeOneConfig;
@@ -260,6 +293,7 @@ export const DEFAULT_APP_DATA: AppData = {
   cardioSessions: [],
   cardioWeeklyGoal: 2,
   plannedSessions: [],
+  trueOneRepMaxes: [],
 };
 
 // `SessionLog.programName` is a snapshot frozen at log time (survives a deleted/renamed

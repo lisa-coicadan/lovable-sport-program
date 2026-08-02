@@ -57,3 +57,17 @@ export function computeBodyweightAdjustedE1RM(
   const effectiveLoad = bwContribution + set.weight;
   return Math.round((calculate1RM(effectiveLoad, set.reps) - bwContribution) * 10) / 10;
 }
+
+// Total absolute load actually moved for a genuine 1-rep max (a TESTED 1RM, not an
+// estimate — no Epley extrapolation needed, the set itself IS the 1RM). For tractions/dips
+// lestés, `weight` is logged as a delta from bodyweight, so the real load a true 1RM
+// represents is bodyweight*fraction + weight, same as computeSetTonnage/
+// computeBodyweightAdjustedE1RM above — everywhere else `weight` already is the total load.
+export function computeEffectiveLoadAtOneRep(
+  set: Pick<SetLog, 'weight' | 'exerciseName'>,
+  bodyWeightKg: number | undefined
+): number {
+  const fraction = bodyweightTonnageFraction(set.exerciseName);
+  if (fraction === 0) return set.weight;
+  return Math.round(((bodyWeightKg ?? 0) * fraction + set.weight) * 10) / 10;
+}

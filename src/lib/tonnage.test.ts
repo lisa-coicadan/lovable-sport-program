@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeSetTonnage, resolveBodyWeightAtDate, computeBodyweightAdjustedE1RM } from './tonnage';
+import { computeSetTonnage, resolveBodyWeightAtDate, computeBodyweightAdjustedE1RM, computeEffectiveLoadAtOneRep } from './tonnage';
 import { calculate1RM } from './types';
 
 describe('resolveBodyWeightAtDate', () => {
@@ -112,5 +112,35 @@ describe('computeBodyweightAdjustedE1RM', () => {
   it('treats missing bodyweight data as 0 rather than throwing', () => {
     const value = computeBodyweightAdjustedE1RM({ weight: 0, reps: 8, exerciseName: 'Tractions lestées' }, undefined);
     expect(value).toBe(0);
+  });
+});
+
+describe('computeEffectiveLoadAtOneRep', () => {
+  it('is just the raw weight for a non-bodyweight exercise — no formula needed at 1 rep', () => {
+    expect(computeEffectiveLoadAtOneRep({ weight: 140, exerciseName: 'Squat' }, 70)).toBe(140);
+  });
+
+  it('adds the bodyweight fraction for a strict-bodyweight true 1RM (0 added weight)', () => {
+    const value = computeEffectiveLoadAtOneRep({ weight: 0, exerciseName: 'Tractions lestées' }, 70);
+    expect(value).toBe(70); // fraction 1.0 for tractions lestées
+  });
+
+  it('adds the added weight on top of the bodyweight contribution', () => {
+    const value = computeEffectiveLoadAtOneRep({ weight: 20, exerciseName: 'Tractions lestées' }, 70);
+    expect(value).toBe(90);
+  });
+
+  it('scales the pompes fraction (0.65) the same way as tonnage/e1RM', () => {
+    const value = computeEffectiveLoadAtOneRep({ weight: 0, exerciseName: 'Pompes' }, 60);
+    expect(value).toBe(0.65 * 60);
+  });
+
+  it('subtracts assistance (negative weight) from the bodyweight contribution', () => {
+    const value = computeEffectiveLoadAtOneRep({ weight: -20, exerciseName: 'Tractions lestées' }, 70);
+    expect(value).toBe(50);
+  });
+
+  it('treats missing bodyweight data as 0 rather than throwing', () => {
+    expect(computeEffectiveLoadAtOneRep({ weight: 0, exerciseName: 'Tractions lestées' }, undefined)).toBe(0);
   });
 });
