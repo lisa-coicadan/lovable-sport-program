@@ -13,6 +13,7 @@ import { estimateTrainingMax } from '@/lib/trainingMax';
 import { RAMP_STAGES, generateRampPlan, generateBonusStage, getOuvertureGuidance, getFailureGuidance } from '@/lib/oneRepMaxTest';
 import { roundWeightSmart } from '@/lib/weightRounding';
 import { shouldShowBodyweightReminder, buildBodyweightReminderSnoozePatch } from '@/lib/bodyweightReminder';
+import { getWarmupPercentages } from '@/lib/warmup';
 import {
   shouldShowDeloadRecommendation, DeloadCriteria, buildDeloadAcceptPatch, buildDeloadDismissPatch,
   consumeDeloadOnSessionSave, getDeloadTargetWorkoutTypes, applyDeloadToWeight, applyDeloadToTrainingMax,
@@ -81,6 +82,7 @@ const buildSetsForExercise = (ex: Exercise, method: ExerciseMethod | undefined, 
     return weekSets.map((s, i) => ({
       exerciseId: ex.id, exerciseName: ex.name, setNumber: i + 1,
       reps: parseInt(s.reps) || 1, weight: s.weight, completed: false,
+      equipment: ex.equipment, unilateral: ex.unilateral,
     }));
   }
   if (method?.type === 'cluster') {
@@ -92,6 +94,7 @@ const buildSetsForExercise = (ex: Exercise, method: ExerciseMethod | undefined, 
         result.push({
           exerciseId: ex.id, exerciseName: ex.name, setNumber: ++i,
           reps: m.reps, weight: getMiniSeriesWeight(method.trainingMax, m.percentage), completed: false,
+          equipment: ex.equipment, unilateral: ex.unilateral,
         });
       });
     }
@@ -102,7 +105,10 @@ const buildSetsForExercise = (ex: Exercise, method: ExerciseMethod | undefined, 
     const weight = getEmomWeight(method.trainingMax, percentage);
     const result: SetLog[] = [];
     for (let i = 0; i < durationMinutes; i++) {
-      result.push({ exerciseId: ex.id, exerciseName: ex.name, setNumber: i + 1, reps: repsPerMinute, weight, completed: false });
+      result.push({
+        exerciseId: ex.id, exerciseName: ex.name, setNumber: i + 1, reps: repsPerMinute, weight, completed: false,
+        equipment: ex.equipment, unilateral: ex.unilateral,
+      });
     }
     return result;
   }
@@ -112,6 +118,7 @@ const buildSetsForExercise = (ex: Exercise, method: ExerciseMethod | undefined, 
       exerciseId: ex.id, exerciseName: ex.name, setNumber: i + 1,
       reps: ex.amrap ? 0 : ex.reps, weight: lastWeight, completed: false,
       amrap: ex.amrap || undefined,
+      equipment: ex.equipment, unilateral: ex.unilateral,
     });
   }
   return result;
@@ -430,6 +437,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
             supersetGroupId: a.supersetGroupId,
             supersetRole: 'A',
             amrap: a.amrap || undefined,
+            equipment: a.equipment, unilateral: a.unilateral,
           });
           initialSets.push({
             exerciseId: b.id,
@@ -441,6 +449,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
             supersetGroupId: b.supersetGroupId,
             supersetRole: 'B',
             amrap: b.amrap || undefined,
+            equipment: b.equipment, unilateral: b.unilateral,
           });
         }
       } else {
@@ -472,6 +481,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
             initialSets.push({
               exerciseId: ex.id, exerciseName: ex.name, setNumber: anchor.setNumber + 1,
               reps, weight, completed: false, dropSetStage: 1,
+              equipment: ex.equipment, unilateral: ex.unilateral,
             });
           }
         }
@@ -559,8 +569,9 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
       weight: lastSet?.weight || 0,
       completed: false,
       amrap: lastSet?.amrap || undefined,
+      equipment: lastSet?.equipment, unilateral: lastSet?.unilateral,
     };
-    
+
     const updated = [...sets];
     updated.splice(insertIndex, 0, newSet);
     setSets(updated);
@@ -589,6 +600,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     const newSet: SetLog = {
       exerciseId, exerciseName, setNumber: anchor.setNumber + stage,
       reps, weight, completed: false, dropSetStage: stage,
+      equipment: anchor.equipment, unilateral: anchor.unilateral,
     };
     const updated = [...sets];
     updated.splice(insertIdx, 0, newSet);
@@ -692,6 +704,18 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     setTestMaxSetupOpen(prev => ({ ...prev, [ex.id]: true }));
   };
 
+  // Swaps every set belonging to `exerciseId` for `newSets`, keeping them at that
+  // exercise's ORIGINAL position in the array rather than appending at the very end —
+  // the plain-exercise card's position in "Exercices réguliers" is order-sensitive
+  // (see `blocks` below), so a naive filter-then-append made the exercise's whole card
+  // jump to the bottom of the list the moment a ramp replaced its normal sets.
+  const replaceExerciseSets = (prev: SetLog[], exerciseId: string, newSets: SetLog[]): SetLog[] => {
+    const firstIdx = prev.findIndex(s => s.exerciseId === exerciseId);
+    const withoutExercise = prev.filter(s => s.exerciseId !== exerciseId);
+    const insertAt = firstIdx === -1 ? withoutExercise.length : firstIdx;
+    return [...withoutExercise.slice(0, insertAt), ...newSets, ...withoutExercise.slice(insertAt)];
+  };
+
   // Replaces this exercise's normal 5/3/1 sets with the ramp — session-only, the
   // WorkoutType template's week/cycle is never touched here (see isTestMax exclusion in
   // handleSummaryComplete below).
@@ -702,36 +726,46 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     const rampSets: SetLog[] = plan.map((p, i) => ({
       exerciseId: ex.id, exerciseName: ex.name, setNumber: i + 1,
       reps: p.reps, weight: p.weight, completed: false, isTestMax: true,
+      equipment: ex.equipment, unilateral: ex.unilateral,
     }));
-    setSets(prev => [...prev.filter(s => s.exerciseId !== ex.id), ...rampSets]);
+    setSets(prev => replaceExerciseSets(prev, ex.id, rampSets));
     setTestMaxSetupOpen(prev => ({ ...prev, [ex.id]: false }));
   };
 
   // Adds the 102% bonus attempt after a clean "Le PR" success — its own action rather than
   // part of the initial plan, since it only makes sense once she knows 100% went well.
+  // Inserted right after this exercise's own last set, not at the global array's end,
+  // for the same reordering reason as replaceExerciseSets above.
   const addBonusStage = (ex: Exercise) => {
     const target = parseFloat(testMaxTargetDraft[ex.id]) || 0;
     if (target <= 0) return;
     const bonus = generateBonusStage(target);
-    setSets(prev => [...prev, {
+    const bonusSet: SetLog = {
       exerciseId: ex.id, exerciseName: ex.name, setNumber: RAMP_STAGES.length + 1,
       reps: bonus.reps, weight: bonus.weight, completed: false, isTestMax: true,
-    }]);
+      equipment: ex.equipment, unilateral: ex.unilateral,
+    };
+    setSets(prev => {
+      const lastIdx = prev.reduce((acc, s, i) => (s.exerciseId === ex.id ? i : acc), -1);
+      const insertAt = lastIdx === -1 ? prev.length : lastIdx + 1;
+      return [...prev.slice(0, insertAt), bonusSet, ...prev.slice(insertAt)];
+    });
   };
 
   // Abandons the ramp and rebuilds this exercise's normal prescribed week sets — she never
-  // loses her place in the 5/3/1 program by trying (and backing out of) a test.
+  // loses her place in the 5/3/1 program by trying (and backing out of) a test. Uses
+  // getEffectiveMethod (not the raw ex.method) so a session-only Cluster/EMOM/Normal
+  // override made before starting the test is respected on cancel too, instead of
+  // reverting to whatever method the template has configured by default.
   const cancelTestMaxRamp = (ex: Exercise) => {
-    const normalSets = buildSetsForExercise(ex, ex.method, 0);
-    setSets(prev => [...prev.filter(s => s.exerciseId !== ex.id), ...normalSets]);
+    const normalSets = buildSetsForExercise(ex, getEffectiveMethod(ex), 0);
+    setSets(prev => replaceExerciseSets(prev, ex.id, normalSets));
   };
 
   // Only offered on 531/Cluster/EMOM exercises — those are the ones with a defined
   // TM-derived working weight to ramp toward; a plain exercise has nothing to anchor a %
-  // to. No cap on how many can be added — past the last defined stage (80%), further
-  // sets reuse that same percentage as a starting prefill, freely editable like any other.
-  const WARMUP_PERCENTAGES = [0.4, 0.6, 0.8];
-
+  // to. No cap on how many can be added — see src/lib/warmup.ts for the percentage table
+  // past 5 stages.
   const getWorkingWeight = (ex: Exercise): number => {
     const method = getEffectiveMethod(ex);
     if (method?.type === '531') return getWeekSets(method.trainingMax, (ex.method as FiveThreeOneMethod).currentWeek)[0]?.weight ?? 0;
@@ -750,19 +784,125 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     return firstWorkingSet?.weight ?? 0;
   };
 
+  // Warm-up reps default to the exercise's own working reps (coach guidance: same reps as
+  // the work sets primes the nervous system for the exact rep range, as long as it never
+  // goes to failure) — not a fixed number.
+  const getWorkingReps = (ex: Exercise): number => {
+    const method = getEffectiveMethod(ex);
+    if (method?.type === '531') return parseInt(getWeekSets(method.trainingMax, (ex.method as FiveThreeOneMethod).currentWeek)[0]?.reps) || 5;
+    if (method?.type === 'cluster') {
+      const { miniSeries } = getClusterConfig(method);
+      return miniSeries[0]?.reps ?? 5;
+    }
+    if (method?.type === 'emom') {
+      const { repsPerMinute } = getEmomConfig(method);
+      return repsPerMinute ?? 5;
+    }
+    const firstWorkingSet = sets.find(s => s.exerciseId === ex.id && !s.isWarmup);
+    return firstWorkingSet?.reps || 5;
+  };
+
+  // Every stage's percentage depends on the TOTAL number of warm-up sets (see
+  // src/lib/warmup.ts) — going from 3 to 4 warm-ups isn't just "add a 4th", it reshuffles
+  // stages 1-3's percentages too. Both add/remove rebuild the whole warm-up block from
+  // this exercise's current working weight, but keep each stage's `completed` flag (and any
+  // hand-edited reps) by position, so ticking off a warm-up before adding another doesn't
+  // get silently undone.
+  const rebuildWarmupSets = (ex: Exercise, priorStages: (SetLog | undefined)[]): void => {
+    const percentages = getWarmupPercentages(priorStages.length);
+    const workingWeight = getWorkingWeight(ex);
+    const workingReps = getWorkingReps(ex);
+    const newWarmupSets: SetLog[] = priorStages.map((prior, i) => ({
+      exerciseId: ex.id, exerciseName: ex.name, setNumber: i + 1,
+      reps: prior?.reps ?? workingReps,
+      weight: roundWeightSmart(workingWeight * (percentages[i] ?? 0)),
+      completed: prior?.completed ?? false,
+      isWarmup: true,
+      equipment: prior?.equipment ?? ex.equipment, unilateral: prior?.unilateral ?? ex.unilateral,
+    }));
+    setSets(prev => {
+      const firstIdx = prev.findIndex(s => s.exerciseId === ex.id);
+      const withoutOldWarmups = prev.filter(s => !(s.exerciseId === ex.id && s.isWarmup));
+      const insertAt = firstIdx === -1 ? withoutOldWarmups.length : firstIdx;
+      return [...withoutOldWarmups.slice(0, insertAt), ...newWarmupSets, ...withoutOldWarmups.slice(insertAt)];
+    });
+  };
+
   const addWarmupSet = (ex: Exercise) => {
-    const existingWarmups = sets.filter(s => s.exerciseId === ex.id && s.isWarmup);
-    const pct = WARMUP_PERCENTAGES[existingWarmups.length] ?? WARMUP_PERCENTAGES[WARMUP_PERCENTAGES.length - 1];
-    const weight = roundWeightSmart(getWorkingWeight(ex) * pct);
-    const newSet: SetLog = {
-      exerciseId: ex.id, exerciseName: ex.name, setNumber: existingWarmups.length + 1,
-      reps: 5, weight, completed: false, isWarmup: true,
-    };
-    const firstIdx = sets.findIndex(s => s.exerciseId === ex.id);
-    const insertAt = firstIdx === -1 ? sets.length : firstIdx + existingWarmups.length;
-    const updated = [...sets];
-    updated.splice(insertAt, 0, newSet);
-    setSets(updated);
+    const existingWarmups = sets
+      .filter(s => s.exerciseId === ex.id && s.isWarmup)
+      .sort((a, b) => a.setNumber - b.setNumber);
+    rebuildWarmupSets(ex, [...existingWarmups, undefined]);
+  };
+
+  const removeWarmupSet = (ex: Exercise, indexToRemove: number) => {
+    const existingWarmups = sets
+      .filter(s => s.exerciseId === ex.id && s.isWarmup)
+      .sort((a, b) => a.setNumber - b.setNumber);
+    rebuildWarmupSets(ex, existingWarmups.filter((_, i) => i !== indexToRemove));
+  };
+
+  // Unilatéral/équipement tap-to-edit — icon button for the exercise's header row, shared
+  // by every card type (531/Cluster/EMOM/plain) so it's reachable regardless of method,
+  // not just on exercises with no method (see item 5/item 1 of the v2.0/v2.1 lists).
+  const renderTagsButton = (ex: Exercise) => (
+    <button
+      type="button"
+      onClick={() => setTagsEditorFor(tagsEditorFor === ex.id ? null : ex.id)}
+      className={`touch-target p-1.5 shrink-0 rounded-lg transition-colors ${
+        ex.unilateral || ex.equipment ? 'text-accent-blue' : 'text-muted-foreground/50 active:text-accent-blue'
+      }`}
+      aria-label={`Unilatéral / équipement pour ${ex.name}`}
+      aria-pressed={tagsEditorFor === ex.id}
+      title="Unilatéral / équipement"
+    >
+      <Repeat size={14} />
+    </button>
+  );
+
+  // The popover itself (when open) or the read-only chips (when closed and set) — placed
+  // below the header row, same content regardless of card type.
+  const renderTagsPanel = (ex: Exercise) => {
+    if (tagsEditorFor === ex.id) {
+      return (
+        <div className="flex items-center gap-3 flex-wrap mb-2 bg-secondary/40 rounded-lg px-2.5 py-2">
+          <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={!!ex.unilateral}
+              onChange={e => updateExerciseTag(ex.id, { unilateral: e.target.checked ? true : undefined })}
+              className="w-3.5 h-3.5 accent-accent-blue"
+            />
+            <Repeat size={10} className="text-accent-blue" /> Unilatéral
+          </label>
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] text-muted-foreground">Équipement</span>
+            <select
+              value={ex.equipment ?? ''}
+              onChange={e => updateExerciseTag(ex.id, { equipment: e.target.value === '' ? undefined : e.target.value as ExerciseEquipment })}
+              className="bg-secondary text-foreground text-[10px] rounded-md px-1.5 py-1 outline-none"
+              aria-label={`Équipement de ${ex.name}`}
+            >
+              <option value="">—</option>
+              {(Object.keys(EQUIPMENT_LABELS) as ExerciseEquipment[]).map(eq => (
+                <option key={eq} value={eq}>{EQUIPMENT_LABELS[eq]}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+      );
+    }
+    if (!ex.unilateral && !ex.equipment) return null;
+    return (
+      <div className="flex items-center gap-1.5 mb-2 flex-wrap">
+        {ex.unilateral && (
+          <span className="text-[10px] text-accent-blue bg-accent-blue/10 px-2 py-0.5 rounded-full">Unilatéral</span>
+        )}
+        {ex.equipment && (
+          <span className="text-[10px] text-muted-foreground bg-secondary px-2 py-0.5 rounded-full">{EQUIPMENT_LABELS[ex.equipment]}</span>
+        )}
+      </div>
+    );
   };
 
   // Shared across the 531/Cluster/EMOM cards below — same muted row style regardless of
@@ -797,7 +937,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
               aria-label={`Répétitions échauffement ${i + 1}, ${ex.name}`}
             />
             <button
-              onClick={() => removeSet(s.globalIdx)}
+              onClick={() => removeWarmupSet(ex, i)}
               className="touch-target inline-flex items-center justify-center text-muted-foreground active:text-destructive ml-auto"
               aria-label={`Supprimer échauffement ${i + 1}`}
             >
@@ -884,64 +1024,70 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
           return (
             <div key={globalIdx}>
               <div
-                className={`flex items-center gap-2 rounded-xl px-3 py-2.5 transition-all ${
+                className={`rounded-xl px-3 py-2.5 transition-all ${
                   set.completed ? (set.failed ? 'bg-destructive/10 border border-destructive/25' : 'bg-success/10 border border-success/25') : 'bg-secondary/50'
                 }`}
               >
-                <span className="text-[10px] text-muted-foreground w-16 shrink-0">{label}</span>
-                <input
-                  type="number"
-                  value={set.weight || ''}
-                  onChange={e => updateSet(globalIdx, 'weight', e.target.value)}
-                  className="w-14 bg-transparent text-foreground text-sm text-center outline-none font-mono"
-                  placeholder="kg"
-                  aria-label={`Poids ${label}, ${ex.name} (kg)`}
-                />
-                <span className="text-muted-foreground text-xs">×</span>
-                <input
-                  type="number"
-                  value={set.reps || ''}
-                  onChange={e => updateSet(globalIdx, 'reps', e.target.value)}
-                  className="w-10 bg-transparent text-foreground text-sm text-center outline-none font-mono"
-                  aria-label={`Répétitions ${label}, ${ex.name}`}
-                />
-                <input
-                  type="number"
-                  min={1}
-                  max={10}
-                  value={set.rpe ?? ''}
-                  onChange={e => setRampSetField(globalIdx, { rpe: e.target.value === '' ? undefined : (parseInt(e.target.value) || undefined) })}
-                  className="w-10 bg-accent-blue/10 text-accent-blue text-xs text-center outline-none font-mono rounded-lg py-1 ml-auto"
-                  placeholder="RPE"
-                  aria-label={`RPE ${label}, ${ex.name}`}
-                />
-                <button
-                  onClick={() => { setRampSetField(globalIdx, { failed: false }); if (!set.completed) toggleSet(globalIdx); }}
-                  className={`touch-target rounded-lg p-1.5 transition-colors ${
-                    set.completed && !set.failed ? 'text-success glow-success' : 'text-muted-foreground active:text-success'
-                  }`}
-                  aria-label={`${label} réussie`}
-                >
-                  <Check size={16} />
-                </button>
-                {isMaxAttempt && (
-                  <button
-                    onClick={() => { setRampSetField(globalIdx, { failed: true }); if (!set.completed) toggleSet(globalIdx); }}
-                    className={`touch-target rounded-lg p-1.5 transition-colors ${
-                      set.completed && set.failed ? 'text-destructive' : 'text-muted-foreground active:text-destructive'
-                    }`}
-                    aria-label={`${label} échouée`}
-                  >
-                    <X size={16} />
-                  </button>
-                )}
+                <div className="flex items-center gap-2 mb-2.5">
+                  <span className="text-[10px] text-muted-foreground w-16 shrink-0">{label}</span>
+                  <input
+                    type="number"
+                    value={set.weight || ''}
+                    onChange={e => updateSet(globalIdx, 'weight', e.target.value)}
+                    className="w-14 bg-transparent text-foreground text-sm text-center outline-none font-mono"
+                    placeholder="kg"
+                    aria-label={`Poids ${label}, ${ex.name} (kg)`}
+                  />
+                  <span className="text-muted-foreground text-xs">×</span>
+                  <input
+                    type="number"
+                    value={set.reps || ''}
+                    onChange={e => updateSet(globalIdx, 'reps', e.target.value)}
+                    className="w-10 bg-transparent text-foreground text-sm text-center outline-none font-mono"
+                    aria-label={`Répétitions ${label}, ${ex.name}`}
+                  />
+                  <div className="flex items-center gap-1.5 ml-auto">
+                    <button
+                      onClick={() => { setRampSetField(globalIdx, { failed: false }); if (!set.completed) toggleSet(globalIdx); }}
+                      className={`touch-target rounded-lg p-2 transition-colors ${
+                        set.completed && !set.failed ? 'text-success glow-success' : 'text-muted-foreground active:text-success'
+                      }`}
+                      aria-label={`${label} réussie`}
+                    >
+                      <Check size={18} />
+                    </button>
+                    <button
+                      onClick={() => { setRampSetField(globalIdx, { failed: true }); if (!set.completed) toggleSet(globalIdx); }}
+                      className={`touch-target rounded-lg p-2 transition-colors ${
+                        set.completed && set.failed ? 'text-destructive' : 'text-muted-foreground active:text-destructive'
+                      }`}
+                      aria-label={`${label} échouée`}
+                    >
+                      <X size={18} />
+                    </button>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-muted-foreground shrink-0">RPE</span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={10}
+                    step={1}
+                    value={set.rpe ?? 0}
+                    onChange={e => setRampSetField(globalIdx, { rpe: parseInt(e.target.value) })}
+                    className="flex-1 accent-accent-blue"
+                    aria-label={`RPE ${label}, ${ex.name}`}
+                  />
+                  <span className="text-xs text-accent-blue font-mono w-5 text-right shrink-0">{set.rpe ?? '—'}</span>
+                </div>
               </div>
               {stage?.key === 'ouverture' && set.completed && set.rpe !== undefined && getOuvertureGuidance(set.rpe) && (
                 <p className="text-[11px] text-warning bg-warning/10 border border-warning/30 rounded-lg px-3 py-2 mt-1.5">
                   {getOuvertureGuidance(set.rpe)}
                 </p>
               )}
-              {isMaxAttempt && set.completed && set.failed && (
+              {set.completed && set.failed && (
                 <p className="text-[11px] text-destructive bg-destructive/10 border border-destructive/30 rounded-lg px-3 py-2 mt-1.5">
                   {getFailureGuidance()}
                 </p>
@@ -1937,10 +2083,12 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
               </button>
               <div className="flex items-center gap-1.5 shrink-0">
                 <span className="text-xs text-muted-foreground">Cycle {method.currentCycle}</span>
+                {renderTagsButton(ex)}
                 {renderReminderNoteButton(ex)}
                 {renderDifficultyButton(ex)}
               </div>
             </div>
+            {renderTagsPanel(ex)}
             {renderReminderNoteBanner(ex)}
             {renderLowRpeBanner(ex)}
             {!isTestMaxActive && renderWarmupSection(ex)}
@@ -2067,10 +2215,12 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
               </button>
               <div className="flex items-center gap-1.5 shrink-0">
                 <span className="text-xs text-muted-foreground">TM {method.trainingMax} kg</span>
+                {renderTagsButton(ex)}
                 {renderReminderNoteButton(ex)}
                 {renderDifficultyButton(ex)}
               </div>
             </div>
+            {renderTagsPanel(ex)}
             {renderReminderNoteBanner(ex)}
             {renderLowRpeBanner(ex)}
             {!isTestMaxActive && renderWarmupSection(ex)}
@@ -2173,10 +2323,12 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
               </button>
               <div className="flex items-center gap-1.5 shrink-0">
                 <span className="text-xs text-muted-foreground">TM {method.trainingMax} kg</span>
+                {renderTagsButton(ex)}
                 {renderReminderNoteButton(ex)}
                 {renderDifficultyButton(ex)}
               </div>
             </div>
+            {renderTagsPanel(ex)}
             {renderReminderNoteBanner(ex)}
             {renderLowRpeBanner(ex)}
             {!isTestMaxActive && renderWarmupSection(ex)}
@@ -2450,62 +2602,13 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                   <TrendingDown size={14} /> Drop set
                 </button>
                 <div className="flex items-center gap-1.5 ml-auto">
-                  {templateEx && (
-                    <button
-                      type="button"
-                      onClick={() => setTagsEditorFor(tagsEditorFor === exerciseId ? null : exerciseId)}
-                      className={`touch-target p-1.5 shrink-0 rounded-lg transition-colors ${
-                        templateEx.unilateral || templateEx.equipment ? 'text-accent-blue' : 'text-muted-foreground/50 active:text-accent-blue'
-                      }`}
-                      aria-label={`Unilatéral / équipement pour ${name}`}
-                      aria-pressed={tagsEditorFor === exerciseId}
-                      title="Unilatéral / équipement"
-                    >
-                      <Repeat size={14} />
-                    </button>
-                  )}
+                  {templateEx && renderTagsButton(templateEx)}
                   {templateEx && renderReminderNoteButton(templateEx)}
                   {renderDifficultyButton(rpeEx)}
                 </div>
               </div>
 
-              {templateEx && tagsEditorFor === exerciseId && (
-                <div className="flex items-center gap-3 flex-wrap mb-2 bg-secondary/40 rounded-lg px-2.5 py-2">
-                  <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                    <input
-                      type="checkbox"
-                      checked={!!templateEx.unilateral}
-                      onChange={e => updateExerciseTag(exerciseId, { unilateral: e.target.checked ? true : undefined })}
-                      className="w-3.5 h-3.5 accent-accent-blue"
-                    />
-                    <Repeat size={10} className="text-accent-blue" /> Unilatéral
-                  </label>
-                  <div className="flex items-center gap-1">
-                    <span className="text-[10px] text-muted-foreground">Équipement</span>
-                    <select
-                      value={templateEx.equipment ?? ''}
-                      onChange={e => updateExerciseTag(exerciseId, { equipment: e.target.value === '' ? undefined : e.target.value as ExerciseEquipment })}
-                      className="bg-secondary text-foreground text-[10px] rounded-md px-1.5 py-1 outline-none"
-                      aria-label={`Équipement de ${name}`}
-                    >
-                      <option value="">—</option>
-                      {(Object.keys(EQUIPMENT_LABELS) as ExerciseEquipment[]).map(eq => (
-                        <option key={eq} value={eq}>{EQUIPMENT_LABELS[eq]}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              )}
-              {(templateEx?.unilateral || templateEx?.equipment) && tagsEditorFor !== exerciseId && (
-                <div className="flex items-center gap-1.5 mb-2 flex-wrap">
-                  {templateEx.unilateral && (
-                    <span className="text-[10px] text-accent-blue bg-accent-blue/10 px-2 py-0.5 rounded-full">Unilatéral</span>
-                  )}
-                  {templateEx.equipment && (
-                    <span className="text-[10px] text-muted-foreground bg-secondary px-2 py-0.5 rounded-full">{EQUIPMENT_LABELS[templateEx.equipment]}</span>
-                  )}
-                </div>
-              )}
+              {templateEx && renderTagsPanel(templateEx)}
 
               {templateEx && renderReminderNoteBanner(templateEx)}
               {templateEx && renderLowRpeBanner(templateEx)}

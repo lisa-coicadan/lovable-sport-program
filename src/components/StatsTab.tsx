@@ -21,7 +21,7 @@ interface StatsTabProps {
 }
 
 type PR = { name: string; e1rm: number; weight: number; reps: number; date: string };
-type DotRenderProps = { cx: number; cy: number; index: number; payload: { id: string; programName?: string; isCardio?: boolean } };
+type DotRenderProps = { cx: number; cy: number; index: number; payload: { id: string; programName?: string; isCardio?: boolean; isDeload?: boolean; isPRTest?: boolean } };
 type E1rmDotProps = { cx: number; cy: number; index: number; payload: { date: number; e1rm: number; weight: number; reps: number } };
 
 const daysAgo = (dateStr: string) => {
@@ -224,12 +224,19 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession, onUpdateData }: Stat
       .map(s => {
         const bw = resolveBodyWeightAtDate(data.bodyWeightLogs, s.date);
         const volume = s.sets.reduce((acc, set) => acc + computeSetTonnage(set, bw), 0);
+        // A deload or a PR-test session isn't comparable in tonnage to a normal session
+        // (deload deliberately reduces load/volume, a PR test replaces working sets with a
+        // handful of near-max singles) — marked distinctly on the chart rather than pretending
+        // the number means the same thing.
+        const isPRTest = s.sets.some(set => set.isTestMax);
         return {
           id: s.id,
           date: new Date(s.date).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' }),
           volume,
           type: s.workoutTypeName,
           programName: resolveProgramName(s, data),
+          isDeload: !!s.isDeload,
+          isPRTest,
         };
       });
   }, [data, volumeFilter, volumeRange]);
@@ -642,6 +649,21 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession, onUpdateData }: Stat
               </button>
             ))}
           </div>
+          {volumeData.some(p => p.isDeload || p.isPRTest) && (
+            <div className="flex items-center gap-3 mb-2 flex-wrap">
+              {volumeData.some(p => p.isDeload) && (
+                <span className="flex items-center gap-1 text-[9px] text-muted-foreground">
+                  <span className="w-2 h-2 rounded-sm inline-block" style={{ backgroundColor: 'hsl(38 92% 52%)' }} /> Deload
+                </span>
+              )}
+              {volumeData.some(p => p.isPRTest) && (
+                <span className="flex items-center gap-1 text-[9px] text-muted-foreground">
+                  <span className="w-2 h-2 inline-block" style={{ backgroundColor: 'hsl(174 88% 50%)', transform: 'rotate(45deg)' }} /> Test PR
+                </span>
+              )}
+              <span className="text-[9px] text-muted-foreground/70">— tonnage non comparable</span>
+            </div>
+          )}
           {volumeData.length > 0 ? (
             <div className="relative">
               <ResponsiveContainer width="100%" height={180}>
@@ -659,6 +681,15 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession, onUpdateData }: Stat
                       // resolvable program — otherwise it could coincide with a real
                       // program's assigned color and become indistinguishable from it.
                       const color = volumeProgramColors.get(props.payload.programName) || '240 8% 58%';
+                      // A deload or PR-test session's tonnage isn't comparable to a normal
+                      // session (deload deliberately cuts load/volume, a PR test swaps working
+                      // sets for a handful of near-max singles) — marked with a distinct shape
+                      // + color rather than blending into the same dot as every other session.
+                      const marker = props.payload.isDeload
+                        ? { shape: 'square' as const, fill: 'hsl(38 92% 52%)' }
+                        : props.payload.isPRTest
+                          ? { shape: 'diamond' as const, fill: 'hsl(174 88% 50%)' }
+                          : { shape: 'circle' as const, fill: `hsl(${color})` };
                       return (
                         <g
                           key={`vdot-${props.index}`}
@@ -670,8 +701,18 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession, onUpdateData }: Stat
                           <circle cx={props.cx} cy={props.cy} r={14} fill="transparent" />
                           {/* Light ring so a dot still pops even when its color is close to
                               (or, for a lone program, identical to) the line's own stroke. */}
-                          <circle cx={props.cx} cy={props.cy} r={4} fill="none" stroke="hsl(0 0% 100% / 0.85)" strokeWidth={1.25} />
-                          <circle cx={props.cx} cy={props.cy} r={3} fill={`hsl(${color})`} />
+                          {marker.shape === 'circle' && (
+                            <>
+                              <circle cx={props.cx} cy={props.cy} r={4} fill="none" stroke="hsl(0 0% 100% / 0.85)" strokeWidth={1.25} />
+                              <circle cx={props.cx} cy={props.cy} r={3} fill={marker.fill} />
+                            </>
+                          )}
+                          {marker.shape === 'square' && (
+                            <rect x={props.cx - 4} y={props.cy - 4} width={8} height={8} rx={1.5} fill={marker.fill} stroke="hsl(0 0% 100% / 0.85)" strokeWidth={1.25} />
+                          )}
+                          {marker.shape === 'diamond' && (
+                            <rect x={props.cx - 3.5} y={props.cy - 3.5} width={7} height={7} fill={marker.fill} stroke="hsl(0 0% 100% / 0.85)" strokeWidth={1.25} transform={`rotate(45 ${props.cx} ${props.cy})`} />
+                          )}
                         </g>
                       );
                     }}
@@ -698,6 +739,11 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession, onUpdateData }: Stat
                       </button>
                       <p style={{ color: 'hsl(0 0% 95%)' }} className="text-[11px] mb-0.5">{point?.date}</p>
                       <p className="text-xs font-semibold mb-1" style={{ color: 'hsl(322 100% 60%)' }}>{point?.volume} kg</p>
+                      {(point?.isDeload || point?.isPRTest) && (
+                        <p className="text-[9px] font-medium mb-1" style={{ color: point.isDeload ? 'hsl(38 92% 52%)' : 'hsl(174 88% 50%)' }}>
+                          {point.isDeload ? '↘ Deload — non comparable' : '🎯 Test PR — non comparable'}
+                        </p>
+                      )}
                       <div className="flex items-center justify-between gap-1.5">
                         <div className="min-w-0">
                           <p className="text-[9px] text-foreground/80 truncate">{session.workoutTypeName}</p>

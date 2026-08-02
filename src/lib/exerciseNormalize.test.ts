@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeExerciseName, isPrTracked, PR_TRACKED_CANONICAL, splitEquipmentVariant, isBodyweightOptionalExercise, weightFieldValue, bodyweightTonnageFraction } from './exerciseNormalize';
+import { normalizeExerciseName, isPrTracked, PR_TRACKED_CANONICAL, splitEquipmentVariant, isBodyweightOptionalExercise, weightFieldValue, bodyweightTonnageFraction, resolveSetVariant } from './exerciseNormalize';
 
 describe('normalizeExerciseName', () => {
   it('maps spelling variants to the same canonical name', () => {
@@ -235,5 +235,24 @@ describe('assisted (negative-weight) pull-ups/dips end to end', () => {
 
   it('excludes an unfilled 0kg set for every other exercise', () => {
     expect(isLoggableSet('Squat', 0)).toBe(false);
+  });
+});
+
+describe('resolveSetVariant', () => {
+  it('uses the structured fields when present, even if the name suggests something else', () => {
+    expect(resolveSetVariant({ exerciseName: 'Développé couché', equipment: 'halteres', unilateral: true }))
+      .toEqual({ equipmentLabel: 'Haltères', unilateral: true });
+  });
+
+  it('treats an explicit equipment of undefined-but-unilateral-true as structured (no name fallback)', () => {
+    expect(resolveSetVariant({ exerciseName: 'Développé couché haltères', unilateral: true }))
+      .toEqual({ equipmentLabel: null, unilateral: true });
+  });
+
+  it('falls back to name-text parsing when neither structured field is present', () => {
+    expect(resolveSetVariant({ exerciseName: 'Développé couché haltères' }))
+      .toEqual({ equipmentLabel: 'aux haltères', unilateral: false });
+    expect(resolveSetVariant({ exerciseName: 'Développé couché' }))
+      .toEqual({ equipmentLabel: null, unilateral: false });
   });
 });

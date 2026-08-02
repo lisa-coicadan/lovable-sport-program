@@ -48,12 +48,22 @@ const SessionSummary = ({ session, previousSessions = [], workoutTypes = [], gen
     return Object.entries(map);
   }, [completedSets]);
 
+  // A deload or PR-test session's tonnage isn't comparable to a normal session (deload
+  // deliberately cuts load/volume, a PR test swaps working sets for a handful of near-max
+  // singles) — excluded from the reference pool so a normal session is never silently
+  // compared against one, and skipped as the "current" session's own comparison below.
+  const isSpecialSession = !!session.isDeload || session.sets.some(s => s.isTestMax);
+  const comparableSessions = useMemo(
+    () => previousSessions.filter(s => !s.isDeload && !s.sets.some(x => x.isTestMax)),
+    [previousSessions]
+  );
+
   // Last session of same type (for volume comparison and per-exercise progression)
   const lastSameTypeSession = useMemo(() => {
-    return previousSessions
+    return comparableSessions
       .filter(s => s.workoutTypeId === session.workoutTypeId && s.id !== session.id)
       .sort((a, b) => b.date.localeCompare(a.date))[0];
-  }, [previousSessions, session]);
+  }, [comparableSessions, session]);
 
   const lastTotalVolume = useMemo(() => {
     if (!lastSameTypeSession) return 0;
@@ -71,7 +81,7 @@ const SessionSummary = ({ session, previousSessions = [], workoutTypes = [], gen
   // so a big session that beats one bad previous session doesn't feel like a real breakthrough
   // if it's still below her long-term average.
   const { avgTonnage, avgSampleSize, avgPct } = useMemo(() => {
-    const past = previousSessions.filter(s => s.workoutTypeId === session.workoutTypeId && s.id !== session.id);
+    const past = comparableSessions.filter(s => s.workoutTypeId === session.workoutTypeId && s.id !== session.id);
     if (past.length === 0) return { avgTonnage: 0, avgSampleSize: 0, avgPct: null as number | null };
     const total = past.reduce((acc, s) => {
       const bw = resolveBodyWeightAtDate(bodyWeightLogs, s.date);
@@ -83,7 +93,7 @@ const SessionSummary = ({ session, previousSessions = [], workoutTypes = [], gen
       avgSampleSize: past.length,
       avgPct: avg > 0 ? Math.round(((totalVolume - avg) / avg) * 100) : null,
     };
-  }, [previousSessions, session.workoutTypeId, session.id, totalVolume, bodyWeightLogs]);
+  }, [comparableSessions, session.workoutTypeId, session.id, totalVolume, bodyWeightLogs]);
 
   // Progression vs last session of same type
   const progressions = useMemo(() => {
@@ -235,8 +245,22 @@ const SessionSummary = ({ session, previousSessions = [], workoutTypes = [], gen
         </div>
       </div>
 
+      {/* Deload/PR-test sessions skip the tonnage comparisons below entirely — the number
+          means something different by design, comparing it would just be misleading. */}
+      {isSpecialSession && (
+        <div className="glass-card p-4 mb-6 flex items-center gap-3">
+          <span className="text-xl shrink-0">{session.isDeload ? '↘' : '🎯'}</span>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-bold text-muted-foreground">
+              {session.isDeload ? 'Séance deload' : 'Séance avec test de PR'}
+            </p>
+            <p className="text-[10px] text-muted-foreground">Le volume n'est pas comparable à une séance normale.</p>
+          </div>
+        </div>
+      )}
+
       {/* Total tonnage vs last session of same type */}
-      {volumePct !== null && (
+      {!isSpecialSession && volumePct !== null && (
         <div className="glass-card p-4 mb-6 flex items-center gap-3">
           {volumePct > 0 ? (
             <TrendingUp size={20} className="text-success shrink-0" />
@@ -257,7 +281,7 @@ const SessionSummary = ({ session, previousSessions = [], workoutTypes = [], gen
       )}
 
       {/* Total tonnage vs historical average of same type */}
-      {avgPct !== null && avgSampleSize > 0 && (
+      {!isSpecialSession && avgPct !== null && avgSampleSize > 0 && (
         <div className="glass-card p-4 mb-6 flex items-center gap-3">
           {avgPct > 0 ? (
             <TrendingUp size={20} className="text-success shrink-0" />

@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AppData, calculate1RM } from '@/lib/types';
-import { splitEquipmentVariant, isBodyweightOptionalExercise } from '@/lib/exerciseNormalize';
+import { AppData, ExerciseEquipment, EQUIPMENT_LABELS, calculate1RM } from '@/lib/types';
+import { splitEquipmentVariant, isBodyweightOptionalExercise, resolveSetVariant } from '@/lib/exerciseNormalize';
 import { STANDARD_MOVEMENTS, StandardMovement, getFranceRecord, getRecordMessage, getLevel, getLevelMessage } from '@/lib/strengthStandards';
 import { computeBodyweightAdjustedE1RM, computeEffectiveLoadAtOneRep, resolveBodyWeightAtDate } from '@/lib/tonnage';
-import { ArrowLeft, Trophy, Dumbbell, Plus } from 'lucide-react';
+import { ArrowLeft, Trophy, Dumbbell, Plus, Repeat } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import RangeButtons, { RangeFilter, rangeCutoffDate } from './RangeButtons';
 
@@ -29,6 +29,13 @@ interface HistoryEntry {
   // Per-exercise RPE logged live during that session (WorkoutTab), not the session-wide
   // `difficulty` — absent when she didn't rate this exercise that day.
   difficulty?: number;
+  // Identifies the exact SetLog this entry came from, so the retroactive
+  // unilatéral/équipement editor below can patch precisely that set (and only it) without
+  // touching any other session. setIndex is this set's position in session.sets.
+  sessionId: string;
+  setIndex: number;
+  equipment?: ExerciseEquipment;
+  unilateral?: boolean;
 }
 
 interface VariantGroup {
@@ -81,23 +88,32 @@ const ExerciseHistory = ({ exerciseName, data, onUpdateData, onClose }: Exercise
       .sort((a, b) => a.date.localeCompare(b.date))
       .forEach(session => {
         const sessionBodyWeight = resolveBodyWeightAtDate(data.bodyWeightLogs, session.date);
-        session.sets
-          .filter(s => s.completed && (s.weight > 0 || bodyweightOptional))
-          .forEach(s => {
-            const split = splitEquipmentVariant(s.exerciseName);
-            if (split.base !== base) return;
-            const key = split.variantLabel ?? '__default__';
-            if (!groups.has(key)) groups.set(key, { label: split.variantLabel, history: [] });
-            groups.get(key)!.history.push({
-              date: session.date,
-              weight: s.weight,
-              reps: s.reps,
-              e1rm: calculate1RM(s.weight, s.reps),
-              chartValue: computeBodyweightAdjustedE1RM(s, sessionBodyWeight),
-              exerciseId: s.exerciseId,
-              difficulty: session.exerciseDifficulty?.[s.exerciseId],
-            });
+        session.sets.forEach((s, setIndex) => {
+          if (!(s.completed && (s.weight > 0 || bodyweightOptional))) return;
+          if (splitEquipmentVariant(s.exerciseName).base !== base) return;
+          // Structured fields (equipment/unilateral) drive grouping when present, falling
+          // back to parsing the name's text for sets logged before those fields existed —
+          // see resolveSetVariant. Unilatéral is now its own axis, composed with equipment
+          // into one label (e.g. "aux haltères · unilatéral").
+          const variant = resolveSetVariant(s);
+          const labelParts = [variant.equipmentLabel, variant.unilateral ? 'unilatéral' : null].filter((p): p is string => !!p);
+          const label = labelParts.length > 0 ? labelParts.join(' · ') : null;
+          const key = label ?? '__default__';
+          if (!groups.has(key)) groups.set(key, { label, history: [] });
+          groups.get(key)!.history.push({
+            date: session.date,
+            weight: s.weight,
+            reps: s.reps,
+            e1rm: calculate1RM(s.weight, s.reps),
+            chartValue: computeBodyweightAdjustedE1RM(s, sessionBodyWeight),
+            exerciseId: s.exerciseId,
+            difficulty: session.exerciseDifficulty?.[s.exerciseId],
+            sessionId: session.id,
+            setIndex,
+            equipment: s.equipment,
+            unilateral: s.unilateral,
           });
+        });
       });
     return [...groups.values()];
   }, [data.sessions, base, bodyweightOptional]);
@@ -140,6 +156,17 @@ const ExerciseHistory = ({ exerciseName, data, onUpdateData, onClose }: Exercise
 
   const [showAddTrueOneRM, setShowAddTrueOneRM] = useState(false);
   const [addTrueOneRMDraft, setAddTrueOneRMDraft] = useState({ date: new Date().toISOString().split('T')[0], weight: '' });
+
+  // Retroactive unilatéral/équipement edit for a specific PAST set — patches only that one
+  // SetLog (identified by sessionId + its position in session.sets), never the exercise
+  // template or any other session.
+  const updateSetVariant = (sessionId: string, setIndexes: number[], patch: { equipment?: ExerciseEquipment; unilateral?: boolean }) => {
+    const sessions = data.sessions.map(s => {
+      if (s.id !== sessionId) return s;
+      return { ...s, sets: s.sets.map((set, i) => setIndexes.includes(i) ? { ...set, ...patch } : set) };
+    });
+    onUpdateData({ sessions });
+  };
 
   return (
     <>
@@ -239,7 +266,7 @@ const ExerciseHistory = ({ exerciseName, data, onUpdateData, onClose }: Exercise
         </div>
       ) : (
         variantGroups.map(group => (
-          <VariantSection key={group.label ?? '__default__'} group={group} showHeader={showSubGroups} bodyweightOptional={bodyweightOptional} />
+          <VariantSection key={group.label ?? '__default__'} group={group} showHeader={showSubGroups} bodyweightOptional={bodyweightOptional} onUpdateSetVariant={updateSetVariant} />
         ))
       )}
     </div>
@@ -313,9 +340,19 @@ const ExerciseHistory = ({ exerciseName, data, onUpdateData, onClose }: Exercise
   );
 };
 
-const VariantSection = ({ group, showHeader, bodyweightOptional }: { group: VariantGroup; showHeader: boolean; bodyweightOptional: boolean }) => {
+interface VariantSectionProps {
+  group: VariantGroup;
+  showHeader: boolean;
+  bodyweightOptional: boolean;
+  onUpdateSetVariant: (sessionId: string, setIndexes: number[], patch: { equipment?: ExerciseEquipment; unilateral?: boolean }) => void;
+}
+
+const VariantSection = ({ group, showHeader, bodyweightOptional, onUpdateSetVariant }: VariantSectionProps) => {
   const [range, setRange] = useState<RangeFilter>('3m');
   const [selected, setSelected] = useState<DotProps['payload'] | null>(null);
+  // Which date's retroactive unilatéral/équipement editor is open — keyed by date string,
+  // since a VariantSection's groupedByDate list is one card per date.
+  const [editingDate, setEditingDate] = useState<string | null>(null);
 
   const chartData = useMemo(() => {
     const cutoff = rangeCutoffDate(range);
@@ -468,21 +505,84 @@ const VariantSection = ({ group, showHeader, bodyweightOptional }: { group: Vari
       )}
 
       <div className="space-y-3">
-        {groupedByDate.map(([date, sets]) => (
-          <div key={date} className="glass-card p-4">
-            <p className="text-xs text-muted-foreground mb-2">
-              {new Date(date + 'T00:00:00').toLocaleDateString('fr-FR', { weekday: 'short', month: 'long', day: 'numeric' })}
-            </p>
-            <div className="space-y-1">
-              {sets.map((s, i) => (
-                <div key={i} className="flex items-center justify-between bg-secondary rounded-lg px-3 py-2">
-                  <span className="text-sm text-foreground font-mono">{s.weight} kg × {s.reps}</span>
-                  <span className="text-xs text-muted-foreground">1RM: {bodyweightOptional ? s.chartValue : s.e1rm} kg</span>
+        {groupedByDate.map(([date, sets]) => {
+          const isEditing = editingDate === date;
+          const representative = sets[0];
+          // A date normally maps to one session for this exercise — grouped defensively by
+          // sessionId anyway (rare same-day double session) so the patch never touches sets
+          // it wasn't shown for.
+          const patchAllSets = (patch: { equipment?: ExerciseEquipment; unilateral?: boolean }) => {
+            const bySession = new Map<string, number[]>();
+            sets.forEach(s => {
+              if (!bySession.has(s.sessionId)) bySession.set(s.sessionId, []);
+              bySession.get(s.sessionId)!.push(s.setIndex);
+            });
+            bySession.forEach((setIndexes, sessionId) => onUpdateSetVariant(sessionId, setIndexes, patch));
+          };
+          return (
+            <div key={date} className="glass-card p-4">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs text-muted-foreground">
+                  {new Date(date + 'T00:00:00').toLocaleDateString('fr-FR', { weekday: 'short', month: 'long', day: 'numeric' })}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setEditingDate(isEditing ? null : date)}
+                  className="touch-target p-1 text-muted-foreground active:text-accent-blue"
+                  aria-label="Modifier unilatéral / équipement pour cette séance"
+                  aria-pressed={isEditing}
+                  title="Unilatéral / équipement"
+                >
+                  <Repeat size={14} />
+                </button>
+              </div>
+              {isEditing ? (
+                <div className="flex items-center gap-3 flex-wrap mb-2 bg-secondary/40 rounded-lg px-2.5 py-2">
+                  <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      checked={!!representative.unilateral}
+                      onChange={e => patchAllSets({ unilateral: e.target.checked ? true : undefined })}
+                      className="w-3.5 h-3.5 accent-accent-blue"
+                    />
+                    <Repeat size={10} className="text-accent-blue" /> Unilatéral
+                  </label>
+                  <div className="flex items-center gap-1">
+                    <span className="text-[10px] text-muted-foreground">Équipement</span>
+                    <select
+                      value={representative.equipment ?? ''}
+                      onChange={e => patchAllSets({ equipment: e.target.value === '' ? undefined : e.target.value as ExerciseEquipment })}
+                      className="bg-secondary text-foreground text-[10px] rounded-md px-1.5 py-1 outline-none"
+                      aria-label="Équipement utilisé ce jour-là"
+                    >
+                      <option value="">—</option>
+                      {(Object.keys(EQUIPMENT_LABELS) as ExerciseEquipment[]).map(eq => (
+                        <option key={eq} value={eq}>{EQUIPMENT_LABELS[eq]}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
-              ))}
+              ) : (representative.equipment || representative.unilateral) ? (
+                <div className="flex items-center gap-1.5 mb-2 flex-wrap">
+                  {representative.unilateral && (
+                    <span className="text-[10px] text-accent-blue bg-accent-blue/10 px-2 py-0.5 rounded-full">Unilatéral</span>
+                  )}
+                  {representative.equipment && (
+                    <span className="text-[10px] text-muted-foreground bg-secondary px-2 py-0.5 rounded-full">{EQUIPMENT_LABELS[representative.equipment]}</span>
+                  )}
+                </div>
+              ) : null}
+              <div className="space-y-1">
+                {sets.map((s, i) => (
+                  <div key={i} className="flex items-center justify-between bg-secondary rounded-lg px-3 py-2">
+                    <span className="text-sm text-foreground font-mono">{s.weight} kg × {s.reps}</span>
+                    <span className="text-xs text-muted-foreground">1RM: {bodyweightOptional ? s.chartValue : s.e1rm} kg</span>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

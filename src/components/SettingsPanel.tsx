@@ -1071,6 +1071,43 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                   {supersetPickerChips}
                                 </div>
                               )}
+                              {/* Force/Hypertrophie mis en évidence (pas replié sous "Options
+                                  avancées") pour les 5 mouvements de force — c'est le switch qui
+                                  débloque l'aide au test de PR en séance, elle doit être visible
+                                  sans avoir à chercher. */}
+                              {STANDARD_MOVEMENTS.includes(splitEquipmentVariant(ex.name).base as StandardMovement) && (
+                                <div className="pl-6 mb-1">
+                                  <div className="flex gap-1.5">
+                                    <button
+                                      type="button"
+                                      disabled={!!ex.method}
+                                      onClick={() => updateExercise(ti, exIdx, 'trainingFocus', 'force')}
+                                      className={`flex-1 py-1.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-all disabled:opacity-70 ${
+                                        isForceFocusExercise(ex) ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
+                                      }`}
+                                    >
+                                      <Dumbbell size={12} /> Force
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={!!ex.method}
+                                      onClick={() => updateExercise(ti, exIdx, 'trainingFocus', 'hypertrophie')}
+                                      className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-all disabled:opacity-70 ${
+                                        !isForceFocusExercise(ex) ? 'bg-secondary text-foreground' : 'bg-secondary/40 text-muted-foreground'
+                                      }`}
+                                    >
+                                      Hypertrophie
+                                    </button>
+                                  </div>
+                                  <p className="text-[10px] text-muted-foreground mt-1">
+                                    {ex.method
+                                      ? 'Implicite : une méthode (531/Cluster/EMOM) est active.'
+                                      : isForceFocusExercise(ex)
+                                        ? '🎯 Une aide au test de PR (montée en charge guidée) sera disponible en séance.'
+                                        : 'Passe en Force pour débloquer une aide au test de PR en séance.'}
+                                  </p>
+                                </div>
+                              )}
                               {method531 ? (
                                 <div className="rounded-xl p-3 bg-primary/10 border border-primary/30 space-y-2.5">
                                   <div className="flex items-center justify-between">
@@ -1431,28 +1468,6 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                         />
                                         <InfinityIcon size={10} className="text-accent-purple" /> Max de reps
                                       </label>
-                                      {/* Only for the 5 standard barbell/bodyweight lifts — gates the
-                                          "1RM ?" live-session button and true-1RM tracking in
-                                          l'historique. Opt-in per exercice ; par défaut (décoché) le
-                                          comportement reste inchangé (1RM estimé uniquement). Locked
-                                          checked whenever a method (531/Cluster/EMOM) is active — an
-                                          exercise trained near a true max via one of these programs
-                                          is necessarily Force, not a manual choice anymore. */}
-                                      {STANDARD_MOVEMENTS.includes(splitEquipmentVariant(ex.name).base as StandardMovement) && (
-                                        <label
-                                          className={`flex items-center gap-1 text-[10px] ${ex.method ? 'text-muted-foreground/50' : 'text-muted-foreground'}`}
-                                          title={ex.method ? 'Implicite : une méthode (531/Cluster/EMOM) est active' : undefined}
-                                        >
-                                          <input
-                                            type="checkbox"
-                                            checked={isForceFocusExercise(ex)}
-                                            disabled={!!ex.method}
-                                            onChange={e => updateExercise(ti, exIdx, 'trainingFocus', e.target.checked ? 'force' : undefined)}
-                                            className="w-3.5 h-3.5 accent-primary disabled:opacity-60"
-                                          />
-                                          <Dumbbell size={10} className="text-primary" /> Force{ex.method ? ' (auto)' : ''}
-                                        </label>
-                                      )}
                                     </div>
                                   )}
                                   {/* Own line, amber like the Drop set toggle above it — shown

@@ -144,6 +144,16 @@ export interface SetLog {
   // tonnage/history like any other, and is excluded only from each method's own structural
   // set-slicing/indexing (liveSets filters in WorkoutTab), not from tonnage or e1RM.
   isWarmup?: boolean;
+  // Snapshot of Exercise.equipment/unilateral AT THE TIME this set was logged (stamped from
+  // the template when the set is created in WorkoutTab) — the source of truth for variant
+  // grouping in ExerciseHistory (src/lib/exerciseNormalize.ts's resolveSetVariant), not the
+  // exercise's CURRENT template value, so history stays accurate even if she later changes
+  // the template's default (e.g. switched from dumbbells to barbell going forward) and is
+  // editable retroactively per past session without touching any other session's sets.
+  // Absent on sets logged before this field existed — resolveSetVariant falls back to
+  // parsing the exercise name text (splitEquipmentVariant) in that case.
+  equipment?: ExerciseEquipment;
+  unilateral?: boolean;
 }
 
 export interface SessionLog {

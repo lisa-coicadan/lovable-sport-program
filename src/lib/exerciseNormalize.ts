@@ -1,3 +1,5 @@
+import { ExerciseEquipment, EQUIPMENT_LABELS } from './types';
+
 // Normalize exercise names so variants map to a canonical name.
 // IMPORTANT: equipment variants (barre, haltère, smith, machine, poulie, élastique)
 // are NOT merged together because the loads are not comparable.
@@ -295,6 +297,24 @@ export function splitEquipmentVariant(name: string): { base: string; variantLabe
     base: normalizeExerciseName(withoutEquipment || name),
     variantLabel: EQUIPMENT_VARIANT_LABEL[eqSpan.eq.key] ?? eqSpan.eq.label,
   };
+}
+
+// Resolves the variant (equipment + unilatéral) a logged set actually used — the
+// structured SetLog.equipment/unilateral fields when present (stamped from the exercise
+// template at logging time, editable retroactively per past session), falling back to
+// parsing the exercise name's text (splitEquipmentVariant) for sets logged before those
+// fields existed. This is the single source of truth for grouping history/PRs by variant —
+// NOT the exercise template's CURRENT value, which can drift from what a past session
+// actually used.
+export function resolveSetVariant(set: { exerciseName: string; equipment?: ExerciseEquipment; unilateral?: boolean }): { equipmentLabel: string | null; unilateral: boolean } {
+  if (set.equipment !== undefined || set.unilateral !== undefined) {
+    return {
+      equipmentLabel: set.equipment ? EQUIPMENT_LABELS[set.equipment] : null,
+      unilateral: !!set.unilateral,
+    };
+  }
+  const { variantLabel } = splitEquipmentVariant(set.exerciseName);
+  return { equipmentLabel: variantLabel, unilateral: false };
 }
 
 // Fraction of bodyweight actually moved by one rep, for exercises where `weight` is
