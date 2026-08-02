@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { AppData, WorkoutType, SetLog, SessionLog, FiveThreeOneMethod, ClusterMethod, EMOMMethod, ExerciseMethod, Exercise, calculate1RM, CardioSession, CardioActivityType, DeloadType, DeloadIntensity, PlannedSession, EQUIPMENT_LABELS } from '@/lib/types';
+import { AppData, WorkoutType, SetLog, SessionLog, FiveThreeOneMethod, ClusterMethod, EMOMMethod, ExerciseMethod, Exercise, calculate1RM, CardioSession, CardioActivityType, DeloadType, DeloadIntensity, PlannedSession, EQUIPMENT_LABELS, ExerciseEquipment } from '@/lib/types';
 import { getWeekSets, getWeekLabel, computeNextFiveThreeOneWeekState } from '@/lib/531';
 import { getClusterConfig, getMiniSeriesWeight } from '@/lib/cluster';
 import { getEmomConfig, getEmomWeight } from '@/lib/emom';
@@ -7,11 +7,12 @@ import { buildExerciseBlocks } from '@/lib/superset';
 import { isBodyweightOptionalExercise, weightFieldValue, splitEquipmentVariant } from '@/lib/exerciseNormalize';
 import { getDropSetConfig, getDropSetStage } from '@/lib/dropset';
 import { compareCardioSession, formatCardioDuration, formatPace } from '@/lib/cardio';
-import { STANDARD_MOVEMENTS, StandardMovement } from '@/lib/strengthStandards';
+import { isForceFocusExercise } from '@/lib/strengthStandards';
 import { computeEffectiveLoadAtOneRep, resolveBodyWeightAtDate } from '@/lib/tonnage';
 import { estimateTrainingMax } from '@/lib/trainingMax';
 import { RAMP_STAGES, generateRampPlan, generateBonusStage, getOuvertureGuidance, getFailureGuidance } from '@/lib/oneRepMaxTest';
 import { roundWeightSmart } from '@/lib/weightRounding';
+import { shouldShowBodyweightReminder, buildBodyweightReminderSnoozePatch } from '@/lib/bodyweightReminder';
 import {
   shouldShowDeloadRecommendation, DeloadCriteria, buildDeloadAcceptPatch, buildDeloadDismissPatch,
   consumeDeloadOnSessionSave, getDeloadTargetWorkoutTypes, applyDeloadToWeight, applyDeloadToTrainingMax,
@@ -22,7 +23,7 @@ import EmomTimer from './EmomTimer';
 import ExerciseHistory from './ExerciseHistory';
 import SessionSummary from './SessionSummary';
 import SettingsPanel from './SettingsPanel';
-import { Check, ChevronRight, ArrowLeft, Settings, History, Plus, Trash2, ChevronDown, Timer, Pencil, TrendingDown, Activity, Footprints, Waves, Bike, Lightbulb, Gauge, X, Dumbbell } from 'lucide-react';
+import { Check, ChevronRight, ArrowLeft, Settings, History, Plus, Trash2, ChevronDown, Timer, Pencil, TrendingDown, Activity, Footprints, Waves, Bike, Lightbulb, Gauge, X, Dumbbell, Repeat } from 'lucide-react';
 import { SortableList, DragHandle } from './SortableBlock';
 import SetDots from './SetDots';
 
@@ -176,6 +177,12 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
   const [deloadPopupOpen, setDeloadPopupOpen] = useState(false);
   const [deloadTypeDraft, setDeloadTypeDraft] = useState<DeloadType>('both');
   const [deloadIntensityDraft, setDeloadIntensityDraft] = useState<DeloadIntensity>('medium');
+  // Quick weight entry inline in the bodyweight-reminder banner (select mode) — see
+  // src/lib/bodyweightReminder.ts for the ~monthly trigger/snooze logic.
+  const [bodyweightDraft, setBodyweightDraft] = useState('');
+  // Which exercise's unilatéral/équipement popover is open — moved here from Réglages,
+  // see updateExerciseTag above.
+  const [tagsEditorFor, setTagsEditorFor] = useState<string | null>(null);
   // "1RM ?" confirmation on a genuine 1-rep set (Force-focus exercises only, see
   // Exercise.trainingFocus) — the checkbox below is the RPE 9-10 self-report that makes
   // this a TESTED 1RM rather than just another logged set.
@@ -663,6 +670,15 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     setTmUpdatePrompt(null);
   };
 
+  // Unilatéral/équipement moved here from Réglages (see item 5 of the v2.0 list) — same
+  // patchExercise-on-the-template + selectedType-snapshot-sync pattern as applyTmUpdate
+  // above, since these are exercise-template attributes, not per-session state.
+  const updateExerciseTag = (exerciseId: string, patch: Partial<Pick<Exercise, 'unilateral' | 'equipment'>>) => {
+    const patchExercise = (ex: Exercise) => ex.id === exerciseId ? { ...ex, ...patch } : ex;
+    onUpdateData({ workoutTypes: data.workoutTypes.map(t => ({ ...t, exercises: t.exercises.map(patchExercise) })) });
+    setSelectedType(prev => prev ? { ...prev, exercises: prev.exercises.map(patchExercise) } : prev);
+  };
+
   // Opens the target-1RM setup panel, pre-filled from the latest confirmed true 1RM for
   // this movement if any, otherwise reverse-derived from the current TM (TM = 1RM * 0.9).
   const openTestMaxSetup = (ex: Exercise) => {
@@ -712,7 +728,8 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
 
   // Only offered on 531/Cluster/EMOM exercises — those are the ones with a defined
   // TM-derived working weight to ramp toward; a plain exercise has nothing to anchor a %
-  // to. 3 stages max (40/60/80% of the working weight), one added per tap.
+  // to. No cap on how many can be added — past the last defined stage (80%), further
+  // sets reuse that same percentage as a starting prefill, freely editable like any other.
   const WARMUP_PERCENTAGES = [0.4, 0.6, 0.8];
 
   const getWorkingWeight = (ex: Exercise): number => {
@@ -726,13 +743,16 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
       const { percentage } = getEmomConfig(method);
       return getEmomWeight(method.trainingMax, percentage);
     }
-    return 0;
+    // Plain exercise (only reachable for the first exercise of the session, see
+    // firstExerciseId above): no TM to derive a % from, so anchor on whatever weight is
+    // already prefilled/entered on its first working set.
+    const firstWorkingSet = sets.find(s => s.exerciseId === ex.id && !s.isWarmup);
+    return firstWorkingSet?.weight ?? 0;
   };
 
   const addWarmupSet = (ex: Exercise) => {
     const existingWarmups = sets.filter(s => s.exerciseId === ex.id && s.isWarmup);
-    if (existingWarmups.length >= WARMUP_PERCENTAGES.length) return;
-    const pct = WARMUP_PERCENTAGES[existingWarmups.length];
+    const pct = WARMUP_PERCENTAGES[existingWarmups.length] ?? WARMUP_PERCENTAGES[WARMUP_PERCENTAGES.length - 1];
     const weight = roundWeightSmart(getWorkingWeight(ex) * pct);
     const newSet: SetLog = {
       exerciseId: ex.id, exerciseName: ex.name, setNumber: existingWarmups.length + 1,
@@ -795,14 +815,162 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
             </button>
           </div>
         ))}
-        {warmupSets.length < WARMUP_PERCENTAGES.length && (
+        <button
+          onClick={() => addWarmupSet(ex)}
+          className="min-h-9 flex items-center gap-1 text-muted-foreground text-[11px] font-medium"
+        >
+          <Plus size={10} /> Échauffement{warmupSets.length > 0 ? ` (${warmupSets.length})` : ''}
+        </button>
+      </div>
+    );
+  };
+
+  // "Tester un 1RM" trigger (button + target-weight setup panel) — shared by every card
+  // type (531/Cluster/EMOM/plain), since isForceFocusExercise no longer depends on which
+  // method (if any) the exercise uses. Hidden once the ramp itself is active (isTestMaxActive)
+  // to avoid stacking a second setup panel on top of the ramp rows.
+  const renderTestMaxTrigger = (ex: Exercise, isTestMaxActive: boolean) => {
+    if (!isForceFocusExercise(ex) || isTestMaxActive) return null;
+    return testMaxSetupOpen[ex.id] ? (
+      <div className="bg-warning/10 border border-warning/30 rounded-xl p-3 mb-3">
+        <label className="text-xs text-muted-foreground block mb-1.5">1RM visé (kg)</label>
+        <input
+          type="number"
+          autoFocus
+          value={testMaxTargetDraft[ex.id] ?? ''}
+          onChange={e => setTestMaxTargetDraft(prev => ({ ...prev, [ex.id]: e.target.value }))}
+          className="w-full bg-background/60 text-foreground rounded-lg px-3 py-2 text-sm outline-none font-mono mb-2"
+        />
+        <div className="flex gap-2">
           <button
-            onClick={() => addWarmupSet(ex)}
-            className="min-h-9 flex items-center gap-1 text-muted-foreground text-[11px] font-medium"
+            onClick={() => setTestMaxSetupOpen(prev => ({ ...prev, [ex.id]: false }))}
+            className="flex-1 bg-secondary text-secondary-foreground font-medium py-2 rounded-lg text-xs touch-target"
           >
-            <Plus size={10} /> Échauffement ({warmupSets.length}/{WARMUP_PERCENTAGES.length})
+            Annuler
+          </button>
+          <button
+            onClick={() => startTestMaxRamp(ex)}
+            className="flex-1 btn-neon font-medium py-2 rounded-lg text-xs touch-target"
+          >
+            Démarrer
+          </button>
+        </div>
+      </div>
+    ) : (
+      <button
+        onClick={() => openTestMaxSetup(ex)}
+        className="w-full mb-3 flex items-center justify-center gap-1.5 text-warning text-xs font-medium py-2 rounded-lg bg-warning/10"
+      >
+        🎯 Tester un 1RM
+      </button>
+    );
+  };
+
+  // The ramp itself, once active — same rows/guidance/PR-confirm/cancel regardless of
+  // which card type triggered it. `liveSets` must already exclude warm-up rows (every
+  // caller's liveSets/exerciseSets already does, for its own reasons).
+  const renderTestMaxRamp = (ex: Exercise, liveSets: { globalIdx: number }[]) => {
+    const prStage = liveSets.find(s => sets[s.globalIdx].isTestMax && sets[s.globalIdx].setNumber === RAMP_STAGES.length);
+    const prSucceeded = !!prStage && sets[prStage.globalIdx].completed && !sets[prStage.globalIdx].failed;
+    const hasBonusStage = liveSets.some(s => sets[s.globalIdx].setNumber === RAMP_STAGES.length + 1);
+    return (
+      <div className="space-y-2">
+        {liveSets.map(s => {
+          const globalIdx = s.globalIdx;
+          const set = sets[globalIdx];
+          const stage = RAMP_STAGES[set.setNumber - 1];
+          const label = stage?.label ?? 'Tentative bonus';
+          const isMaxAttempt = set.setNumber >= RAMP_STAGES.length; // "Le PR" and any bonus
+          return (
+            <div key={globalIdx}>
+              <div
+                className={`flex items-center gap-2 rounded-xl px-3 py-2.5 transition-all ${
+                  set.completed ? (set.failed ? 'bg-destructive/10 border border-destructive/25' : 'bg-success/10 border border-success/25') : 'bg-secondary/50'
+                }`}
+              >
+                <span className="text-[10px] text-muted-foreground w-16 shrink-0">{label}</span>
+                <input
+                  type="number"
+                  value={set.weight || ''}
+                  onChange={e => updateSet(globalIdx, 'weight', e.target.value)}
+                  className="w-14 bg-transparent text-foreground text-sm text-center outline-none font-mono"
+                  placeholder="kg"
+                  aria-label={`Poids ${label}, ${ex.name} (kg)`}
+                />
+                <span className="text-muted-foreground text-xs">×</span>
+                <input
+                  type="number"
+                  value={set.reps || ''}
+                  onChange={e => updateSet(globalIdx, 'reps', e.target.value)}
+                  className="w-10 bg-transparent text-foreground text-sm text-center outline-none font-mono"
+                  aria-label={`Répétitions ${label}, ${ex.name}`}
+                />
+                <input
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={set.rpe ?? ''}
+                  onChange={e => setRampSetField(globalIdx, { rpe: e.target.value === '' ? undefined : (parseInt(e.target.value) || undefined) })}
+                  className="w-10 bg-accent-blue/10 text-accent-blue text-xs text-center outline-none font-mono rounded-lg py-1 ml-auto"
+                  placeholder="RPE"
+                  aria-label={`RPE ${label}, ${ex.name}`}
+                />
+                <button
+                  onClick={() => { setRampSetField(globalIdx, { failed: false }); if (!set.completed) toggleSet(globalIdx); }}
+                  className={`touch-target rounded-lg p-1.5 transition-colors ${
+                    set.completed && !set.failed ? 'text-success glow-success' : 'text-muted-foreground active:text-success'
+                  }`}
+                  aria-label={`${label} réussie`}
+                >
+                  <Check size={16} />
+                </button>
+                {isMaxAttempt && (
+                  <button
+                    onClick={() => { setRampSetField(globalIdx, { failed: true }); if (!set.completed) toggleSet(globalIdx); }}
+                    className={`touch-target rounded-lg p-1.5 transition-colors ${
+                      set.completed && set.failed ? 'text-destructive' : 'text-muted-foreground active:text-destructive'
+                    }`}
+                    aria-label={`${label} échouée`}
+                  >
+                    <X size={16} />
+                  </button>
+                )}
+              </div>
+              {stage?.key === 'ouverture' && set.completed && set.rpe !== undefined && getOuvertureGuidance(set.rpe) && (
+                <p className="text-[11px] text-warning bg-warning/10 border border-warning/30 rounded-lg px-3 py-2 mt-1.5">
+                  {getOuvertureGuidance(set.rpe)}
+                </p>
+              )}
+              {isMaxAttempt && set.completed && set.failed && (
+                <p className="text-[11px] text-destructive bg-destructive/10 border border-destructive/30 rounded-lg px-3 py-2 mt-1.5">
+                  {getFailureGuidance()}
+                </p>
+              )}
+              {isMaxAttempt && set.completed && !set.failed && set.reps === 1 && (
+                <button
+                  onClick={() => setTrueOneRMConfirm({ exerciseId: ex.id, name: ex.name, globalIdx, rpeConfirmed: false })}
+                  className="w-full mt-1.5 touch-target flex items-center justify-center gap-1 rounded-lg text-xs font-medium text-warning bg-warning/10 py-1.5"
+                >
+                  1RM ?
+                </button>
+              )}
+            </div>
+          );
+        })}
+        {prSucceeded && !hasBonusStage && (
+          <button
+            onClick={() => addBonusStage(ex)}
+            className="w-full min-h-11 flex items-center justify-center gap-1 text-warning text-xs font-medium"
+          >
+            <Plus size={12} /> Tentative bonus (102%)
           </button>
         )}
+        <button
+          onClick={() => cancelTestMaxRamp(ex)}
+          className="w-full min-h-9 flex items-center justify-center text-muted-foreground text-[11px] mt-1"
+        >
+          Annuler le test — reprendre les séries normales
+        </button>
       </div>
     );
   };
@@ -1049,6 +1217,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
         .map(ex => ({ type, exercise: ex, method: ex.method as FiveThreeOneMethod }))
     );
     const deloadRec = shouldShowDeloadRecommendation(data);
+    const showBodyweightReminder = shouldShowBodyweightReminder(data);
     const pendingDeloadIds = getActiveDeload(data)?.pendingWorkoutTypeIds;
     const todayISO = new Date().toISOString().split('T')[0];
     const plannedTodayTypeId = data.plannedSessions?.find(p => p.date === todayISO)?.workoutTypeId;
@@ -1085,6 +1254,44 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
             >
               Aujourd'hui
             </button>
+          </div>
+        )}
+
+        {/* Bodyweight-update reminder — ~monthly, non-blocking, only ever shown here (never
+            mid-set) since this screen is the one moment where she isn't already mid-session.
+            See src/lib/bodyweightReminder.ts for the trigger/snooze logic. */}
+        {showBodyweightReminder && (
+          <div className="bg-secondary/60 border border-border rounded-xl p-4 mb-4">
+            <p className="text-sm font-semibold text-foreground mb-3">⚖️ Poids à jour ?</p>
+            <div className="flex gap-2">
+              <input
+                type="number"
+                inputMode="decimal"
+                value={bodyweightDraft}
+                onChange={e => setBodyweightDraft(e.target.value)}
+                placeholder={data.bodyWeightLogs?.length ? `${[...data.bodyWeightLogs].sort((a, b) => b.date.localeCompare(a.date))[0].weight} kg` : 'kg'}
+                className="w-20 bg-input border border-border rounded-lg px-2 py-2 text-sm text-foreground text-center"
+              />
+              <button
+                onClick={() => {
+                  const weight = parseFloat(bodyweightDraft);
+                  if (!weight || weight <= 0) return;
+                  const newLog = { date: new Date().toISOString().split('T')[0], weight };
+                  onUpdateData({ bodyWeightLogs: [...(data.bodyWeightLogs || []), newLog] });
+                  setBodyweightDraft('');
+                }}
+                disabled={!bodyweightDraft}
+                className="flex-1 btn-neon font-medium py-2 rounded-lg text-xs touch-target disabled:opacity-40"
+              >
+                Enregistrer
+              </button>
+              <button
+                onClick={() => onUpdateData({ bodyweightReminderSnoozedUntil: buildBodyweightReminderSnoozePatch().bodyweightReminderSnoozedUntil })}
+                className="bg-secondary text-secondary-foreground font-medium py-2 px-3 rounded-lg text-xs touch-target"
+              >
+                Plus tard
+              </button>
+            </div>
           </div>
         )}
 
@@ -1542,9 +1749,14 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
   const emomExerciseIds = new Set(
     (selectedType?.exercises || []).filter(ex => getEffectiveMethod(ex)?.type === 'emom').map(ex => ex.id)
   );
+  // Every 531/Cluster/EMOM exercise already gets its own warm-up section regardless of
+  // position — this id is only for the plain-exercise card below, which otherwise has no
+  // warm-up at all: it's shown solely when that plain exercise is the very first one of
+  // the session (configured order, not the live drag-reorder of the regular-exercises list).
+  const firstExerciseId = selectedType?.exercises[0]?.id;
   const regularSets = sets
     .map((s, i) => ({ ...s, globalIdx: i }))
-    .filter(s => !fiveThreeOneExerciseIds.has(s.exerciseId) && !clusterExerciseIds.has(s.exerciseId) && !emomExerciseIds.has(s.exerciseId));
+    .filter(s => !s.isWarmup && !fiveThreeOneExerciseIds.has(s.exerciseId) && !clusterExerciseIds.has(s.exerciseId) && !emomExerciseIds.has(s.exerciseId));
   // Exercises with a configured Cluster/EMOM default that are currently overridden to
   // "Normal" for this session — still get the picker on their (now regular) card so
   // switching back doesn't require restarting the session.
@@ -1712,9 +1924,6 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
         const weekSetsForDisplay = getWeekSets(method.trainingMax, week);
         const isAmrap = (setIdx: number) => weekSetsForDisplay[setIdx]?.reps?.includes('+');
         const isTestMaxActive = liveSets.some(s => sets[s.globalIdx].isTestMax);
-        const prStage = liveSets.find(s => sets[s.globalIdx].isTestMax && sets[s.globalIdx].setNumber === RAMP_STAGES.length);
-        const prSucceeded = !!prStage && sets[prStage.globalIdx].completed && !sets[prStage.globalIdx].failed;
-        const hasBonusStage = liveSets.some(s => sets[s.globalIdx].setNumber === RAMP_STAGES.length + 1);
 
         return (
           <div key={ex.id} className="glass-card p-4 mb-4 border-primary/30">
@@ -1736,142 +1945,9 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
             {renderLowRpeBanner(ex)}
             {!isTestMaxActive && renderWarmupSection(ex)}
 
-            {ex.trainingFocus === 'force' && !isTestMaxActive && (
-              testMaxSetupOpen[ex.id] ? (
-                <div className="bg-warning/10 border border-warning/30 rounded-xl p-3 mb-3">
-                  <label className="text-xs text-muted-foreground block mb-1.5">1RM visé (kg)</label>
-                  <input
-                    type="number"
-                    autoFocus
-                    value={testMaxTargetDraft[ex.id] ?? ''}
-                    onChange={e => setTestMaxTargetDraft(prev => ({ ...prev, [ex.id]: e.target.value }))}
-                    className="w-full bg-background/60 text-foreground rounded-lg px-3 py-2 text-sm outline-none font-mono mb-2"
-                  />
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setTestMaxSetupOpen(prev => ({ ...prev, [ex.id]: false }))}
-                      className="flex-1 bg-secondary text-secondary-foreground font-medium py-2 rounded-lg text-xs touch-target"
-                    >
-                      Annuler
-                    </button>
-                    <button
-                      onClick={() => startTestMaxRamp(ex)}
-                      className="flex-1 btn-neon font-medium py-2 rounded-lg text-xs touch-target"
-                    >
-                      Démarrer
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <button
-                  onClick={() => openTestMaxSetup(ex)}
-                  className="w-full mb-3 flex items-center justify-center gap-1.5 text-warning text-xs font-medium py-2 rounded-lg bg-warning/10"
-                >
-                  🎯 Tester un 1RM
-                </button>
-              )
-            )}
+            {renderTestMaxTrigger(ex, isTestMaxActive)}
 
-            {isTestMaxActive ? (
-              <div className="space-y-2">
-                {liveSets.map(s => {
-                  const globalIdx = s.globalIdx;
-                  const set = sets[globalIdx];
-                  const stage = RAMP_STAGES[set.setNumber - 1];
-                  const label = stage?.label ?? 'Tentative bonus';
-                  const isMaxAttempt = set.setNumber >= RAMP_STAGES.length; // "Le PR" and any bonus
-                  return (
-                    <div key={globalIdx}>
-                      <div
-                        className={`flex items-center gap-2 rounded-xl px-3 py-2.5 transition-all ${
-                          set.completed ? (set.failed ? 'bg-destructive/10 border border-destructive/25' : 'bg-success/10 border border-success/25') : 'bg-secondary/50'
-                        }`}
-                      >
-                        <span className="text-[10px] text-muted-foreground w-16 shrink-0">{label}</span>
-                        <input
-                          type="number"
-                          value={set.weight || ''}
-                          onChange={e => updateSet(globalIdx, 'weight', e.target.value)}
-                          className="w-14 bg-transparent text-foreground text-sm text-center outline-none font-mono"
-                          placeholder="kg"
-                          aria-label={`Poids ${label}, ${ex.name} (kg)`}
-                        />
-                        <span className="text-muted-foreground text-xs">×</span>
-                        <input
-                          type="number"
-                          value={set.reps || ''}
-                          onChange={e => updateSet(globalIdx, 'reps', e.target.value)}
-                          className="w-10 bg-transparent text-foreground text-sm text-center outline-none font-mono"
-                          aria-label={`Répétitions ${label}, ${ex.name}`}
-                        />
-                        <input
-                          type="number"
-                          min={1}
-                          max={10}
-                          value={set.rpe ?? ''}
-                          onChange={e => setRampSetField(globalIdx, { rpe: e.target.value === '' ? undefined : (parseInt(e.target.value) || undefined) })}
-                          className="w-10 bg-accent-blue/10 text-accent-blue text-xs text-center outline-none font-mono rounded-lg py-1 ml-auto"
-                          placeholder="RPE"
-                          aria-label={`RPE ${label}, ${ex.name}`}
-                        />
-                        <button
-                          onClick={() => { setRampSetField(globalIdx, { failed: false }); if (!set.completed) toggleSet(globalIdx); }}
-                          className={`touch-target rounded-lg p-1.5 transition-colors ${
-                            set.completed && !set.failed ? 'text-success glow-success' : 'text-muted-foreground active:text-success'
-                          }`}
-                          aria-label={`${label} réussie`}
-                        >
-                          <Check size={16} />
-                        </button>
-                        {isMaxAttempt && (
-                          <button
-                            onClick={() => { setRampSetField(globalIdx, { failed: true }); if (!set.completed) toggleSet(globalIdx); }}
-                            className={`touch-target rounded-lg p-1.5 transition-colors ${
-                              set.completed && set.failed ? 'text-destructive' : 'text-muted-foreground active:text-destructive'
-                            }`}
-                            aria-label={`${label} échouée`}
-                          >
-                            <X size={16} />
-                          </button>
-                        )}
-                      </div>
-                      {stage?.key === 'ouverture' && set.completed && set.rpe !== undefined && getOuvertureGuidance(set.rpe) && (
-                        <p className="text-[11px] text-warning bg-warning/10 border border-warning/30 rounded-lg px-3 py-2 mt-1.5">
-                          {getOuvertureGuidance(set.rpe)}
-                        </p>
-                      )}
-                      {isMaxAttempt && set.completed && set.failed && (
-                        <p className="text-[11px] text-destructive bg-destructive/10 border border-destructive/30 rounded-lg px-3 py-2 mt-1.5">
-                          {getFailureGuidance()}
-                        </p>
-                      )}
-                      {isMaxAttempt && set.completed && !set.failed && set.reps === 1 && (
-                        <button
-                          onClick={() => setTrueOneRMConfirm({ exerciseId: ex.id, name: ex.name, globalIdx, rpeConfirmed: false })}
-                          className="w-full mt-1.5 touch-target flex items-center justify-center gap-1 rounded-lg text-xs font-medium text-warning bg-warning/10 py-1.5"
-                        >
-                          1RM ?
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
-                {prSucceeded && !hasBonusStage && (
-                  <button
-                    onClick={() => addBonusStage(ex)}
-                    className="w-full min-h-11 flex items-center justify-center gap-1 text-warning text-xs font-medium"
-                  >
-                    <Plus size={12} /> Tentative bonus (102%)
-                  </button>
-                )}
-                <button
-                  onClick={() => cancelTestMaxRamp(ex)}
-                  className="w-full min-h-9 flex items-center justify-center text-muted-foreground text-[11px] mt-1"
-                >
-                  Annuler le test — reprendre le 5/3/1 normal
-                </button>
-              </div>
-            ) : (
+            {isTestMaxActive ? renderTestMaxRamp(ex, liveSets) : (
               <>
                 <SetDots states={liveSets.map(s => sets[s.globalIdx].completed)} className="mb-3" />
                 <div className="flex gap-1.5 mb-4">
@@ -1964,6 +2040,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
           .filter(s => s.exerciseId === ex.id && !s.isWarmup);
         if (liveSets.length === 0) return null;
         const miniPerSeries = miniSeries.length;
+        const isTestMaxActive = liveSets.some(s => sets[s.globalIdx].isTestMax);
 
         const onTapMiniSeries = (globalIdx: number, seriesIdx: number, miniIdx: number) => {
           const wasCompleted = sets[globalIdx].completed;
@@ -1996,70 +2073,75 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
             </div>
             {renderReminderNoteBanner(ex)}
             {renderLowRpeBanner(ex)}
-            {renderWarmupSection(ex)}
-            <MethodPickerRow active="cluster" onSelect={opt => applyMethodOverride(ex, opt)} />
-            <label className="flex items-center justify-between mb-3 -mt-1 cursor-pointer">
-              <span className="text-xs text-muted-foreground flex items-center gap-1.5">
-                <Timer size={12} className="text-primary" /> Chrono automatique
-              </span>
-              <input
-                type="checkbox"
-                checked={clusterAutoTimer}
-                onChange={e => setClusterAutoTimer(e.target.checked)}
-                className="w-4 h-4 accent-primary"
-              />
-            </label>
-            <div className="space-y-2">
-              {Array.from({ length: numSeries }).map((_, seriesIdx) => {
-                const seriesSets = liveSets.slice(seriesIdx * miniPerSeries, (seriesIdx + 1) * miniPerSeries);
-                const allDone = seriesSets.every(s => sets[s.globalIdx].completed);
-                return (
-                  <div
-                    key={seriesIdx}
-                    className={`rounded-xl p-2.5 border transition-all ${
-                      allDone ? 'bg-success/15 border-success/40' : 'bg-secondary/40 border-transparent'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-[11px] font-semibold text-muted-foreground">Série {seriesIdx + 1}</span>
-                      {seriesIdx < numSeries - 1 && (
-                        <button
-                          onClick={() => restTimerRef.current?.startWithDuration(restSeries)}
-                          className="touch-target text-[10px] text-primary font-medium flex items-center gap-1"
-                        >
-                          <Timer size={10} /> Repos {formatRestLabel(restSeries)}
-                        </button>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      {seriesSets.map((s, miniIdx) => (
-                        <div key={s.globalIdx} className="flex items-center gap-1.5 flex-1">
-                          <button
-                            onClick={() => onTapMiniSeries(s.globalIdx, seriesIdx, miniIdx)}
-                            className={`flex-1 min-h-11 flex items-center justify-center rounded-lg text-xs font-mono font-medium transition-colors ${
-                              sets[s.globalIdx].completed ? 'bg-success text-success-foreground' : 'bg-background/60 text-foreground'
-                            }`}
-                            aria-pressed={sets[s.globalIdx].completed}
-                          >
-                            {sets[s.globalIdx].weight}kg × {sets[s.globalIdx].reps}
-                          </button>
-                          {miniIdx < seriesSets.length - 1 && (
+            {!isTestMaxActive && renderWarmupSection(ex)}
+            {renderTestMaxTrigger(ex, isTestMaxActive)}
+            {isTestMaxActive ? renderTestMaxRamp(ex, liveSets) : (
+              <>
+                <MethodPickerRow active="cluster" onSelect={opt => applyMethodOverride(ex, opt)} />
+                <label className="flex items-center justify-between mb-3 -mt-1 cursor-pointer">
+                  <span className="text-xs text-muted-foreground flex items-center gap-1.5">
+                    <Timer size={12} className="text-primary" /> Chrono automatique
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={clusterAutoTimer}
+                    onChange={e => setClusterAutoTimer(e.target.checked)}
+                    className="w-4 h-4 accent-primary"
+                  />
+                </label>
+                <div className="space-y-2">
+                  {Array.from({ length: numSeries }).map((_, seriesIdx) => {
+                    const seriesSets = liveSets.slice(seriesIdx * miniPerSeries, (seriesIdx + 1) * miniPerSeries);
+                    const allDone = seriesSets.every(s => sets[s.globalIdx].completed);
+                    return (
+                      <div
+                        key={seriesIdx}
+                        className={`rounded-xl p-2.5 border transition-all ${
+                          allDone ? 'bg-success/15 border-success/40' : 'bg-secondary/40 border-transparent'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-[11px] font-semibold text-muted-foreground">Série {seriesIdx + 1}</span>
+                          {seriesIdx < numSeries - 1 && (
                             <button
-                              onClick={() => restTimerRef.current?.startWithDuration(restMiniSeries)}
-                              className="touch-target inline-flex items-center justify-center text-muted-foreground active:text-primary shrink-0"
-                              title={`Repos ${formatRestLabel(restMiniSeries)}`}
-                              aria-label={`Repos ${formatRestLabel(restMiniSeries)}`}
+                              onClick={() => restTimerRef.current?.startWithDuration(restSeries)}
+                              className="touch-target text-[10px] text-primary font-medium flex items-center gap-1"
                             >
-                              <Timer size={12} />
+                              <Timer size={10} /> Repos {formatRestLabel(restSeries)}
                             </button>
                           )}
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+                        <div className="flex items-center gap-1.5">
+                          {seriesSets.map((s, miniIdx) => (
+                            <div key={s.globalIdx} className="flex items-center gap-1.5 flex-1">
+                              <button
+                                onClick={() => onTapMiniSeries(s.globalIdx, seriesIdx, miniIdx)}
+                                className={`flex-1 min-h-11 flex items-center justify-center rounded-lg text-xs font-mono font-medium transition-colors ${
+                                  sets[s.globalIdx].completed ? 'bg-success text-success-foreground' : 'bg-background/60 text-foreground'
+                                }`}
+                                aria-pressed={sets[s.globalIdx].completed}
+                              >
+                                {sets[s.globalIdx].weight}kg × {sets[s.globalIdx].reps}
+                              </button>
+                              {miniIdx < seriesSets.length - 1 && (
+                                <button
+                                  onClick={() => restTimerRef.current?.startWithDuration(restMiniSeries)}
+                                  className="touch-target inline-flex items-center justify-center text-muted-foreground active:text-primary shrink-0"
+                                  title={`Repos ${formatRestLabel(restMiniSeries)}`}
+                                  aria-label={`Repos ${formatRestLabel(restMiniSeries)}`}
+                                >
+                                  <Timer size={12} />
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
           </div>
         );
       })}
@@ -2072,6 +2154,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
           .map((s, i) => ({ ...s, globalIdx: i }))
           .filter(s => s.exerciseId === ex.id && !s.isWarmup);
         if (liveSets.length === 0) return null;
+        const isTestMaxActive = liveSets.some(s => sets[s.globalIdx].isTestMax);
 
         const handleMinuteComplete = (minuteNumber: number) => {
           const target = liveSets[minuteNumber - 1];
@@ -2096,26 +2179,31 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
             </div>
             {renderReminderNoteBanner(ex)}
             {renderLowRpeBanner(ex)}
-            {renderWarmupSection(ex)}
-            <MethodPickerRow active="emom" onSelect={opt => applyMethodOverride(ex, opt)} />
-            <div className="mb-3">
-              <EmomTimer totalMinutes={durationMinutes} onMinuteComplete={handleMinuteComplete} />
-            </div>
-            <div className="grid grid-cols-5 gap-1.5">
-              {liveSets.map((s, minuteIdx) => (
-                <button
-                  key={s.globalIdx}
-                  onClick={() => toggleSet(s.globalIdx)}
-                  className={`min-h-11 rounded-lg py-2 text-[11px] font-mono font-medium transition-colors ${
-                    sets[s.globalIdx].completed ? 'bg-success text-success-foreground' : 'bg-secondary/50 text-foreground'
-                  }`}
-                >
-                  Min {minuteIdx + 1}
-                  <br />
-                  <span className={sets[s.globalIdx].completed ? '' : 'text-primary font-bold'}>{sets[s.globalIdx].weight}kg</span>×{sets[s.globalIdx].reps}
-                </button>
-              ))}
-            </div>
+            {!isTestMaxActive && renderWarmupSection(ex)}
+            {renderTestMaxTrigger(ex, isTestMaxActive)}
+            {isTestMaxActive ? renderTestMaxRamp(ex, liveSets) : (
+              <>
+                <MethodPickerRow active="emom" onSelect={opt => applyMethodOverride(ex, opt)} />
+                <div className="mb-3">
+                  <EmomTimer totalMinutes={durationMinutes} onMinuteComplete={handleMinuteComplete} />
+                </div>
+                <div className="grid grid-cols-5 gap-1.5">
+                  {liveSets.map((s, minuteIdx) => (
+                    <button
+                      key={s.globalIdx}
+                      onClick={() => toggleSet(s.globalIdx)}
+                      className={`min-h-11 rounded-lg py-2 text-[11px] font-mono font-medium transition-colors ${
+                        sets[s.globalIdx].completed ? 'bg-success text-success-foreground' : 'bg-secondary/50 text-foreground'
+                      }`}
+                    >
+                      Min {minuteIdx + 1}
+                      <br />
+                      <span className={sets[s.globalIdx].completed ? '' : 'text-primary font-bold'}>{sets[s.globalIdx].weight}kg</span>×{sets[s.globalIdx].reps}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         );
       })}
@@ -2262,6 +2350,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
           }
 
           const { exerciseId, name, entries: exerciseSets } = block;
+          const isTestMaxActive = exerciseSets.some(s => sets[s.globalIdx].isTestMax);
           const lastPerf = getLastPerformance(name);
           const absRecord = getAbsoluteRecord(name);
           const isTemp = exerciseId.startsWith('temp-');
@@ -2361,12 +2450,53 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                   <TrendingDown size={14} /> Drop set
                 </button>
                 <div className="flex items-center gap-1.5 ml-auto">
+                  {templateEx && (
+                    <button
+                      type="button"
+                      onClick={() => setTagsEditorFor(tagsEditorFor === exerciseId ? null : exerciseId)}
+                      className={`touch-target p-1.5 shrink-0 rounded-lg transition-colors ${
+                        templateEx.unilateral || templateEx.equipment ? 'text-accent-blue' : 'text-muted-foreground/50 active:text-accent-blue'
+                      }`}
+                      aria-label={`Unilatéral / équipement pour ${name}`}
+                      aria-pressed={tagsEditorFor === exerciseId}
+                      title="Unilatéral / équipement"
+                    >
+                      <Repeat size={14} />
+                    </button>
+                  )}
                   {templateEx && renderReminderNoteButton(templateEx)}
                   {renderDifficultyButton(rpeEx)}
                 </div>
               </div>
 
-              {(templateEx?.unilateral || templateEx?.equipment) && (
+              {templateEx && tagsEditorFor === exerciseId && (
+                <div className="flex items-center gap-3 flex-wrap mb-2 bg-secondary/40 rounded-lg px-2.5 py-2">
+                  <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      checked={!!templateEx.unilateral}
+                      onChange={e => updateExerciseTag(exerciseId, { unilateral: e.target.checked ? true : undefined })}
+                      className="w-3.5 h-3.5 accent-accent-blue"
+                    />
+                    <Repeat size={10} className="text-accent-blue" /> Unilatéral
+                  </label>
+                  <div className="flex items-center gap-1">
+                    <span className="text-[10px] text-muted-foreground">Équipement</span>
+                    <select
+                      value={templateEx.equipment ?? ''}
+                      onChange={e => updateExerciseTag(exerciseId, { equipment: e.target.value === '' ? undefined : e.target.value as ExerciseEquipment })}
+                      className="bg-secondary text-foreground text-[10px] rounded-md px-1.5 py-1 outline-none"
+                      aria-label={`Équipement de ${name}`}
+                    >
+                      <option value="">—</option>
+                      {(Object.keys(EQUIPMENT_LABELS) as ExerciseEquipment[]).map(eq => (
+                        <option key={eq} value={eq}>{EQUIPMENT_LABELS[eq]}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
+              {(templateEx?.unilateral || templateEx?.equipment) && tagsEditorFor !== exerciseId && (
                 <div className="flex items-center gap-1.5 mb-2 flex-wrap">
                   {templateEx.unilateral && (
                     <span className="text-[10px] text-accent-blue bg-accent-blue/10 px-2 py-0.5 rounded-full">Unilatéral</span>
@@ -2379,9 +2509,13 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
 
               {templateEx && renderReminderNoteBanner(templateEx)}
               {templateEx && renderLowRpeBanner(templateEx)}
+              {templateEx && !isTestMaxActive && exerciseId === firstExerciseId && renderWarmupSection(templateEx)}
+              {templateEx && renderTestMaxTrigger(templateEx, isTestMaxActive)}
 
-              {methodEx && <MethodPickerRow active="none" onSelect={opt => applyMethodOverride(methodEx, opt)} />}
+              {!isTestMaxActive && methodEx && <MethodPickerRow active="none" onSelect={opt => applyMethodOverride(methodEx, opt)} />}
 
+              {isTestMaxActive && templateEx ? renderTestMaxRamp(templateEx, exerciseSets) : (
+              <>
               <SetDots states={exerciseSets.map(e => sets[e.globalIdx].completed)} className="mb-2 ml-6" />
 
               {(lastPerf || absRecord) && (() => {
@@ -2453,8 +2587,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                           placeholder={sets[globalIdx].amrap ? 'Max' : 'reps'}
                           aria-label={`Répétitions ${rowLabel}, ${name}`}
                         />
-                        {templateEx?.trainingFocus === 'force' && sets[globalIdx].reps === 1 &&
-                          STANDARD_MOVEMENTS.includes(splitEquipmentVariant(name).base as StandardMovement) && (
+                        {templateEx && isForceFocusExercise(templateEx) && sets[globalIdx].reps === 1 && (
                           <button
                             onClick={() => setTrueOneRMConfirm({ exerciseId, name, globalIdx, rpeConfirmed: false })}
                             className="touch-target shrink-0 flex items-center gap-0.5 px-1.5 rounded-lg text-[10px] font-medium text-warning bg-warning/10"
@@ -2500,6 +2633,8 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
               >
                 <Plus size={12} /> Ajouter une série
               </button>
+              </>
+              )}
             </div>
           );
               }}

@@ -282,6 +282,10 @@ export interface AppData {
   // already on /10, so this flag is the only way to make the migration idempotent.
   rpeScaleV2?: boolean;
   deload?: DeloadState;
+  // "Plus tard" on the bodyweight-update reminder (src/lib/bodyweightReminder.ts) — an
+  // ISO date; the reminder stays hidden until this date passes, even if the monthly
+  // interval since the last log has already elapsed.
+  bodyweightReminderSnoozedUntil?: string;
 }
 
 export const WORKOUT_COLORS = [

@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
 import { AppData, SessionLog, calculate1RM, WORKOUT_COLORS, CardioActivityType, resolveProgramName } from '@/lib/types';
-import { normalizeExerciseName } from '@/lib/exerciseNormalize';
-import { computeSetTonnage, resolveBodyWeightAtDate } from '@/lib/tonnage';
+import { normalizeExerciseName, splitEquipmentVariant, isBodyweightOptionalExercise } from '@/lib/exerciseNormalize';
+import { computeSetTonnage, resolveBodyWeightAtDate, computeEffectiveLoadAtOneRep } from '@/lib/tonnage';
+import { STANDARD_MOVEMENTS, StandardMovement } from '@/lib/strengthStandards';
 import { calculatePaceMinPerKm, formatCardioDuration, formatPace, formatCardioDistance } from '@/lib/cardio';
-import { Trophy, Scale, Crown, ChevronDown, Search, X, Plus } from 'lucide-react';
+import { Trophy, Scale, Crown, ChevronDown, Search, X, Plus, Dumbbell } from 'lucide-react';
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine
@@ -151,6 +152,13 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession, onUpdateData }: Stat
       .sort((a, b) => b.date.localeCompare(a.date))
       .slice(0, 5);
   }, [prByName, methodExerciseNames]);
+
+  // "+ vrai 1RM" shortcut from a Record card — same entry as ExerciseHistory's, just
+  // reachable without drilling into that exercise's history first. Only offered for the 5
+  // standard barbell/bodyweight lifts (see isForceFocusExercise/STANDARD_MOVEMENTS) —
+  // trueOneRepMaxes only has meaning for those.
+  const [addTrueOneRMFor, setAddTrueOneRMFor] = useState<string | null>(null);
+  const [addTrueOneRMDraft, setAddTrueOneRMDraft] = useState({ date: new Date().toISOString().split('T')[0], weight: '' });
 
   // Evolution of the best e1RM reached in each session, for every exercise that has
   // an active 5/3/1 / Cluster / EMOM method — one line chart each so she can see whether
@@ -376,6 +384,7 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession, onUpdateData }: Stat
   }
 
   return (
+    <>
     <div className="px-4 pt-12 pb-24 animate-slide-up">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-foreground">Statistiques</h1>
@@ -438,14 +447,26 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession, onUpdateData }: Stat
       )}
 
       {/* PRs for exercises with an active training method — isolated, one card each */}
-      {methodPRs.map(pr => (
+      {methodPRs.map(pr => {
+        const isStandardMovement = STANDARD_MOVEMENTS.includes(splitEquipmentVariant(pr.name).base as StandardMovement);
+        return (
         <div key={pr.name} className="glass-card record-card p-4 mb-4">
           <div className="flex items-center gap-2 mb-2">
             <span className="relative inline-flex w-4 h-4 items-center justify-center">
               <span className="absolute inset-0 bg-primary/50 rounded-full blur-sm animate-pulse-glow" />
               <Crown size={16} className="relative text-primary" />
             </span>
-            <h3 className="text-sm font-semibold text-foreground">Record — {pr.name}</h3>
+            <h3 className="text-sm font-semibold text-foreground flex-1">Record — {pr.name}</h3>
+            {isStandardMovement && (
+              <button
+                onClick={() => { setAddTrueOneRMDraft({ date: new Date().toISOString().split('T')[0], weight: '' }); setAddTrueOneRMFor(splitEquipmentVariant(pr.name).base); }}
+                className="touch-target p-1 text-warning shrink-0"
+                aria-label={`Ajouter un vrai 1RM pour ${pr.name}`}
+                title="Ajouter un vrai 1RM"
+              >
+                <Dumbbell size={14} />
+              </button>
+            )}
           </div>
           <div className="flex items-baseline gap-2">
             <span className="text-3xl font-bold text-primary text-glow-primary">{pr.e1rm} kg</span>
@@ -455,7 +476,8 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession, onUpdateData }: Stat
             {pr.reps} × {pr.weight} kg — il y a {daysAgo(pr.date)} jour{daysAgo(pr.date) > 1 ? 's' : ''}
           </p>
         </div>
-      ))}
+        );
+      })}
 
       {/* Top 5 other PRs */}
       {otherPRs.length > 0 && (
@@ -467,12 +489,23 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession, onUpdateData }: Stat
           <div className="space-y-2">
             {otherPRs.map(pr => {
               const d = daysAgo(pr.date);
+              const isStandardMovement = STANDARD_MOVEMENTS.includes(splitEquipmentVariant(pr.name).base as StandardMovement);
               return (
                 <div key={pr.name} className="flex items-center justify-between bg-secondary rounded-lg px-3 py-2 border border-primary/15">
                   <div className="min-w-0 flex-1">
                     <p className="text-sm text-foreground truncate">{pr.name}</p>
                     <p className="text-[10px] text-muted-foreground">Il y a {d} jour{d > 1 ? 's' : ''}</p>
                   </div>
+                  {isStandardMovement && (
+                    <button
+                      onClick={() => { setAddTrueOneRMDraft({ date: new Date().toISOString().split('T')[0], weight: '' }); setAddTrueOneRMFor(splitEquipmentVariant(pr.name).base); }}
+                      className="touch-target p-1 text-warning shrink-0"
+                      aria-label={`Ajouter un vrai 1RM pour ${pr.name}`}
+                      title="Ajouter un vrai 1RM"
+                    >
+                      <Dumbbell size={14} />
+                    </button>
+                  )}
                   <div className="text-right shrink-0 ml-2">
                     <span className="text-sm font-bold text-primary">{pr.reps} × {pr.weight} kg</span>
                     <p className="text-[10px] text-muted-foreground">1RM {pr.e1rm} kg</p>
@@ -909,6 +942,73 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession, onUpdateData }: Stat
         </div>
       )}
     </div>
+
+    {addTrueOneRMFor && (
+      <div
+        className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-6 animate-fade-in"
+        onClick={() => setAddTrueOneRMFor(null)}
+      >
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="stats-add-true-1rm-title"
+          className="glass-card p-6 max-w-sm w-full"
+          onClick={e => e.stopPropagation()}
+        >
+          <h3 id="stats-add-true-1rm-title" className="text-sm font-bold text-foreground mb-1">Ajouter un vrai 1RM — {addTrueOneRMFor}</h3>
+          <p className="text-[11px] text-muted-foreground mb-4">
+            {isBodyweightOptionalExercise(addTrueOneRMFor)
+              ? 'Poids ajouté (0 = poids de corps, négatif = assisté), comme en séance — pas le total.'
+              : 'Charge totale soulevée pour cette unique répétition.'}
+          </p>
+          <div className="space-y-3 mb-4">
+            <div>
+              <label className="text-xs text-muted-foreground block mb-1">Date</label>
+              <input
+                type="date"
+                value={addTrueOneRMDraft.date}
+                onChange={e => setAddTrueOneRMDraft({ ...addTrueOneRMDraft, date: e.target.value })}
+                className="w-full bg-secondary text-foreground rounded-xl px-3 py-2.5 text-sm outline-none"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground block mb-1">Poids (kg)</label>
+              <input
+                autoFocus
+                type="number"
+                value={addTrueOneRMDraft.weight}
+                onChange={e => setAddTrueOneRMDraft({ ...addTrueOneRMDraft, weight: e.target.value })}
+                className="w-full bg-secondary text-foreground rounded-xl px-3 py-2.5 text-sm outline-none font-mono"
+                placeholder="kg"
+              />
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <button
+              onClick={() => setAddTrueOneRMFor(null)}
+              className="flex-1 bg-secondary text-secondary-foreground font-medium py-2.5 rounded-xl text-sm touch-target"
+            >
+              Annuler
+            </button>
+            <button
+              disabled={addTrueOneRMDraft.weight === ''}
+              onClick={() => {
+                const enteredWeight = parseFloat(addTrueOneRMDraft.weight) || 0;
+                const bodyWeight = resolveBodyWeightAtDate(data.bodyWeightLogs, addTrueOneRMDraft.date);
+                const effectiveLoad = computeEffectiveLoadAtOneRep({ weight: enteredWeight, exerciseName: addTrueOneRMFor }, bodyWeight);
+                const entry = { id: `true1rm-${Date.now()}`, date: addTrueOneRMDraft.date, exerciseName: addTrueOneRMFor, weight: effectiveLoad };
+                onUpdateData({ trueOneRepMaxes: [...(data.trueOneRepMaxes || []), entry] });
+                setAddTrueOneRMFor(null);
+              }}
+              className="flex-1 btn-neon font-medium py-2.5 rounded-xl text-sm touch-target disabled:opacity-40"
+            >
+              Ajouter
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 };
 

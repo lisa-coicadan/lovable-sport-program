@@ -60,7 +60,7 @@ const OneRepMaxTooltip = (bodyweightOptional: boolean) => ({ active, payload }: 
         {new Date(p.date).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })}
       </div>
       <div style={{ color: 'hsl(322 100% 70%)', fontWeight: 600 }}>{p.weight} kg × {p.reps}</div>
-      <div style={{ color: 'hsl(240 12% 72%)' }}>{bodyweightOptional ? 'Δ vs pdc' : '1RM'} {p.value} kg</div>
+      <div style={{ color: 'hsl(240 12% 72%)' }}>1RM {p.value} kg</div>
     </div>
   );
 };
@@ -426,7 +426,7 @@ const VariantSection = ({ group, showHeader, bodyweightOptional }: { group: Vari
           {selected && (
             <p className="text-xs text-primary font-medium text-center mt-2">
               {new Date(selected.date).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })} : {selected.weight} kg × {selected.reps}
-              {' '}({bodyweightOptional ? 'Δ vs pdc' : '1RM'} {selected.value} kg)
+              {' '}(1RM {selected.value} kg)
             </p>
           )}
         </div>
@@ -477,7 +477,7 @@ const VariantSection = ({ group, showHeader, bodyweightOptional }: { group: Vari
               {sets.map((s, i) => (
                 <div key={i} className="flex items-center justify-between bg-secondary rounded-lg px-3 py-2">
                   <span className="text-sm text-foreground font-mono">{s.weight} kg × {s.reps}</span>
-                  <span className="text-xs text-muted-foreground">{bodyweightOptional ? 'Δ vs pdc' : '1RM'}: {bodyweightOptional ? s.chartValue : s.e1rm} kg</span>
+                  <span className="text-xs text-muted-foreground">1RM: {bodyweightOptional ? s.chartValue : s.e1rm} kg</span>
                 </div>
               ))}
             </div>

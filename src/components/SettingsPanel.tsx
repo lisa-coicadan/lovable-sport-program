@@ -1,13 +1,13 @@
 import { useState, useRef, useMemo, useEffect } from 'react';
-import { AppData, WorkoutType, Exercise, ExerciseMethod, Program, WORKOUT_COLORS, BodyWeightLog, DEFAULT_APP_DATA, Gender, DeloadType, DeloadIntensity, ExerciseEquipment, EQUIPMENT_LABELS } from '@/lib/types';
+import { AppData, WorkoutType, Exercise, ExerciseMethod, Program, WORKOUT_COLORS, BodyWeightLog, DEFAULT_APP_DATA, Gender, DeloadType, DeloadIntensity } from '@/lib/types';
 import { linkSuperset, unlinkSuperset, buildExerciseBlocks, flattenBlocks, ExerciseBlock } from '@/lib/superset';
 import { parseSessionNotes, parseMultiSessionNotes, NOTES_SYNTAX_HELP, NOTES_SYNTAX_HELP_FILL } from '@/lib/notesParser';
 import { getEmomConfig, getEmomWeight, getDefaultEmomPercentage } from '@/lib/emom';
 import { getClusterConfig, getMiniSeriesWeight, CLUSTER_PRESETS } from '@/lib/cluster';
 import { estimateOneRepMax, estimateTrainingMax } from '@/lib/trainingMax';
 import { splitEquipmentVariant } from '@/lib/exerciseNormalize';
-import { STANDARD_MOVEMENTS, StandardMovement } from '@/lib/strengthStandards';
-import { ArrowLeft, Plus, Trash2, EyeOff, Eye, Scale, Link2, Link2Off, Download, Upload, Database, AlertTriangle, FileText, Zap, Timer, Clock, Layers, Check, Calculator, TrendingDown, User, Infinity as InfinityIcon, Pencil, X, RefreshCw, Dumbbell, Repeat } from 'lucide-react';
+import { STANDARD_MOVEMENTS, StandardMovement, isForceFocusExercise } from '@/lib/strengthStandards';
+import { ArrowLeft, Plus, Trash2, EyeOff, Eye, Scale, Link2, Link2Off, Download, Upload, Database, AlertTriangle, FileText, Zap, Timer, Clock, Layers, Check, Calculator, TrendingDown, User, Infinity as InfinityIcon, Pencil, X, RefreshCw, Dumbbell, ChevronDown } from 'lucide-react';
 import { SortableList, DragHandle } from './SortableBlock';
 import { loadData, saveData } from '@/lib/storage';
 import { parseBackupFile } from '@/lib/backupFile';
@@ -136,6 +136,10 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
   // above — this in-app modal replaces every window.confirm() in this file.
   const [confirmDialog, setConfirmDialog] = useState<{ title: string; message: string; confirmLabel: string; danger?: boolean; onConfirm: () => void } | null>(null);
   const [expandedMethodFor, setExpandedMethodFor] = useState<string | null>(null);
+  // "Options avancées" per exercise (Drop set / Max de reps / Force) — collapsed by
+  // default, since most exercises never touch them and showing all three inline on every
+  // card made this list of exercises feel dense/overwhelming to scan.
+  const [expandedAdvancedFor, setExpandedAdvancedFor] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Manual deload activation (Réglages) — separate from the auto-recommended flow in
   // WorkoutTab (shouldShowDeloadRecommendation), lets her start a recovery week on her own
@@ -1393,76 +1397,68 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                     >
                                       <Zap size={10} /> Méthode
                                     </button>
-                                    <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                                      <input
-                                        type="checkbox"
-                                        checked={!!ex.dropSet}
-                                        onChange={e => updateExercise(ti, exIdx, 'dropSet', e.target.checked ? { stepPercentage: 0.15, stepReps: 2 } : undefined)}
-                                        className="w-3.5 h-3.5 accent-warning"
-                                      />
-                                      <TrendingDown size={10} className="text-warning" /> Drop set
-                                    </label>
-                                    <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                                      <input
-                                        type="checkbox"
-                                        checked={!!ex.amrap}
-                                        onChange={e => updateExercise(ti, exIdx, 'amrap', e.target.checked)}
-                                        className="w-3.5 h-3.5 accent-accent-purple"
-                                      />
-                                      <InfinityIcon size={10} className="text-accent-purple" /> Max de reps
-                                    </label>
-                                    {/* Only for the 5 standard barbell/bodyweight lifts — gates the
-                                        "1RM ?" live-session button and true-1RM tracking in
-                                        l'historique. Opt-in per exercice ; par défaut (décoché) le
-                                        comportement reste inchangé (1RM estimé uniquement). */}
-                                    {STANDARD_MOVEMENTS.includes(splitEquipmentVariant(ex.name).base as StandardMovement) && (
+                                    {/* Drop set / Max de reps / Force are rarely touched after initial
+                                        setup — collapsing them behind this disclosure (closed by
+                                        default) was the fix for Réglages feeling overloaded with a
+                                        toggle row under every single exercise. */}
+                                    <button
+                                      onClick={() => setExpandedAdvancedFor(expandedAdvancedFor === ex.id ? null : ex.id)}
+                                      className="text-[10px] text-muted-foreground flex items-center gap-1"
+                                      aria-expanded={expandedAdvancedFor === ex.id}
+                                    >
+                                      <ChevronDown size={10} className={`transition-transform ${expandedAdvancedFor === ex.id ? 'rotate-180' : ''}`} />
+                                      Options avancées
+                                    </button>
+                                    {supersetTriggerButton}
+                                  </div>
+                                  {expandedAdvancedFor === ex.id && (
+                                    <div className="flex items-center gap-3 flex-wrap mt-1.5">
                                       <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
                                         <input
                                           type="checkbox"
-                                          checked={ex.trainingFocus === 'force'}
-                                          onChange={e => updateExercise(ti, exIdx, 'trainingFocus', e.target.checked ? 'force' : undefined)}
-                                          className="w-3.5 h-3.5 accent-primary"
+                                          checked={!!ex.dropSet}
+                                          onChange={e => updateExercise(ti, exIdx, 'dropSet', e.target.checked ? { stepPercentage: 0.15, stepReps: 2 } : undefined)}
+                                          className="w-3.5 h-3.5 accent-warning"
                                         />
-                                        <Dumbbell size={10} className="text-primary" /> Force
+                                        <TrendingDown size={10} className="text-warning" /> Drop set
                                       </label>
-                                    )}
-                                    {supersetTriggerButton}
-                                  </div>
-                                  {/* Display-only attributes (no behavior attached) — kept on
-                                      their own line so they never compete for space with the
-                                      functional toggles above. Editable any time, including on
-                                      an exercise with existing history, so past logs left
-                                      unspecified can be completed after the fact for
-                                      consistent comparisons. */}
-                                  <div className="flex items-center gap-3 flex-wrap mt-1.5">
-                                    <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                                      <input
-                                        type="checkbox"
-                                        checked={!!ex.unilateral}
-                                        onChange={e => updateExercise(ti, exIdx, 'unilateral', e.target.checked ? true : undefined)}
-                                        className="w-3.5 h-3.5 accent-accent-blue"
-                                      />
-                                      <Repeat size={10} className="text-accent-blue" /> Unilatéral
-                                    </label>
-                                    <div className="flex items-center gap-1">
-                                      <span className="text-[10px] text-muted-foreground">Équipement</span>
-                                      <select
-                                        value={ex.equipment ?? ''}
-                                        onChange={e => updateExercise(ti, exIdx, 'equipment', e.target.value === '' ? undefined : e.target.value as ExerciseEquipment)}
-                                        className="bg-secondary text-foreground text-[10px] rounded-md px-1.5 py-1 outline-none"
-                                        aria-label={`Équipement de ${ex.name || 'cet exercice'}`}
-                                      >
-                                        <option value="">—</option>
-                                        {(Object.keys(EQUIPMENT_LABELS) as ExerciseEquipment[]).map(eq => (
-                                          <option key={eq} value={eq}>{EQUIPMENT_LABELS[eq]}</option>
-                                        ))}
-                                      </select>
+                                      <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                                        <input
+                                          type="checkbox"
+                                          checked={!!ex.amrap}
+                                          onChange={e => updateExercise(ti, exIdx, 'amrap', e.target.checked)}
+                                          className="w-3.5 h-3.5 accent-accent-purple"
+                                        />
+                                        <InfinityIcon size={10} className="text-accent-purple" /> Max de reps
+                                      </label>
+                                      {/* Only for the 5 standard barbell/bodyweight lifts — gates the
+                                          "1RM ?" live-session button and true-1RM tracking in
+                                          l'historique. Opt-in per exercice ; par défaut (décoché) le
+                                          comportement reste inchangé (1RM estimé uniquement). Locked
+                                          checked whenever a method (531/Cluster/EMOM) is active — an
+                                          exercise trained near a true max via one of these programs
+                                          is necessarily Force, not a manual choice anymore. */}
+                                      {STANDARD_MOVEMENTS.includes(splitEquipmentVariant(ex.name).base as StandardMovement) && (
+                                        <label
+                                          className={`flex items-center gap-1 text-[10px] ${ex.method ? 'text-muted-foreground/50' : 'text-muted-foreground'}`}
+                                          title={ex.method ? 'Implicite : une méthode (531/Cluster/EMOM) est active' : undefined}
+                                        >
+                                          <input
+                                            type="checkbox"
+                                            checked={isForceFocusExercise(ex)}
+                                            disabled={!!ex.method}
+                                            onChange={e => updateExercise(ti, exIdx, 'trainingFocus', e.target.checked ? 'force' : undefined)}
+                                            className="w-3.5 h-3.5 accent-primary disabled:opacity-60"
+                                          />
+                                          <Dumbbell size={10} className="text-primary" /> Force{ex.method ? ' (auto)' : ''}
+                                        </label>
+                                      )}
                                     </div>
-                                  </div>
-                                  {/* Own line, amber like the Drop set toggle above it — the
-                                      inline wrap it used to share with Méthode/Max de reps read
-                                      as an unrelated overflow, not "these two numbers configure
-                                      Drop set". */}
+                                  )}
+                                  {/* Own line, amber like the Drop set toggle above it — shown
+                                      whenever Drop set is active regardless of whether "Options
+                                      avancées" is expanded, so the current %/reps stay visible
+                                      without needing to reopen the disclosure every time. */}
                                   {ex.dropSet && (
                                     <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
                                       <TrendingDown size={10} className="text-warning shrink-0" />

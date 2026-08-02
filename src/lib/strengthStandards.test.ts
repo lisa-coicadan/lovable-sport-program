@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getFranceRecord, getRecordMessage, getLevel, getLevelMessage } from './strengthStandards';
+import { getFranceRecord, getRecordMessage, getLevel, getLevelMessage, isForceFocusExercise } from './strengthStandards';
 
 describe('getFranceRecord', () => {
   it('picks the smallest fitting "under" category', () => {
@@ -54,5 +54,27 @@ describe('getLevel / getLevelMessage', () => {
 
   it('formats a level message', () => {
     expect(getLevelMessage('avance')).toBe('Tu es dans le top 15%, niveau Avancé.');
+  });
+});
+
+describe('isForceFocusExercise', () => {
+  it('is false for a standard movement with neither the toggle nor a method', () => {
+    expect(isForceFocusExercise({ name: 'Squat' })).toBe(false);
+  });
+
+  it('is true for a standard movement with the manual Force toggle', () => {
+    expect(isForceFocusExercise({ name: 'Squat', trainingFocus: 'force' })).toBe(true);
+  });
+
+  it('is true for a standard movement with any method, even without the manual toggle', () => {
+    expect(isForceFocusExercise({ name: 'Squat', method: { type: '531', trainingMax: 100, currentCycle: 1, currentWeek: 1 } })).toBe(true);
+  });
+
+  it('is false for a non-standard movement even with a method', () => {
+    expect(isForceFocusExercise({ name: 'Développé militaire', method: { type: '531', trainingMax: 50, currentCycle: 1, currentWeek: 1 } })).toBe(false);
+  });
+
+  it('matches an equipment variant of a standard movement', () => {
+    expect(isForceFocusExercise({ name: 'Développé couché haltères', trainingFocus: 'force' })).toBe(true);
   });
 });

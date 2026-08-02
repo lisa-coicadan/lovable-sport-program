@@ -119,6 +119,16 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession, onDe
     return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
   });
 
+  const lastMonthRef = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const lastMonthSessions = data.sessions.filter(s => {
+    const d = new Date(s.date);
+    return d.getMonth() === lastMonthRef.getMonth() && d.getFullYear() === lastMonthRef.getFullYear();
+  });
+  const lastMonthCardioSessions = (data.cardioSessions || []).filter(s => {
+    const d = new Date(s.date);
+    return d.getMonth() === lastMonthRef.getMonth() && d.getFullYear() === lastMonthRef.getFullYear();
+  });
+
   const prevMonth = () => setCurrentMonth(new Date(year, month - 1, 1));
   const nextMonth = () => setCurrentMonth(new Date(year, month + 1, 1));
   const monthName = currentMonth.toLocaleString('fr-FR', { month: 'long', year: 'numeric' });
@@ -160,6 +170,7 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession, onDe
     const dayCardioSessions = cardioByDate[selectedDate] || [];
     const dateLabel = new Date(selectedDate + 'T00:00:00').toLocaleDateString('fr-FR', { weekday: 'long', month: 'long', day: 'numeric' });
     const isFutureDate = selectedDate > today;
+    const isToday = selectedDate === today;
     const plannedForDay = plannedByDate[selectedDate];
 
     return (
@@ -317,7 +328,7 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession, onDe
           ))}
         </div>
 
-        {isFutureDate && daySessions.length === 0 && (
+        {(isFutureDate || isToday) && daySessions.length === 0 && (
           <div className="glass-card p-4 mb-6">
             <h3 className="text-sm font-bold text-foreground mb-3">Planifier une séance</h3>
             {plannedForDay ? (
@@ -355,14 +366,16 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession, onDe
           </div>
         )}
 
-        <button
-          onClick={() => {
-            onDaySelect(selectedDate);
-          }}
-          className="w-full btn-neon font-semibold py-4 rounded-2xl text-sm flex items-center justify-center gap-2 transition-transform active:scale-95"
-        >
-          <Plus size={18} /> Ajouter une séance
-        </button>
+        {!isFutureDate && (
+          <button
+            onClick={() => {
+              onDaySelect(selectedDate);
+            }}
+            className="w-full btn-neon font-semibold py-4 rounded-2xl text-sm flex items-center justify-center gap-2 transition-transform active:scale-95"
+          >
+            <Plus size={18} /> Ajouter une séance
+          </button>
+        )}
       </div>
     );
   }
@@ -409,6 +422,9 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession, onDe
             <span className="text-2xl font-bold text-primary">{thisMonthSessions.length + thisMonthCardioSessions.length}</span>
             <span className="text-[10px] text-muted-foreground">séances</span>
           </div>
+          <p className="text-[9px] text-muted-foreground mt-1">
+            Le mois dernier : {lastMonthSessions.length + lastMonthCardioSessions.length} séance{lastMonthSessions.length + lastMonthCardioSessions.length > 1 ? 's' : ''}
+          </p>
         </div>
       </div>
 

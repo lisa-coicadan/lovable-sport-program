@@ -1,4 +1,5 @@
-import { Gender } from './types';
+import { Gender, Exercise } from './types';
+import { splitEquipmentVariant } from './exerciseNormalize';
 
 // Static reference data supplied by Lisa (records_et_standards_complet.xlsx, generated
 // from public sources — FFForce / StreetLiftings.fr). No backend: this is bundled with
@@ -13,6 +14,17 @@ export type StandardMovement = 'Squat' | 'Développé couché' | 'Soulevé de te
 export const STANDARD_MOVEMENTS: StandardMovement[] = [
   'Squat', 'Développé couché', 'Soulevé de terre', 'Tractions lestées', 'Dips lestés',
 ];
+
+// An exercise using 531/Cluster/EMOM necessarily trains near a true max effort, so it
+// counts as Force even without the manual toggle checked — but only for the 5 movements
+// above, the ones the ramp-test protocol and France-record comparison are calibrated for.
+// Any other exercise (e.g. an accessory lift on 531) has no Force/Hypertrophie concept at
+// all, method or not.
+export function isForceFocusExercise(ex: Pick<Exercise, 'name' | 'trainingFocus' | 'method'>): boolean {
+  const isStandardMovement = STANDARD_MOVEMENTS.includes(splitEquipmentVariant(ex.name).base as StandardMovement);
+  if (!isStandardMovement) return false;
+  return ex.trainingFocus === 'force' || !!ex.method;
+}
 
 export interface FranceRecordRow {
   gender: Gender;
