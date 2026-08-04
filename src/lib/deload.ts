@@ -297,6 +297,17 @@ export function buildDeloadDismissPatch(data: AppData, now: Date = new Date()): 
   return { ...data.deload, dismissedUntil: toISODate(dismissedUntil) };
 }
 
+// "Sans deload" — she kept training through the recommendation instead of actually taking
+// a lighter week (felt fine) — resets the clock (lastDeloadCompletedAt) exactly like a real
+// deload would, so the "X semaines consécutives" criterion restarts from today, but touches
+// no weights/sets/5-3-1 week: the next session is unaffected. Distinct from "Ignorer"
+// (buildDeloadDismissPatch above), which only snoozes the banner for 7 days without
+// resetting the streak, so the recommendation reappears with the same (or a bigger) week
+// count once the snooze expires.
+export function buildDeloadSkipPatch(data: AppData, now: Date = new Date()): DeloadState {
+  return { ...data.deload, active: undefined, dismissedUntil: undefined, lastDeloadCompletedAt: toISODate(now) };
+}
+
 // Manual activation (Réglages, "Activer un deload") : runs for a fixed number of days
 // instead of "once per workout type" — every session logged through expiresAt (inclusive)
 // counts as deload, whichever workout type it is.

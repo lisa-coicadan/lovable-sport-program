@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react';
 import { AppData, SessionLog, calculate1RM, WORKOUT_COLORS, CardioActivityType, resolveProgramName } from '@/lib/types';
-import { normalizeExerciseName, splitEquipmentVariant, isBodyweightOptionalExercise, foldAccents } from '@/lib/exerciseNormalize';
+import { normalizeExerciseName, splitEquipmentVariant, isBodyweightOptionalExercise, foldAccents, formatWeightDisplay } from '@/lib/exerciseNormalize';
 import { computeSetTonnage, resolveBodyWeightAtDate, computeEffectiveLoadAtOneRep } from '@/lib/tonnage';
-import { STANDARD_MOVEMENTS, StandardMovement } from '@/lib/strengthStandards';
+import { FORCE_ELIGIBLE_MOVEMENTS, ForceEligibleMovement } from '@/lib/strengthStandards';
 import { calculatePaceMinPerKm, formatCardioDuration, formatPace, formatCardioDistance } from '@/lib/cardio';
 import { Trophy, Scale, Crown, ChevronDown, Search, X, Plus, Dumbbell } from 'lucide-react';
 import {
@@ -228,7 +228,11 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession, onUpdateData }: Stat
       .sort((a, b) => a.date.localeCompare(b.date))
       .map(s => {
         const bw = resolveBodyWeightAtDate(data.bodyWeightLogs, s.date);
-        const volume = s.sets.reduce((acc, set) => acc + computeSetTonnage(set, bw), 0);
+        // Only completed sets count — matching SessionDetailView/SessionSummary's own
+        // tonnage. Missing this filter was the cause of the chart disagreeing with the
+        // end-of-session recap: an unchecked (never actually done) set was still adding
+        // its weight×reps here.
+        const volume = s.sets.filter(set => set.completed).reduce((acc, set) => acc + computeSetTonnage(set, bw), 0);
         // A deload or a PR-test session isn't comparable in tonnage to a normal session
         // (deload deliberately reduces load/volume, a PR test replaces working sets with a
         // handful of near-max singles) — marked distinctly on the chart rather than pretending
@@ -460,7 +464,7 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession, onUpdateData }: Stat
 
       {/* PRs for exercises with an active training method — isolated, one card each */}
       {methodPRs.map(pr => {
-        const isStandardMovement = STANDARD_MOVEMENTS.includes(splitEquipmentVariant(pr.name).base as StandardMovement);
+        const isForceEligible = FORCE_ELIGIBLE_MOVEMENTS.includes(splitEquipmentVariant(pr.name).base as ForceEligibleMovement);
         return (
         <div key={pr.name} className="glass-card record-card p-4 mb-4">
           <div className="flex items-center gap-2 mb-2">
@@ -469,7 +473,7 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession, onUpdateData }: Stat
               <Crown size={16} className="relative text-primary" />
             </span>
             <h3 className="text-sm font-semibold text-foreground flex-1">Record — {pr.name}</h3>
-            {isStandardMovement && (
+            {isForceEligible && (
               <button
                 onClick={() => { setAddTrueOneRMDraft({ date: new Date().toISOString().split('T')[0], weight: '' }); setAddTrueOneRMFor(splitEquipmentVariant(pr.name).base); }}
                 className="touch-target p-1 text-warning shrink-0"
@@ -485,7 +489,7 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession, onUpdateData }: Stat
             <span className="text-sm text-muted-foreground">1RM théorique</span>
           </div>
           <p className="text-xs text-muted-foreground mt-1">
-            {pr.reps} × {pr.weight} kg — il y a {daysAgo(pr.date)} jour{daysAgo(pr.date) > 1 ? 's' : ''}
+            {pr.reps} × {formatWeightDisplay(pr.weight, pr.name)} — il y a {daysAgo(pr.date)} jour{daysAgo(pr.date) > 1 ? 's' : ''}
           </p>
         </div>
         );
@@ -501,14 +505,14 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession, onUpdateData }: Stat
           <div className="space-y-2">
             {otherPRs.map(pr => {
               const d = daysAgo(pr.date);
-              const isStandardMovement = STANDARD_MOVEMENTS.includes(splitEquipmentVariant(pr.name).base as StandardMovement);
+              const isForceEligible = FORCE_ELIGIBLE_MOVEMENTS.includes(splitEquipmentVariant(pr.name).base as ForceEligibleMovement);
               return (
                 <div key={pr.name} className="flex items-center justify-between bg-secondary rounded-lg px-3 py-2 border border-primary/15">
                   <div className="min-w-0 flex-1">
                     <p className="text-sm text-foreground truncate">{pr.name}</p>
                     <p className="text-[10px] text-muted-foreground">Il y a {d} jour{d > 1 ? 's' : ''}</p>
                   </div>
-                  {isStandardMovement && (
+                  {isForceEligible && (
                     <button
                       onClick={() => { setAddTrueOneRMDraft({ date: new Date().toISOString().split('T')[0], weight: '' }); setAddTrueOneRMFor(splitEquipmentVariant(pr.name).base); }}
                       className="touch-target p-1 text-warning shrink-0"
@@ -519,7 +523,7 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession, onUpdateData }: Stat
                     </button>
                   )}
                   <div className="text-right shrink-0 ml-2">
-                    <span className="text-sm font-bold text-primary">{pr.reps} × {pr.weight} kg</span>
+                    <span className="text-sm font-bold text-primary">{pr.reps} × {formatWeightDisplay(pr.weight, pr.name)}</span>
                     <p className="text-[10px] text-muted-foreground">1RM {pr.e1rm} kg</p>
                   </div>
                 </div>
@@ -565,7 +569,7 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession, onUpdateData }: Stat
                       contentStyle={tooltipStyle}
                       labelStyle={{ color: 'hsl(0 0% 95%)' }}
                       formatter={(v: number, _name: string, item: { payload: E1rmDotProps['payload'] }) =>
-                        [`${v} kg (${item.payload.weight} kg × ${item.payload.reps})`, '1RM']
+                        [`${v} kg (${formatWeightDisplay(item.payload.weight, name)} × ${item.payload.reps})`, '1RM']
                       }
                       labelFormatter={(ts: number) => new Date(ts).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })}
                     />
@@ -591,7 +595,7 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession, onUpdateData }: Stat
                 </ResponsiveContainer>
                 {selectedE1rmPoint[name] && (
                   <p className="text-[10px] text-primary font-medium text-center mt-1">
-                    {new Date(selectedE1rmPoint[name].date).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })} : {selectedE1rmPoint[name].weight} kg × {selectedE1rmPoint[name].reps}
+                    {new Date(selectedE1rmPoint[name].date).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })} : {formatWeightDisplay(selectedE1rmPoint[name].weight, name)} × {selectedE1rmPoint[name].reps}
                   </p>
                 )}
               </div>

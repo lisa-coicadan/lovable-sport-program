@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { SessionLog, SetLog, AppData, calculate1RM, resolveProgramName } from '@/lib/types';
-import { isBodyweightOptionalExercise, weightFieldValue } from '@/lib/exerciseNormalize';
-import { computeSetTonnage, resolveBodyWeightAtDate } from '@/lib/tonnage';
+import { isBodyweightOptionalExercise, weightFieldValue, formatWeightDisplay } from '@/lib/exerciseNormalize';
+import { computeSetTonnage, resolveBodyWeightAtDate, computeBodyweightAdjustedE1RM } from '@/lib/tonnage';
 import { Trash2, Pencil, Share2, Plus, X, TrendingUp, TrendingDown, Minus, Check } from 'lucide-react';
 
 interface SessionDetailViewProps {
@@ -12,9 +12,11 @@ interface SessionDetailViewProps {
   onDelete?: (sessionId: string) => void;
 }
 
-// The app's fixed brand hues (same trio BrandMark.tsx draws) — a stable identity constant,
-// not a themeable token, so hardcoded here exactly as there. Module-level (not rebuilt
-// per share) since it never changes.
+// The real BrandMark.tsx design (dumbbell + orbit ring), reproduced statically here since
+// canvas needs a plain loadable SVG image (no React, no animation) — this was drifting out
+// of sync with the actual in-app logo (an older wavy-arc design), which is what "wrong
+// logo" in the shared PNG meant. Same fixed brand hues either way — a stable identity
+// constant, not a themeable token — so hardcoded here exactly as there.
 const BRAND_MARK_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
   <defs>
     <linearGradient id="flow" x1="10" y1="10" x2="90" y2="90" gradientUnits="userSpaceOnUse">
@@ -30,12 +32,13 @@ const BRAND_MARK_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100
   <circle cx="50" cy="50" r="46" fill="none" stroke="url(#flow)" stroke-width="3" stroke-linecap="round" stroke-dasharray="0.1 9.4" opacity="0.85" />
   <circle cx="50" cy="4.3" r="2.8" fill="hsl(189 94% 55%)" />
   <circle cx="90.5" cy="65" r="2.8" fill="hsl(322 100% 60%)" />
-  <path d="M 30 48 C 35 23, 46 13, 50 30 C 54 13, 65 23, 70 48" fill="none" stroke="url(#flow)" stroke-width="4.5" stroke-linecap="round" />
-  <rect x="28" y="47" width="44" height="6" rx="3" fill="url(#bar)" />
-  <rect x="15" y="41" width="6" height="18" rx="2.5" fill="hsl(189 94% 55%)" opacity="0.65" />
-  <rect x="19" y="36" width="9" height="28" rx="3" fill="hsl(189 94% 55%)" />
-  <rect x="72" y="36" width="9" height="28" rx="3" fill="hsl(322 100% 60%)" />
-  <rect x="79" y="41" width="6" height="18" rx="2.5" fill="hsl(322 100% 60%)" opacity="0.65" />
+  <rect x="30" y="47" width="40" height="6" rx="3" fill="url(#bar)" />
+  <rect x="13" y="39" width="7" height="22" rx="3.5" fill="hsl(189 94% 55%)" opacity="0.55" />
+  <rect x="18" y="33" width="11" height="34" rx="5.5" fill="hsl(189 94% 55%)" />
+  <rect x="20.5" y="37" width="3" height="10" rx="1.5" fill="hsl(0 0% 100%)" opacity="0.35" />
+  <rect x="71" y="33" width="11" height="34" rx="5.5" fill="hsl(322 100% 60%)" />
+  <rect x="80" y="39" width="7" height="22" rx="3.5" fill="hsl(322 100% 60%)" opacity="0.55" />
+  <rect x="76.5" y="37" width="3" height="10" rx="1.5" fill="hsl(0 0% 100%)" opacity="0.3" />
 </svg>`;
 
 const loadImage = (src: string) => new Promise<HTMLImageElement>((resolve, reject) => {
@@ -54,6 +57,19 @@ function dataUrlToBlob(dataUrl: string): Blob {
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   return new Blob([bytes], { type: mime });
+}
+
+// The "1RM" shown per exercise (recap card + shared PNG) needs the bodyweight-adjusted
+// formula for tractions/dips lestés — plain calculate1RM(weight, reps) guards weight<=0
+// to 0, which is right for a barbell lift (0kg = "not filled in") but wrong here: 0kg is a
+// real bodyweight-only rep and a negative weight is a real assisted rep, both of which
+// have a genuine (if small) 1RM once bodyweight is factored in. Using calculate1RM
+// directly on the raw delta silently showed "1RM: 0 kg" (or hid the line entirely) for
+// most of her actual dips/tractions sets.
+function effectiveE1RM(set: Pick<SetLog, 'weight' | 'reps' | 'exerciseName'>, bodyWeightKg: number | undefined): number {
+  return isBodyweightOptionalExercise(set.exerciseName)
+    ? computeBodyweightAdjustedE1RM(set, bodyWeightKg)
+    : calculate1RM(set.weight, set.reps);
 }
 
 function downloadBlob(blob: Blob, filename: string): void {
@@ -121,6 +137,30 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
 
   const groupedExercises = useMemo(() => groupSets(completedSets), [completedSets]);
 
+  // Pairs up two consecutive groupedExercises entries that share a supersetGroupId — the
+  // shared PNG was rendering superset partners as two unrelated solo panels, with no sign
+  // they were done together. WorkoutTab always logs a superset's sets interleaved (A1, B1,
+  // A2, B2, ...), so groupSets (which buckets in first-seen order) naturally produces the
+  // two partner names as adjacent entries here.
+  type RenderBlock = { kind: 'solo'; entry: [string, SetLog[]] } | { kind: 'superset'; a: [string, SetLog[]]; b: [string, SetLog[]] };
+  const renderBlocks = useMemo<RenderBlock[]>(() => {
+    const blocks: RenderBlock[] = [];
+    let i = 0;
+    while (i < groupedExercises.length) {
+      const entry = groupedExercises[i];
+      const next = groupedExercises[i + 1];
+      const groupId = entry[1][0]?.supersetGroupId;
+      if (groupId && next && next[1][0]?.supersetGroupId === groupId) {
+        blocks.push({ kind: 'superset', a: entry, b: next });
+        i += 2;
+      } else {
+        blocks.push({ kind: 'solo', entry });
+        i += 1;
+      }
+    }
+    return blocks;
+  }, [groupedExercises]);
+
   // Progression vs last session of same type
   const progressions = useMemo(() => {
     const lastSession = data.sessions
@@ -128,14 +168,15 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
       .sort((a, b) => b.date.localeCompare(a.date))[0];
     if (!lastSession) return {};
 
+    const lastSessionBodyWeight = resolveBodyWeightAtDate(data.bodyWeightLogs, lastSession.date);
     const result: Record<string, { weightDiff: number; repDiff: number; e1rmDiff: number; e1rmPct: number }> = {};
     groupedExercises.forEach(([name, sets]) => {
-      const bestSet = sets.reduce((best, s) => calculate1RM(s.weight, s.reps) > calculate1RM(best.weight, best.reps) ? s : best, sets[0]);
+      const bestSet = sets.reduce((best, s) => effectiveE1RM(s, sessionBodyWeight) > effectiveE1RM(best, sessionBodyWeight) ? s : best, sets[0]);
       const lastSets = lastSession.sets.filter(s => s.exerciseName === name && s.completed && (s.weight > 0 || isBodyweightOptionalExercise(name)));
       if (lastSets.length === 0) return;
-      const lastBest = lastSets.reduce((best, s) => calculate1RM(s.weight, s.reps) > calculate1RM(best.weight, best.reps) ? s : best, lastSets[0]);
-      const current1RM = calculate1RM(bestSet.weight, bestSet.reps);
-      const last1RM = calculate1RM(lastBest.weight, lastBest.reps);
+      const lastBest = lastSets.reduce((best, s) => effectiveE1RM(s, lastSessionBodyWeight) > effectiveE1RM(best, lastSessionBodyWeight) ? s : best, lastSets[0]);
+      const current1RM = effectiveE1RM(bestSet, sessionBodyWeight);
+      const last1RM = effectiveE1RM(lastBest, lastSessionBodyWeight);
       result[name] = {
         weightDiff: bestSet.weight - lastBest.weight,
         repDiff: bestSet.reps - lastBest.reps,
@@ -144,7 +185,7 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
       };
     });
     return result;
-  }, [data.sessions, session, groupedExercises]);
+  }, [data.sessions, data.bodyWeightLogs, session, groupedExercises, sessionBodyWeight]);
 
   // Overall session comparison
   const overallComparison = useMemo(() => {
@@ -355,43 +396,108 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
         ctx.shadowBlur = 16;
         ctx.drawImage(logoImg, left, y - logoSize + 8, logoSize, logoSize);
         ctx.restore();
-        ctx.font = "600 26px 'Space Grotesk', -apple-system, sans-serif";
+        ctx.font = "600 28px 'Space Grotesk', -apple-system, sans-serif";
         ctx.fillStyle = hsl(color);
         ctx.fillText('MUSCULISA', left + logoSize + 18, y);
       }
-      y += 56;
+      y += 58;
 
       // Session title: workout-type color dot + name, same pairing used everywhere in-app
-      ctx.font = "700 46px 'Space Grotesk', -apple-system, sans-serif";
+      ctx.font = "700 50px 'Space Grotesk', -apple-system, sans-serif";
       if (draw) {
         ctx.fillStyle = hsl(color);
         ctx.beginPath();
-        ctx.arc(left + 11, y - 15, 11, 0, Math.PI * 2);
+        ctx.arc(left + 12, y - 16, 12, 0, Math.PI * 2);
         ctx.fill();
         ctx.fillStyle = fgColor;
-        ctx.fillText(session.workoutTypeName, left + 38, y);
+        ctx.fillText(session.workoutTypeName, left + 40, y);
       }
-      y += 50;
+      y += 52;
 
-      ctx.font = "400 26px 'Space Grotesk', -apple-system, sans-serif";
+      ctx.font = "400 28px 'Space Grotesk', -apple-system, sans-serif";
       if (draw) {
         ctx.fillStyle = mutedColor;
         ctx.fillText(sessionDate, left, y);
       }
       y += 52;
 
-      // One glass-card-style panel per exercise
-      groupedExercises.forEach(([name, sets]) => {
-        const bestSet = sets.reduce((b, s) => calculate1RM(s.weight, s.reps) > calculate1RM(b.weight, b.reps) ? s : b, sets[0]);
-        const e1rm = calculate1RM(bestSet.weight, bestSet.reps);
+      // Draws one exercise's name/1RM/RPE/sets/progression-pill starting at cyStart,
+      // returning the cy just past it — shared by a solo panel and by each half (A/B) of a
+      // superset panel below, so the two layouts never drift apart.
+      const drawExerciseBody = (entry: [string, SetLog[]], cyStart: number, innerLeft: number, innerRight: number, prefix?: string): number => {
+        const [name, sets] = entry;
+        let cy = cyStart;
+        const bestSet = sets.reduce((b, s) => effectiveE1RM(s, sessionBodyWeight) > effectiveE1RM(b, sessionBodyWeight) ? s : b, sets[0]);
+        const e1rm = effectiveE1RM(bestSet, sessionBodyWeight);
         const prog = progressions[name];
+        const exerciseId = sets[0]?.exerciseId;
+        const rpe = exerciseId ? session.exerciseDifficulty?.[exerciseId] : undefined;
 
+        ctx.font = "600 34px 'Space Grotesk', -apple-system, sans-serif";
+        if (draw) {
+          ctx.fillStyle = fgColor;
+          ctx.fillText(prefix ? `${prefix} ${name}` : name, innerLeft, cy);
+          if (e1rm > 0) {
+            ctx.font = "600 26px 'Space Grotesk', -apple-system, sans-serif";
+            ctx.fillStyle = hsl(color);
+            const rmText = `1RM ${e1rm} kg`;
+            ctx.fillText(rmText, innerRight - ctx.measureText(rmText).width, cy);
+          }
+        }
+        cy += 46;
+
+        if (rpe !== undefined) {
+          ctx.font = "500 24px 'Space Grotesk', -apple-system, sans-serif";
+          if (draw) {
+            ctx.fillStyle = mutedColor;
+            ctx.fillText(`RPE ${rpe}/10`, innerLeft, cy);
+          }
+          cy += 34;
+        }
+
+        sets.forEach((s, i) => {
+          ctx.font = "400 26px 'Space Grotesk', -apple-system, sans-serif";
+          if (draw) {
+            ctx.fillStyle = mutedColor;
+            ctx.fillText(`Série ${i + 1}`, innerLeft, cy);
+            ctx.font = "500 26px 'JetBrains Mono', monospace";
+            ctx.fillStyle = fgColor;
+            const setText = `${formatWeightDisplay(s.weight, name)} × ${s.reps}`;
+            ctx.fillText(setText, innerRight - ctx.measureText(setText).width, cy);
+          }
+          cy += 38;
+        });
+
+        if (prog) {
+          cy += 10;
+          const pillText = prog.e1rmPct > 0 ? `↑ +${prog.e1rmPct}%` : prog.e1rmPct < 0 ? `↓ ${prog.e1rmPct}%` : '= Stable';
+          const pillRaw = prog.e1rmPct > 0 ? rawSuccess : prog.e1rmPct < 0 ? rawDestructive : rawMuted;
+          ctx.font = "600 24px 'Space Grotesk', -apple-system, sans-serif";
+          const pillH = 44;
+          if (draw) {
+            const pillW = ctx.measureText(pillText).width + 32;
+            ctx.fillStyle = hsl(pillRaw, 0.15);
+            roundRect(ctx, innerLeft, cy, pillW, pillH, pillH / 2);
+            ctx.fill();
+            ctx.fillStyle = hsl(pillRaw);
+            ctx.fillText(pillText, innerLeft + 16, cy + 29);
+          }
+          cy += pillH;
+        }
+
+        return cy;
+      };
+
+      // One panel per exercise, or one shared panel per superset pair (A+B together,
+      // visually distinguished by the accent-tinted border) — see renderBlocks above.
+      renderBlocks.forEach(block => {
+        const isSuperset = block.kind === 'superset';
         const panelTop = y;
         const panelH = panelHeights[panelIdx] ?? 0;
         if (draw) {
-          ctx.fillStyle = hsl(rawCard, 0.65);
-          ctx.strokeStyle = hsl(rawBorder, 0.8);
-          ctx.lineWidth = 1.5;
+          ctx.fillStyle = isSuperset ? hsl(color, 0.08) : hsl(rawCard, 0.65);
+          ctx.strokeStyle = isSuperset ? hsl(color, 0.5) : hsl(rawBorder, 0.8);
+          ctx.lineWidth = isSuperset ? 2 : 1.5;
           roundRect(ctx, left, panelTop, right - left, panelH, cardRadius);
           ctx.fill();
           ctx.stroke();
@@ -401,47 +507,18 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
         const innerLeft = left + cardPad;
         const innerRight = right - cardPad;
 
-        ctx.font = "600 30px 'Space Grotesk', -apple-system, sans-serif";
-        if (draw) {
-          ctx.fillStyle = fgColor;
-          ctx.fillText(name, innerLeft, cy);
-          if (e1rm > 0) {
-            ctx.font = "600 24px 'Space Grotesk', -apple-system, sans-serif";
+        if (block.kind === 'superset') {
+          ctx.font = "700 20px 'Space Grotesk', -apple-system, sans-serif";
+          if (draw) {
             ctx.fillStyle = hsl(color);
-            const rmText = `1RM ${e1rm} kg`;
-            ctx.fillText(rmText, innerRight - ctx.measureText(rmText).width, cy);
+            ctx.fillText('SUPERSET', innerLeft, cy);
           }
-        }
-        cy += 42;
-
-        sets.forEach((s, i) => {
-          ctx.font = "400 24px 'Space Grotesk', -apple-system, sans-serif";
-          if (draw) {
-            ctx.fillStyle = mutedColor;
-            ctx.fillText(`Série ${i + 1}`, innerLeft, cy);
-            ctx.font = "500 24px 'JetBrains Mono', monospace";
-            ctx.fillStyle = fgColor;
-            const setText = `${s.weight} kg × ${s.reps}`;
-            ctx.fillText(setText, innerRight - ctx.measureText(setText).width, cy);
-          }
-          cy += 34;
-        });
-
-        if (prog) {
-          cy += 10;
-          const pillText = prog.e1rmPct > 0 ? `↑ +${prog.e1rmPct}%` : prog.e1rmPct < 0 ? `↓ ${prog.e1rmPct}%` : '= Stable';
-          const pillRaw = prog.e1rmPct > 0 ? rawSuccess : prog.e1rmPct < 0 ? rawDestructive : rawMuted;
-          ctx.font = "600 22px 'Space Grotesk', -apple-system, sans-serif";
-          const pillH = 40;
-          if (draw) {
-            const pillW = ctx.measureText(pillText).width + 32;
-            ctx.fillStyle = hsl(pillRaw, 0.15);
-            roundRect(ctx, innerLeft, cy, pillW, pillH, pillH / 2);
-            ctx.fill();
-            ctx.fillStyle = hsl(pillRaw);
-            ctx.fillText(pillText, innerLeft + 16, cy + 27);
-          }
-          cy += pillH;
+          cy += 32;
+          cy = drawExerciseBody(block.a, cy, innerLeft, innerRight, 'A ·');
+          cy += 24;
+          cy = drawExerciseBody(block.b, cy, innerLeft, innerRight, 'B ·');
+        } else {
+          cy = drawExerciseBody(block.entry, cy, innerLeft, innerRight);
         }
 
         cy += cardPad;
@@ -464,29 +541,29 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
       {
         let cy = statsPanelTop + cardPad + 4;
         const innerLeft = left + cardPad;
-        ctx.font = "600 20px 'Space Grotesk', -apple-system, sans-serif";
+        ctx.font = "600 22px 'Space Grotesk', -apple-system, sans-serif";
         if (draw) {
           ctx.fillStyle = mutedColor;
           ctx.fillText('TONNAGE TOTAL', innerLeft, cy);
         }
-        cy += 48;
-        ctx.font = "700 52px 'JetBrains Mono', monospace";
+        cy += 52;
+        ctx.font = "700 58px 'JetBrains Mono', monospace";
         if (draw) {
           ctx.fillStyle = hsl(color);
           ctx.fillText(`${Math.round(totalVolume)} kg`, innerLeft, cy);
         }
-        cy += 50;
+        cy += 52;
 
         const secondary: string[] = [];
         if (session.duration) secondary.push(`Durée ${session.duration} min`);
         if (session.difficulty) secondary.push(`RPE ${session.difficulty}/10`);
         if (secondary.length > 0) {
-          ctx.font = "500 24px 'Space Grotesk', -apple-system, sans-serif";
+          ctx.font = "500 26px 'Space Grotesk', -apple-system, sans-serif";
           if (draw) {
             ctx.fillStyle = mutedColor;
             ctx.fillText(secondary.join('   •   '), innerLeft, cy);
           }
-          cy += 40;
+          cy += 42;
         }
         cy += cardPad - 10;
         if (!draw) panelHeights.push(cy - statsPanelTop);
@@ -497,10 +574,10 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
       // Notes
       let notesLines: string[] = [];
       if (session.notes) {
-        ctx.font = "italic 24px 'Space Grotesk', -apple-system, sans-serif";
+        ctx.font = "italic 26px 'Space Grotesk', -apple-system, sans-serif";
         notesLines = wrapText(ctx, `"${session.notes}"`, right - left - cardPad * 2);
         const notesPanelTop = y;
-        const notesPanelH = cardPad * 2 + notesLines.length * 34;
+        const notesPanelH = cardPad * 2 + notesLines.length * 36;
         if (draw) {
           ctx.fillStyle = hsl(rawCard, 0.4);
           ctx.strokeStyle = hsl(rawBorder, 0.6);
@@ -512,7 +589,7 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
           let cy = notesPanelTop + cardPad + 4;
           notesLines.forEach(line => {
             ctx.fillText(line, left + cardPad, cy);
-            cy += 34;
+            cy += 36;
           });
         }
         y = notesPanelTop + notesPanelH + cardGap;
@@ -538,13 +615,13 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
         }
         let cy = compPanelTop + cardPad + 4;
         const innerLeft = left + cardPad;
-        ctx.font = "600 28px 'Space Grotesk', -apple-system, sans-serif";
+        ctx.font = "600 30px 'Space Grotesk', -apple-system, sans-serif";
         if (draw) {
           ctx.fillStyle = hsl(verdictRaw);
           ctx.fillText(verdictLabel, innerLeft, cy);
         }
-        cy += 38;
-        ctx.font = "400 22px 'Space Grotesk', -apple-system, sans-serif";
+        cy += 40;
+        ctx.font = "400 24px 'Space Grotesk', -apple-system, sans-serif";
         if (draw) {
           ctx.fillStyle = mutedColor;
           ctx.fillText(
@@ -566,9 +643,11 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
     const measureCtx = document.createElement('canvas').getContext('2d')!;
     finalHeight = runLayout(measureCtx, false);
 
-    // Draw pass, at the exact height just measured
+    // Draw pass, at the exact height just measured — floored to a 9:16 story format
+    // (1080x1920) rather than an arbitrarily short/tall image; a session with enough
+    // content to need more still gets it; one that doesn't just fills 9:16 cleanly.
     canvas.width = w;
-    canvas.height = Math.max(1200, finalHeight);
+    canvas.height = Math.max(Math.round(w * 16 / 9), finalHeight);
     const ctx = canvas.getContext('2d')!;
     runLayout(ctx, true);
 
@@ -834,8 +913,8 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
       {groupedExercises.length > 0 && (
         <div className="space-y-3 mb-6">
           {groupedExercises.map(([name, sets]) => {
-            const best = sets.reduce((b, s) => calculate1RM(s.weight, s.reps) > calculate1RM(b.weight, b.reps) ? s : b, sets[0]);
-            const e1rm = calculate1RM(best.weight, best.reps);
+            const best = sets.reduce((b, s) => effectiveE1RM(s, sessionBodyWeight) > effectiveE1RM(b, sessionBodyWeight) ? s : b, sets[0]);
+            const e1rm = effectiveE1RM(best, sessionBodyWeight);
             const prog = progressions[name];
             const lastPerf = getLastPerformance(name, session.id);
 
@@ -849,14 +928,14 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
                 </div>
                 {lastPerf && (
                   <p className="text-[10px] text-muted-foreground mb-2">
-                    Dernière fois : {lastPerf.weight}kg × {lastPerf.reps} — {new Date(lastPerf.date + 'T00:00:00').toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })}
+                    Dernière fois : {formatWeightDisplay(lastPerf.weight, name)} × {lastPerf.reps} — {new Date(lastPerf.date + 'T00:00:00').toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })}
                   </p>
                 )}
                 <div className="space-y-1.5 mb-2">
                   {sets.map((s, i) => (
                     <div key={i} className="flex items-center justify-between bg-secondary rounded-lg px-3 py-2">
                       <span className="text-xs text-muted-foreground">Série {i + 1}</span>
-                      <span className="text-sm text-foreground font-mono">{s.weight} kg × {s.reps}</span>
+                      <span className="text-sm text-foreground font-mono">{formatWeightDisplay(s.weight, name)} × {s.reps}</span>
                     </div>
                   ))}
                 </div>

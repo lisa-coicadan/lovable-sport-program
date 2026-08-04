@@ -15,7 +15,7 @@ import { roundWeightSmart } from '@/lib/weightRounding';
 import { shouldShowBodyweightReminder, buildBodyweightReminderSnoozePatch } from '@/lib/bodyweightReminder';
 import { getWarmupPercentages } from '@/lib/warmup';
 import {
-  shouldShowDeloadRecommendation, DeloadCriteria, buildDeloadAcceptPatch, buildDeloadDismissPatch,
+  shouldShowDeloadRecommendation, DeloadCriteria, buildDeloadAcceptPatch, buildDeloadDismissPatch, buildDeloadSkipPatch,
   consumeDeloadOnSessionSave, getDeloadTargetWorkoutTypes, applyDeloadToWeight, applyDeloadToTrainingMax,
   getDeloadSetCount, shouldReduceSets, getActiveDeload,
 } from '@/lib/deload';
@@ -481,20 +481,23 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
           }
         }
         const exSets = buildSetsForExercise(effectiveEx, effectiveEx.method, effectiveWeight);
-        initialSets.push(...exSets);
-        // Pre-configured drop set (Settings): auto-cascade stage 1 below the last
-        // regular set so it's ready without having to tap "+ Drop set" first.
+        // Pre-configured drop set (Settings): auto-cascade a stage-1 drop below EVERY
+        // regular set of this exercise, not just the last one, so the whole session is
+        // ready without tapping "+ Drop set" under each series by hand. Interleaved right
+        // after its own anchor (same layout convention as the manual addDropSet below).
         if (!ex.method && ex.dropSet) {
-          const anchor = exSets[exSets.length - 1];
-          if (anchor) {
-            const config = getDropSetConfig(ex.dropSet);
+          const config = getDropSetConfig(ex.dropSet);
+          exSets.forEach(anchor => {
+            initialSets.push(anchor);
             const { weight, reps } = getDropSetStage(anchor.weight, anchor.reps, 1, config);
             initialSets.push({
               exerciseId: ex.id, exerciseName: ex.name, setNumber: anchor.setNumber + 1,
               reps, weight, completed: false, dropSetStage: 1,
               equipment: ex.equipment, unilateral: ex.unilateral,
             });
-          }
+          });
+        } else {
+          initialSets.push(...exSets);
         }
       }
     });
@@ -882,7 +885,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
         type="button"
         onClick={() => setTagsEditorFor(tagsEditorFor === ex.id ? null : ex.id)}
         className={`touch-target p-1.5 shrink-0 rounded-lg transition-colors ${
-          effective.unilateral || effective.equipment ? 'text-accent-blue' : 'text-muted-foreground/50 active:text-accent-blue'
+          tagsEditorFor === ex.id || effective.unilateral || effective.equipment ? 'text-accent-blue' : 'text-muted-foreground/50 active:text-accent-blue'
         }`}
         aria-label={`Unilatéral / équipement pour ${ex.name}`}
         aria-pressed={tagsEditorFor === ex.id}
@@ -1516,6 +1519,13 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                 className="flex-1 bg-secondary text-secondary-foreground font-medium py-2 rounded-lg text-xs touch-target"
               >
                 Ignorer
+              </button>
+              <button
+                onClick={() => onUpdateData({ deload: buildDeloadSkipPatch(data) })}
+                className="flex-1 bg-secondary text-secondary-foreground font-medium py-2 rounded-lg text-xs touch-target"
+                title="Continuer normalement — relance le compteur sans réduire charges/séries"
+              >
+                Sans deload
               </button>
               <button
                 onClick={() => { setDeloadTypeDraft('both'); setDeloadIntensityDraft('medium'); setDeloadPopupOpen(true); }}
@@ -2510,15 +2520,18 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                               <History size={11} className="text-muted-foreground/70 group-active:text-primary shrink-0" />
                             </button>
                             {isBodyweightOptionalExercise(row.name) && (
-                              <button
-                                type="button"
-                                onClick={() => toggleWeightSign(row.idx)}
-                                className="w-5 h-5 shrink-0 rounded-md bg-background/60 text-muted-foreground text-[10px] leading-none font-bold"
-                                aria-label={sets[row.idx].weight < 0 ? 'Assisté (élastique/machine) — repasser en lesté' : 'Lesté — passer en assisté (élastique/machine)'}
-                                title={sets[row.idx].weight < 0 ? 'Assisté' : 'Lesté'}
-                              >
-                                {sets[row.idx].weight < 0 ? '−' : '+'}
-                              </button>
+                              <>
+                                <span className="text-[9px] text-muted-foreground shrink-0">pdc</span>
+                                <button
+                                  type="button"
+                                  onClick={() => toggleWeightSign(row.idx)}
+                                  className="w-5 h-5 shrink-0 rounded-md bg-background/60 text-muted-foreground text-[10px] leading-none font-bold"
+                                  aria-label={sets[row.idx].weight < 0 ? 'Assisté (élastique/machine) — repasser en lesté' : 'Lesté — passer en assisté (élastique/machine)'}
+                                  title={sets[row.idx].weight < 0 ? 'Assisté' : 'Lesté'}
+                                >
+                                  {sets[row.idx].weight < 0 ? '−' : '+'}
+                                </button>
+                              </>
                             )}
                             <input
                               type="number"
@@ -2574,6 +2587,11 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
           // needed so "+ Drop set", rendered under the *last* stage of a cascade, still
           // cascades off the original reference set (P0/R0), never off a prior drop stage.
           const anchorGlobalIdxByGlobalIdx = new Map<number, number>();
+          // A series + its drop(s) is validated as ONE unit (a bit like a superset pairs
+          // A+B under one checkmark) — this maps an anchor's globalIdx to every globalIdx
+          // in its own cascade (itself included), so toggling the anchor's Check marks the
+          // whole group done/undone together instead of each stage needing its own tap.
+          const cascadeGlobalIdxsByAnchor = new Map<number, number[]>();
           {
             let seriesCounter = 0;
             let currentAnchor = -1;
@@ -2581,10 +2599,21 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
               if (!sets[e.globalIdx].dropSetStage) {
                 seriesNumberByGlobalIdx.set(e.globalIdx, ++seriesCounter);
                 currentAnchor = e.globalIdx;
+                cascadeGlobalIdxsByAnchor.set(currentAnchor, [currentAnchor]);
+              } else if (currentAnchor !== -1) {
+                cascadeGlobalIdxsByAnchor.get(currentAnchor)!.push(e.globalIdx);
               }
               anchorGlobalIdxByGlobalIdx.set(e.globalIdx, currentAnchor);
             });
           }
+          const toggleCascade = (idxs: number[]) => {
+            const allDone = idxs.every(i => sets[i].completed);
+            setSets(prev => {
+              const updated = [...prev];
+              idxs.forEach(i => { updated[i] = { ...updated[i], completed: !allDone }; });
+              return updated;
+            });
+          };
 
           return (
             <div key={exerciseId} className="glass-card p-4">
@@ -2698,6 +2727,12 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                   const rowLabel = stage ? `Drop ${stage}` : `Série ${seriesNumberByGlobalIdx.get(globalIdx)}`;
                   const nextEntry = exerciseSets[idx + 1];
                   const isLastOfCascade = !nextEntry || !sets[nextEntry.globalIdx].dropSetStage;
+                  // A series + its drop(s) validate together (see cascadeGlobalIdxsByAnchor
+                  // above) — only the anchor row gets an interactive Check; a drop row shows
+                  // a passive echo of the same group state instead of its own control.
+                  const anchorIdx = anchorGlobalIdxByGlobalIdx.get(globalIdx) ?? globalIdx;
+                  const groupIdxs = cascadeGlobalIdxsByAnchor.get(anchorIdx) ?? [globalIdx];
+                  const groupDone = groupIdxs.every(i => sets[i].completed);
                   return (
                     <div key={globalIdx}>
                       <div
@@ -2709,15 +2744,18 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                           {rowLabel}
                         </span>
                         {isBodyweightOptionalExercise(name) && (
-                          <button
-                            type="button"
-                            onClick={() => toggleWeightSign(globalIdx)}
-                            className="w-5 h-5 shrink-0 rounded-md bg-secondary text-muted-foreground text-[10px] leading-none font-bold"
-                            aria-label={sets[globalIdx].weight < 0 ? 'Assisté (élastique/machine) — repasser en lesté' : 'Lesté — passer en assisté (élastique/machine)'}
-                            title={sets[globalIdx].weight < 0 ? 'Assisté' : 'Lesté'}
-                          >
-                            {sets[globalIdx].weight < 0 ? '−' : '+'}
-                          </button>
+                          <>
+                            <span className="text-[9px] text-muted-foreground shrink-0">pdc</span>
+                            <button
+                              type="button"
+                              onClick={() => toggleWeightSign(globalIdx)}
+                              className="w-5 h-5 shrink-0 rounded-md bg-secondary text-muted-foreground text-[10px] leading-none font-bold"
+                              aria-label={sets[globalIdx].weight < 0 ? 'Assisté (élastique/machine) — repasser en lesté' : 'Lesté — passer en assisté (élastique/machine)'}
+                              title={sets[globalIdx].weight < 0 ? 'Assisté' : 'Lesté'}
+                            >
+                              {sets[globalIdx].weight < 0 ? '−' : '+'}
+                            </button>
+                          </>
                         )}
                         <input
                           type="number"
@@ -2757,16 +2795,27 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                         >
                           <Trash2 size={14} />
                         </button>
-                        <button
-                          onClick={() => toggleSet(globalIdx)}
-                          className={`touch-target rounded-lg p-2 transition-colors ${
-                            sets[globalIdx].completed ? 'text-success glow-success' : 'text-muted-foreground active:text-success'
-                          }`}
-                          aria-label={sets[globalIdx].completed ? `${rowLabel} validée` : `Valider ${rowLabel}`}
-                          aria-pressed={sets[globalIdx].completed}
-                        >
-                          <Check size={18} />
-                        </button>
+                        {stage ? (
+                          <span
+                            className={`touch-target rounded-lg p-2 inline-flex items-center justify-center ${
+                              groupDone ? 'text-success' : 'text-muted-foreground/30'
+                            }`}
+                            aria-hidden="true"
+                          >
+                            <Check size={18} />
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => toggleCascade(groupIdxs)}
+                            className={`touch-target rounded-lg p-2 transition-colors ${
+                              groupDone ? 'text-success glow-success' : 'text-muted-foreground active:text-success'
+                            }`}
+                            aria-label={groupDone ? `${rowLabel}${groupIdxs.length > 1 ? ' et son drop set' : ''} validée` : `Valider ${rowLabel}${groupIdxs.length > 1 ? ' et son drop set' : ''}`}
+                            aria-pressed={groupDone}
+                          >
+                            <Check size={18} />
+                          </button>
+                        )}
                       </div>
                       {dropSetPickerFor === exerciseId && isLastOfCascade && (
                         <button

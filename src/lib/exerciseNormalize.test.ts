@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeExerciseName, isPrTracked, PR_TRACKED_CANONICAL, splitEquipmentVariant, isBodyweightOptionalExercise, weightFieldValue, bodyweightTonnageFraction, resolveSetVariant } from './exerciseNormalize';
+import { normalizeExerciseName, isPrTracked, PR_TRACKED_CANONICAL, splitEquipmentVariant, isBodyweightOptionalExercise, weightFieldValue, formatWeightDisplay, bodyweightTonnageFraction, resolveSetVariant } from './exerciseNormalize';
 
 describe('normalizeExerciseName', () => {
   it('maps spelling variants to the same canonical name', () => {
@@ -162,6 +162,27 @@ describe('splitEquipmentVariant', () => {
   });
 });
 
+describe('Muscle up recognition', () => {
+  it('normalizes "muscle up", "MU" and equipment variants to the canonical name', () => {
+    expect(normalizeExerciseName('muscle up')).toBe('Muscle up');
+    expect(normalizeExerciseName('MU')).toBe('Muscle up');
+    expect(normalizeExerciseName('muscleup')).toBe('Muscle up');
+    expect(normalizeExerciseName('Muscle up élastique')).toBe('Muscle up élastique');
+    expect(normalizeExerciseName('Muscle up assisté')).toBe('Muscle up assisté');
+    expect(splitEquipmentVariant('Muscle up élastique')).toEqual({ base: 'Muscle up', variantLabel: 'à l\'élastique' });
+  });
+
+  it('is bodyweight-optional (like tractions/dips), full bodyweight fraction', () => {
+    expect(isBodyweightOptionalExercise('Muscle up')).toBe(true);
+    expect(bodyweightTonnageFraction('Muscle up')).toBe(1);
+  });
+
+  it('is NOT in the France-record-tracked canonical list — no official record for it', () => {
+    expect(PR_TRACKED_CANONICAL).not.toContain('Muscle up');
+    expect(isPrTracked('Muscle up')).toBe(false);
+  });
+});
+
 describe('isBodyweightOptionalExercise', () => {
   it('is true for tractions and dips regardless of equipment suffix', () => {
     expect(isBodyweightOptionalExercise('Tractions')).toBe(true);
@@ -227,6 +248,22 @@ describe('weightFieldValue', () => {
   it('blanks a 0kg field for every other (non-bodyweight-optional) exercise', () => {
     expect(weightFieldValue(0, 'Squat')).toBe('');
     expect(weightFieldValue(0, 'Développé couché')).toBe('');
+  });
+});
+
+describe('formatWeightDisplay', () => {
+  it('prefixes "pdc" before the sign for a weighted bodyweight-optional set', () => {
+    expect(formatWeightDisplay(10, 'Tractions lestées')).toBe('pdc +10 kg');
+    expect(formatWeightDisplay(-5, 'Dips lestés')).toBe('pdc -5 kg');
+  });
+
+  it('shows plain "pdc" (no sign) for a strict bodyweight rep', () => {
+    expect(formatWeightDisplay(0, 'Tractions lestées')).toBe('pdc');
+  });
+
+  it('leaves every other exercise as a plain "<weight> kg"', () => {
+    expect(formatWeightDisplay(60, 'Squat')).toBe('60 kg');
+    expect(formatWeightDisplay(0, 'Développé couché')).toBe('0 kg');
   });
 });
 

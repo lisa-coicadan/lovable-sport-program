@@ -6,7 +6,7 @@ import { getEmomConfig, getEmomWeight, getDefaultEmomPercentage } from '@/lib/em
 import { getClusterConfig, getMiniSeriesWeight, CLUSTER_PRESETS } from '@/lib/cluster';
 import { estimateOneRepMax, estimateTrainingMax } from '@/lib/trainingMax';
 import { splitEquipmentVariant } from '@/lib/exerciseNormalize';
-import { STANDARD_MOVEMENTS, StandardMovement, isForceFocusExercise } from '@/lib/strengthStandards';
+import { FORCE_ELIGIBLE_MOVEMENTS, ForceEligibleMovement, isForceFocusExercise } from '@/lib/strengthStandards';
 import { ArrowLeft, Plus, Trash2, EyeOff, Eye, Scale, Link2, Link2Off, Download, Upload, Database, AlertTriangle, FileText, Zap, Timer, Clock, Layers, Check, Calculator, TrendingDown, User, Infinity as InfinityIcon, Pencil, X, RefreshCw, Dumbbell, ChevronDown, Repeat } from 'lucide-react';
 import { SortableList, DragHandle } from './SortableBlock';
 import { loadData, saveData } from '@/lib/storage';
@@ -1044,10 +1044,10 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                 </div>
                               )}
                               {/* Force/Hypertrophie mis en évidence (pas replié sous "Options
-                                  avancées") pour les 5 mouvements de force — c'est le switch qui
-                                  débloque l'aide au test de PR en séance, elle doit être visible
-                                  sans avoir à chercher. */}
-                              {STANDARD_MOVEMENTS.includes(splitEquipmentVariant(ex.name).base as StandardMovement) && (
+                                  avancées") pour les mouvements de force (les 5 avec record de
+                                  France + Muscle up) — c'est le switch qui débloque l'aide au
+                                  test de PR en séance, elle doit être visible sans avoir à chercher. */}
+                              {FORCE_ELIGIBLE_MOVEMENTS.includes(splitEquipmentVariant(ex.name).base as ForceEligibleMovement) && (
                                 <div className="pl-6 mb-1">
                                   <div className="flex gap-1.5">
                                     <button
@@ -1425,7 +1425,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                         <input
                                           type="checkbox"
                                           checked={!!ex.dropSet}
-                                          onChange={e => updateExercise(ti, exIdx, 'dropSet', e.target.checked ? { stepPercentage: 0.15, stepReps: 2 } : undefined)}
+                                          onChange={e => updateExercise(ti, exIdx, 'dropSet', e.target.checked ? {} : undefined)}
                                           className="w-3.5 h-3.5 accent-warning"
                                         />
                                         <TrendingDown size={10} className="text-warning" /> Drop set
@@ -1441,31 +1441,6 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                       </label>
                                       {renderEquipmentFields(ex)}
                                       {supersetTriggerButton}
-                                    </div>
-                                  )}
-                                  {/* Own line, amber like the Drop set toggle above it — shown
-                                      whenever Drop set is active regardless of whether "Options
-                                      avancées" is expanded, so the current %/reps stay visible
-                                      without needing to reopen the disclosure every time. */}
-                                  {ex.dropSet && (
-                                    <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
-                                      <TrendingDown size={10} className="text-warning shrink-0" />
-                                      <input
-                                        type="number"
-                                        value={Math.round((ex.dropSet.stepPercentage ?? 0.15) * 100)}
-                                        onChange={e => updateExercise(ti, exIdx, 'dropSet', { ...ex.dropSet, stepPercentage: (parseFloat(e.target.value) || 0) / 100 })}
-                                        className="w-10 bg-warning/10 text-warning rounded-md px-1 py-1 text-[10px] text-center outline-none"
-                                        aria-label={`Pourcentage de réduction par palier de drop set, ${ex.name || 'exercice'}`}
-                                      />
-                                      <span className="text-[10px] text-warning">% / palier</span>
-                                      <input
-                                        type="number"
-                                        value={ex.dropSet.stepReps ?? 2}
-                                        onChange={e => updateExercise(ti, exIdx, 'dropSet', { ...ex.dropSet, stepReps: parseInt(e.target.value) || 0 })}
-                                        className="w-8 bg-warning/10 text-warning rounded-md px-1 py-1 text-[10px] text-center outline-none"
-                                        aria-label={`Répétitions en moins par palier de drop set, ${ex.name || 'exercice'}`}
-                                      />
-                                      <span className="text-[10px] text-warning">reps / palier</span>
                                     </div>
                                   )}
                                   {supersetPickerChips}

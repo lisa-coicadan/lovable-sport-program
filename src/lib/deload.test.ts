@@ -11,6 +11,7 @@ import {
   getDeloadSetCount,
   buildDeloadAcceptPatch,
   buildDeloadDismissPatch,
+  buildDeloadSkipPatch,
   consumeDeloadOnSessionSave,
   getDeloadTargetWorkoutTypes,
   buildManualDeloadPatch,
@@ -327,6 +328,25 @@ describe('buildDeloadDismissPatch', () => {
   it('snoozes for 7 days', () => {
     const patch = buildDeloadDismissPatch(data({}), new Date('2026-06-20'));
     expect(patch.dismissedUntil).toBe('2026-06-27');
+  });
+});
+
+describe('buildDeloadSkipPatch', () => {
+  it('stamps lastDeloadCompletedAt like a real deload, so the consecutive-weeks streak restarts', () => {
+    const patch = buildDeloadSkipPatch(data({}), new Date('2026-06-20'));
+    expect(patch.lastDeloadCompletedAt).toBe('2026-06-20');
+  });
+
+  it('does not touch weights/sets — no `active` deload is ever set', () => {
+    const patch = buildDeloadSkipPatch(data({}), new Date('2026-06-20'));
+    expect(patch.active).toBeUndefined();
+  });
+
+  it('clears any pending snooze/active state from before', () => {
+    const d = data({ deload: { dismissedUntil: '2026-07-01', active: { type: 'both', intensity: 'medium', pendingWorkoutTypeIds: ['t1'], acceptedAt: '2026-06-01' } } });
+    const patch = buildDeloadSkipPatch(d, new Date('2026-06-20'));
+    expect(patch.dismissedUntil).toBeUndefined();
+    expect(patch.active).toBeUndefined();
   });
 });
 

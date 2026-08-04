@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AppData, ExerciseEquipment, EQUIPMENT_LABELS, calculate1RM } from '@/lib/types';
-import { splitEquipmentVariant, isBodyweightOptionalExercise, resolveSetVariant } from '@/lib/exerciseNormalize';
-import { STANDARD_MOVEMENTS, StandardMovement, getFranceRecord, getRecordMessage, getLevel, getLevelMessage } from '@/lib/strengthStandards';
+import { splitEquipmentVariant, isBodyweightOptionalExercise, resolveSetVariant, formatWeightDisplay, formatWeightDisplayFor } from '@/lib/exerciseNormalize';
+import { STANDARD_MOVEMENTS, StandardMovement, FORCE_ELIGIBLE_MOVEMENTS, ForceEligibleMovement, getFranceRecord, getRecordMessage, getLevel, getLevelMessage } from '@/lib/strengthStandards';
 import { computeBodyweightAdjustedE1RM, computeEffectiveLoadAtOneRep, resolveBodyWeightAtDate } from '@/lib/tonnage';
 import { ArrowLeft, Trophy, Dumbbell, Plus, Repeat } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
@@ -66,7 +66,7 @@ const OneRepMaxTooltip = (bodyweightOptional: boolean) => ({ active, payload }: 
       <div style={{ color: 'hsl(0 0% 95%)' }}>
         {new Date(p.date).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })}
       </div>
-      <div style={{ color: 'hsl(322 100% 70%)', fontWeight: 600 }}>{p.weight} kg × {p.reps}</div>
+      <div style={{ color: 'hsl(322 100% 70%)', fontWeight: 600 }}>{formatWeightDisplayFor(p.weight, bodyweightOptional)} × {p.reps}</div>
       <div style={{ color: 'hsl(240 12% 72%)' }}>1RM {p.value} kg</div>
     </div>
   );
@@ -135,6 +135,10 @@ const ExerciseHistory = ({ exerciseName, data, onUpdateData, onClose }: Exercise
   // after the fact doesn't silently drop it out of the comparison. Excludes "unilatéral"
   // (bilateral is what the standards are calibrated against) even when untagged/barbell.
   const isStandardMovement = STANDARD_MOVEMENTS.includes(base as StandardMovement);
+  // Vrai 1RM tracking is offered more broadly (see FORCE_ELIGIBLE_MOVEMENTS) — Muscle up
+  // gets the same testing/PR feature set as the 5 record-tracked lifts, just without the
+  // France-record/niveau panel above (isStandardMovement stays strict for that).
+  const isForceEligible = FORCE_ELIGIBLE_MOVEMENTS.includes(base as ForceEligibleMovement);
   const defaultVariantGroups = useMemo(
     () => variantGroups.filter(g => g.label === null || g.label === EQUIPMENT_LABELS.barre),
     [variantGroups]
@@ -186,7 +190,7 @@ const ExerciseHistory = ({ exerciseName, data, onUpdateData, onClose }: Exercise
           <h1 className="text-xl font-bold text-foreground">{base}</h1>
           {overallPR > 0 && overallPRSet && (
             <p className="text-xs text-primary font-medium">
-              Record : {overallPR} kg (1RM est.) — {overallPRSet.weight} kg × {overallPRSet.reps}
+              Record : {overallPR} kg (1RM est.) — {formatWeightDisplay(overallPRSet.weight, base)} × {overallPRSet.reps}
             </p>
           )}
         </div>
@@ -229,7 +233,7 @@ const ExerciseHistory = ({ exerciseName, data, onUpdateData, onClose }: Exercise
         </div>
       )}
 
-      {isStandardMovement && (
+      {isForceEligible && (
         <div className="glass-card p-4 mb-4">
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-1.5">
@@ -410,7 +414,7 @@ const VariantSection = ({ group, showHeader, bodyweightOptional, onUpdateSetVari
         <div className="flex items-center justify-between mb-2 px-1">
           <h3 className="text-sm font-semibold text-foreground">{group.label ?? 'Sans précision'}</h3>
           {pr > 0 && prSet && (
-            <span className="text-xs text-primary font-medium">Record : {pr} kg — {prSet.weight} kg × {prSet.reps}</span>
+            <span className="text-xs text-primary font-medium">Record : {pr} kg — {formatWeightDisplayFor(prSet.weight, bodyweightOptional)} × {prSet.reps}</span>
           )}
         </div>
       )}
@@ -469,7 +473,7 @@ const VariantSection = ({ group, showHeader, bodyweightOptional, onUpdateSetVari
           )}
           {selected && (
             <p className="text-xs text-primary font-medium text-center mt-2">
-              {new Date(selected.date).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })} : {selected.weight} kg × {selected.reps}
+              {new Date(selected.date).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })} : {formatWeightDisplayFor(selected.weight, bodyweightOptional)} × {selected.reps}
               {' '}(1RM {selected.value} kg)
             </p>
           )}
@@ -582,7 +586,7 @@ const VariantSection = ({ group, showHeader, bodyweightOptional, onUpdateSetVari
               <div className="space-y-1">
                 {sets.map((s, i) => (
                   <div key={i} className="flex items-center justify-between bg-secondary rounded-lg px-3 py-2">
-                    <span className="text-sm text-foreground font-mono">{s.weight} kg × {s.reps}</span>
+                    <span className="text-sm text-foreground font-mono">{formatWeightDisplayFor(s.weight, bodyweightOptional)} × {s.reps}</span>
                     <span className="text-xs text-muted-foreground">1RM: {bodyweightOptional ? s.chartValue : s.e1rm} kg</span>
                   </div>
                 ))}

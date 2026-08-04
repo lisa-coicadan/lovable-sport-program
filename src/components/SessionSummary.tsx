@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef } from 'react';
 import { SessionLog, SetLog, WorkoutType, calculate1RM, Gender, BodyWeightLog, EQUIPMENT_LABELS } from '@/lib/types';
-import { isBodyweightOptionalExercise, splitEquipmentVariant, resolveSetVariant } from '@/lib/exerciseNormalize';
+import { isBodyweightOptionalExercise, splitEquipmentVariant, resolveSetVariant, formatWeightDisplay } from '@/lib/exerciseNormalize';
 import { computeSetTonnage, resolveBodyWeightAtDate } from '@/lib/tonnage';
 import { STANDARD_MOVEMENTS, LEVEL_ORDER, LevelKey, getFranceRecord, getRecordMessage, getLevel, getLevelMessage } from '@/lib/strengthStandards';
 import { ArrowLeft, ChevronRight, Share2, TrendingUp, TrendingDown, Minus, Trophy } from 'lucide-react';
@@ -179,7 +179,7 @@ const SessionSummary = ({ session, previousSessions = [], workoutTypes = [], gen
     const text = `${session.workoutTypeName} — ${new Date(session.date + 'T00:00:00').toLocaleDateString('fr-FR', { month: 'long', day: 'numeric', year: 'numeric' })}\n\n` +
       groupedExercises.map(([name, sets]) => {
         const best = sets.reduce((b, s) => calculate1RM(s.weight, s.reps) > calculate1RM(b.weight, b.reps) ? s : b, sets[0]);
-        return `${name}: ${best.weight}kg × ${best.reps} (1RM: ${calculate1RM(best.weight, best.reps)}kg)`;
+        return `${name}: ${formatWeightDisplay(best.weight, name)} × ${best.reps} (1RM: ${calculate1RM(best.weight, best.reps)}kg)`;
       }).join('\n') +
       `\n\nDurée : ${duration || session.duration || 60} min | RPE : ${difficulty || session.difficulty || '?'}/10` +
       (notes ? `\n${notes}` : '');
@@ -328,7 +328,7 @@ const SessionSummary = ({ session, previousSessions = [], workoutTypes = [], gen
                   {sets.map((s, i) => (
                     <div key={i} className="flex items-center justify-between bg-secondary rounded-lg px-3 py-2">
                       <span className="text-xs text-muted-foreground">Série {i + 1}</span>
-                      <span className="text-sm text-foreground font-mono">{s.weight} kg × {s.reps}</span>
+                      <span className="text-sm text-foreground font-mono">{formatWeightDisplay(s.weight, name)} × {s.reps}</span>
                     </div>
                   ))}
                 </div>

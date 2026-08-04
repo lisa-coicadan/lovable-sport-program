@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getFranceRecord, getRecordMessage, getLevel, getLevelMessage, isForceFocusExercise } from './strengthStandards';
+import { getFranceRecord, getRecordMessage, getLevel, getLevelMessage, isForceFocusExercise, STANDARD_MOVEMENTS, FORCE_ELIGIBLE_MOVEMENTS } from './strengthStandards';
 
 describe('getFranceRecord', () => {
   it('picks the smallest fitting "under" category', () => {
@@ -76,5 +76,12 @@ describe('isForceFocusExercise', () => {
 
   it('matches an equipment variant of a standard movement', () => {
     expect(isForceFocusExercise({ name: 'Développé couché haltères', trainingFocus: 'force' })).toBe(true);
+  });
+
+  it('is true for Muscle up (force-eligible but not a France-record-tracked StandardMovement)', () => {
+    expect(isForceFocusExercise({ name: 'Muscle up', trainingFocus: 'force' })).toBe(true);
+    expect(isForceFocusExercise({ name: 'Muscle up', method: { type: '531', trainingMax: 20, currentCycle: 1, currentWeek: 1 } })).toBe(true);
+    expect(STANDARD_MOVEMENTS).not.toContain('Muscle up');
+    expect(FORCE_ELIGIBLE_MOVEMENTS).toContain('Muscle up');
   });
 });

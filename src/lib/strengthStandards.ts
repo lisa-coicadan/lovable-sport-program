@@ -9,20 +9,31 @@ import { splitEquipmentVariant } from './exerciseNormalize';
 // Movement keys match the canonical `base` names produced by
 // src/lib/exerciseNormalize.ts's splitEquipmentVariant — only the barbell/no-equipment
 // variant is compared (machine/assisted variants have different load characteristics).
+// This list is specifically the 5 lifts with official France-record/niveau data below —
+// NOT the same thing as "eligible for Force/1RM-test" (see FORCE_ELIGIBLE_MOVEMENTS).
 export type StandardMovement = 'Squat' | 'Développé couché' | 'Soulevé de terre' | 'Tractions lestées' | 'Dips lestés';
 
 export const STANDARD_MOVEMENTS: StandardMovement[] = [
   'Squat', 'Développé couché', 'Soulevé de terre', 'Tractions lestées', 'Dips lestés',
 ];
 
+// Force/1RM-test/vrai-1RM feature set is offered on the 5 record-tracked lifts above PLUS
+// any movement here that has no official France-record/niveau data to compare against —
+// currently just Muscle up (no federation publishes results for it). Keeping this list
+// separate from STANDARD_MOVEMENTS means getFranceRecord/getLevel are never even asked
+// about a movement they have no data for, instead of returning a misleading "no record"
+// answer for something that was never meant to be compared in the first place.
+export type ForceEligibleMovement = StandardMovement | 'Muscle up';
+
+export const FORCE_ELIGIBLE_MOVEMENTS: ForceEligibleMovement[] = [...STANDARD_MOVEMENTS, 'Muscle up'];
+
 // An exercise using 531/Cluster/EMOM necessarily trains near a true max effort, so it
-// counts as Force even without the manual toggle checked — but only for the 5 movements
-// above, the ones the ramp-test protocol and France-record comparison are calibrated for.
-// Any other exercise (e.g. an accessory lift on 531) has no Force/Hypertrophie concept at
-// all, method or not.
+// counts as Force even without the manual toggle checked — but only for the movements
+// above, the ones the ramp-test protocol is calibrated for. Any other exercise (e.g. an
+// accessory lift on 531) has no Force/Hypertrophie concept at all, method or not.
 export function isForceFocusExercise(ex: Pick<Exercise, 'name' | 'trainingFocus' | 'method'>): boolean {
-  const isStandardMovement = STANDARD_MOVEMENTS.includes(splitEquipmentVariant(ex.name).base as StandardMovement);
-  if (!isStandardMovement) return false;
+  const isEligible = FORCE_ELIGIBLE_MOVEMENTS.includes(splitEquipmentVariant(ex.name).base as ForceEligibleMovement);
+  if (!isEligible) return false;
   return ex.trainingFocus === 'force' || !!ex.method;
 }
 

@@ -159,6 +159,16 @@ const RULES: NormalizationRule[] = [
     keywords: ['dip', 'dips'],
   },
   {
+    // Bodyweight-optional like tractions/dips (see bodyweightTonnageFraction below), but
+    // not part of PR_TRACKED_CANONICAL/no France record data exists for it — it still gets
+    // the Force/1RM-test/vrai-1RM feature set via strengthStandards.ts's separate
+    // FORCE_ELIGIBLE_MOVEMENTS list, just without the record-de-France comparison.
+    canonical: 'Muscle up',
+    baseLabel: 'Muscle up',
+    prTracked: false,
+    keywords: ['muscle up', 'muscleup', 'mu'],
+  },
+  {
     canonical: 'Pompes',
     baseLabel: 'Pompes',
     prTracked: false,
@@ -328,12 +338,12 @@ export function resolveSetVariant(set: { exerciseName: string; equipment?: Exerc
 // Fraction of bodyweight actually moved by one rep, for exercises where `weight` is
 // logged as an ADDITION to (or, negative, an assistance against) bodyweight rather than
 // the total load — used by tonnage.ts to turn `weight` into a real kg figure. Tractions/
-// dips move the full body (1); push-ups only load ~65% of bodyweight (hands/toes lever,
-// the rest is on the toes) per standard biomechanics estimates. Everything else logs
-// `weight` as the total load already, so it contributes 0 extra.
+// dips/muscle-ups move the full body (1); push-ups only load ~65% of bodyweight
+// (hands/toes lever, the rest is on the toes) per standard biomechanics estimates.
+// Everything else logs `weight` as the total load already, so it contributes 0 extra.
 export function bodyweightTonnageFraction(name: string): number {
   const base = splitEquipmentVariant(name).base;
-  if (base === 'Tractions lestées' || base === 'Dips lestés') return 1;
+  if (base === 'Tractions lestées' || base === 'Dips lestés' || base === 'Muscle up') return 1;
   if (base === 'Pompes') return 0.65;
   return 0;
 }
@@ -354,4 +364,21 @@ export function isBodyweightOptionalExercise(name: string): boolean {
 export function weightFieldValue(weight: number, exerciseName: string): number | '' {
   if (weight === 0 && isBodyweightOptionalExercise(exerciseName)) return 0;
   return weight || '';
+}
+
+// A bare "+10 kg" or "-5 kg" doesn't say what it's relative to — for tractions/dips lestés
+// (and any other bodyweight-optional exercise), this makes the "poids du corps" baseline
+// explicit: "pdc +10 kg" (weighted), "pdc -5 kg" (assisted), or plain "pdc" for a strict
+// bodyweight rep (weight === 0). Every other exercise is unaffected (`${weight} kg`).
+export function formatWeightDisplay(weight: number, exerciseName: string): string {
+  return formatWeightDisplayFor(weight, isBodyweightOptionalExercise(exerciseName));
+}
+
+// Same as formatWeightDisplay, for callers that already have the bodyweight-optional flag
+// on hand (e.g. ExerciseHistory's VariantSection, scoped to one exercise for its whole
+// render) and would otherwise have to re-derive it from a name on every call.
+export function formatWeightDisplayFor(weight: number, bodyweightOptional: boolean): string {
+  if (!bodyweightOptional) return `${weight} kg`;
+  if (weight === 0) return 'pdc';
+  return `pdc ${weight > 0 ? '+' : '-'}${Math.abs(weight)} kg`;
 }
