@@ -128,15 +128,22 @@ const ExerciseHistory = ({ exerciseName, data, onUpdateData, onClose }: Exercise
 
   const showSubGroups = variantGroups.length > 1;
 
-  // Record de France / niveau-percentile only make sense for the barbell/no-equipment
-  // variant (machine-assisted or elastic-assisted loads aren't comparable to the
-  // standards, which assume free weights or a weighted belt).
+  // Record de France / niveau-percentile only make sense for the barbell variant
+  // (machine/poulie/haltères/élastique loads aren't comparable to the standards, which
+  // assume free weights or a weighted belt) — pool BOTH a set with no equipment tag at
+  // all (defaults to barbell) AND one explicitly tagged "Barre", so tagging a set barre
+  // after the fact doesn't silently drop it out of the comparison. Excludes "unilatéral"
+  // (bilateral is what the standards are calibrated against) even when untagged/barbell.
   const isStandardMovement = STANDARD_MOVEMENTS.includes(base as StandardMovement);
-  const defaultVariantGroup = useMemo(() => variantGroups.find(g => g.label === null), [variantGroups]);
+  const defaultVariantGroups = useMemo(
+    () => variantGroups.filter(g => g.label === null || g.label === EQUIPMENT_LABELS.barre),
+    [variantGroups]
+  );
   const defaultVariantPR = useMemo(() => {
-    if (!defaultVariantGroup || defaultVariantGroup.history.length === 0) return 0;
-    return Math.max(...defaultVariantGroup.history.map(h => h.e1rm));
-  }, [defaultVariantGroup]);
+    const history = defaultVariantGroups.flatMap(g => g.history);
+    if (history.length === 0) return 0;
+    return Math.max(...history.map(h => h.e1rm));
+  }, [defaultVariantGroups]);
   const latestBodyweight = useMemo(() => {
     const logs = data.bodyWeightLogs || [];
     if (logs.length === 0) return null;
@@ -185,7 +192,7 @@ const ExerciseHistory = ({ exerciseName, data, onUpdateData, onClose }: Exercise
         </div>
       </div>
 
-      {isStandardMovement && defaultVariantGroup && defaultVariantGroup.history.length > 0 && (
+      {isStandardMovement && defaultVariantPR > 0 && (
         <div className="glass-card p-4 mb-4">
           <div className="flex items-center gap-1.5 mb-2">
             <Trophy size={14} className="text-primary" />

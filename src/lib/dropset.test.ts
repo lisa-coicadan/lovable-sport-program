@@ -26,8 +26,8 @@ describe('getDropSetStage', () => {
   });
 
   it('matches the reference example: 45kg x 10 reps, stage 2', () => {
-    // 45 * 0.70 = 31.5 (31.499999999999996 in float) -> rounds to 31 (nearest 1kg step)
-    expect(getDropSetStage(45, 10, 2, config)).toEqual({ weight: 31, reps: 6 });
+    // 45 - 45*0.15*2 = 31.5 -> rounds to 32 (nearest 1kg step)
+    expect(getDropSetStage(45, 10, 2, config)).toEqual({ weight: 32, reps: 6 });
   });
 
   it('is always relative to the anchor, not the previous stage', () => {
@@ -44,5 +44,17 @@ describe('getDropSetStage', () => {
   it('respects a custom step config', () => {
     const custom = getDropSetConfig({ stepPercentage: 0.2, stepReps: 3 });
     expect(getDropSetStage(100, 10, 1, custom)).toEqual({ weight: 80, reps: 7 });
+  });
+
+  it('gets MORE negative (more assisted, easier) for an assisted exercise, not less', () => {
+    // -20kg assistance -> stage 1 must be a bigger assist (more negative), never smaller
+    const stage1 = getDropSetStage(-20, 10, 1, config);
+    const stage2 = getDropSetStage(-20, 10, 2, config);
+    expect(stage1.weight).toBeLessThan(-20);
+    expect(stage2.weight).toBeLessThan(stage1.weight);
+  });
+
+  it('does not clamp an assisted (negative) weight to 0', () => {
+    expect(getDropSetStage(-20, 10, 1, config).weight).toBe(-23);
   });
 });

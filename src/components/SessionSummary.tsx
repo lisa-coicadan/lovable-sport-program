@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef } from 'react';
-import { SessionLog, WorkoutType, calculate1RM, Gender, BodyWeightLog } from '@/lib/types';
-import { isBodyweightOptionalExercise, splitEquipmentVariant } from '@/lib/exerciseNormalize';
+import { SessionLog, SetLog, WorkoutType, calculate1RM, Gender, BodyWeightLog, EQUIPMENT_LABELS } from '@/lib/types';
+import { isBodyweightOptionalExercise, splitEquipmentVariant, resolveSetVariant } from '@/lib/exerciseNormalize';
 import { computeSetTonnage, resolveBodyWeightAtDate } from '@/lib/tonnage';
 import { STANDARD_MOVEMENTS, LEVEL_ORDER, LevelKey, getFranceRecord, getRecordMessage, getLevel, getLevelMessage } from '@/lib/strengthStandards';
 import { ArrowLeft, ChevronRight, Share2, TrendingUp, TrendingDown, Minus, Trophy } from 'lucide-react';
@@ -139,18 +139,24 @@ const SessionSummary = ({ session, previousSessions = [], workoutTypes = [], gen
     if (!gender || !latestBodyweight) return [];
     const results: { movement: string; level: LevelKey; record: ReturnType<typeof getFranceRecord>; newPR: number }[] = [];
     STANDARD_MOVEMENTS.forEach(movement => {
-      const isDefaultVariant = (exerciseName: string) => {
-        const split = splitEquipmentVariant(exerciseName);
-        return split.base === movement && split.variantLabel === null;
+      // Barbell (or untagged, which defaults to barbell) only, same rule as the
+      // ExerciseHistory panel — reads the structured equipment/unilateral tag
+      // (resolveSetVariant), not just whether the exercise NAME happens to contain an
+      // equipment word, so a set tagged "Haltères" via the in-session chips doesn't get
+      // miscounted as a barbell PR just because its name is still "Développé couché".
+      const qualifies = (s: SetLog) => {
+        if (!s.completed || splitEquipmentVariant(s.exerciseName).base !== movement) return false;
+        const variant = resolveSetVariant(s);
+        if (variant.unilateral) return false;
+        if (variant.equipmentLabel !== null && variant.equipmentLabel !== EQUIPMENT_LABELS.barre) return false;
+        return s.weight > 0 || isBodyweightOptionalExercise(s.exerciseName);
       };
-      const qualifies = (exerciseName: string, completed: boolean, weight: number) =>
-        completed && isDefaultVariant(exerciseName) && (weight > 0 || isBodyweightOptionalExercise(exerciseName));
 
-      const newSets = session.sets.filter(s => qualifies(s.exerciseName, s.completed, s.weight));
+      const newSets = session.sets.filter(qualifies);
       if (newSets.length === 0) return;
       const newPR = Math.max(...newSets.map(s => calculate1RM(s.weight, s.reps)));
 
-      const prevSets = previousSessions.flatMap(s => s.sets.filter(x => qualifies(x.exerciseName, x.completed, x.weight)));
+      const prevSets = previousSessions.flatMap(s => s.sets.filter(qualifies));
       const previousPR = prevSets.length > 0 ? Math.max(...prevSets.map(s => calculate1RM(s.weight, s.reps))) : 0;
       if (newPR <= previousPR) return;
 

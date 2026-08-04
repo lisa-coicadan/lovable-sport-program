@@ -1,12 +1,20 @@
-export type RangeFilter = '1m' | '3m' | 'all';
+export type RangeFilter = '1m' | '3m' | '6m' | 'all';
 
-const RANGE_OPTIONS: { value: RangeFilter; label: string }[] = [
-  { value: '1m', label: '1 mois' },
-  { value: '3m', label: '3 mois' },
-  { value: 'all', label: 'Tout' },
-];
+const RANGE_LABELS: Record<RangeFilter, string> = {
+  '1m': '1 mois',
+  '3m': '3 mois',
+  '6m': '6 mois',
+  all: 'Tout',
+};
 
-export const rangeWeeks = (range: RangeFilter): number | null => (range === '1m' ? 4 : range === '3m' ? 13 : null);
+// '6m' is opt-in via the `options` prop (see the monthly-time chart in StatsTab) rather
+// than always shown — every other chart using this component (weekly volume, difficulty,
+// pace...) keeps its existing 3-button layout unless it explicitly asks for more.
+const DEFAULT_OPTIONS: RangeFilter[] = ['1m', '3m', 'all'];
+
+export const rangeWeeks = (range: RangeFilter): number | null => (
+  range === '1m' ? 4 : range === '3m' ? 13 : range === '6m' ? 26 : null
+);
 
 export const rangeCutoffDate = (range: RangeFilter): Date | null => {
   const weeks = rangeWeeks(range);
@@ -17,17 +25,19 @@ export const rangeCutoffDate = (range: RangeFilter): Date | null => {
   return d;
 };
 
-const RangeButtons = ({ value, onChange }: { value: RangeFilter; onChange: (v: RangeFilter) => void }) => (
+const RangeButtons = ({
+  value, onChange, options = DEFAULT_OPTIONS,
+}: { value: RangeFilter; onChange: (v: RangeFilter) => void; options?: RangeFilter[] }) => (
   <div className="flex gap-1">
-    {RANGE_OPTIONS.map(opt => (
+    {options.map(opt => (
       <button
-        key={opt.value}
-        onClick={() => onChange(opt.value)}
+        key={opt}
+        onClick={() => onChange(opt)}
         className={`touch-target inline-flex items-center justify-center px-2 rounded-lg text-[10px] font-medium transition-colors ${
-          value === opt.value ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
+          value === opt ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
         }`}
       >
-        {opt.label}
+        {RANGE_LABELS[opt]}
       </button>
     ))}
   </div>

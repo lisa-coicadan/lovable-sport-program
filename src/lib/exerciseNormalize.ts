@@ -199,6 +199,14 @@ function clean(name: string): string {
     .trim();
 }
 
+// Accent/case-insensitive fold for free-text search matching (e.g. StatsTab's "rechercher
+// un exercice") \u2014 lighter than `clean` above (no punctuation stripping, so "d\u00e9velopp\u00e9
+// couch\u00e9" and "developpe couche" both fold to the same "developpe couche" but multi-word
+// spacing/punctuation is otherwise left alone, which is all a substring search needs).
+export function foldAccents(s: string): string {
+  return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
 function detectEquipment(cleaned: string): EquipmentDetection | null {
   for (const eq of EQUIPMENT) {
     for (const kw of eq.keywords) {

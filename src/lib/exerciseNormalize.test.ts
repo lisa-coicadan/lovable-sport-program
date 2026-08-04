@@ -51,6 +51,13 @@ describe('normalizeExerciseName', () => {
     expect(normalizeExerciseName('bench press bb')).toBe('Développé couché');
   });
 
+  it('recognizes bare "Bench" and "Deadlift" (no barre/bb suffix) as the same canonical lift', () => {
+    expect(normalizeExerciseName('Bench')).toBe('Développé couché');
+    expect(normalizeExerciseName('bench')).toBe('Développé couché');
+    expect(normalizeExerciseName('Deadlift')).toBe('Soulevé de terre');
+    expect(normalizeExerciseName('deadlift')).toBe('Soulevé de terre');
+  });
+
   it('keeps non-barbell equipment variants distinct from the canonical lift', () => {
     expect(normalizeExerciseName('Développé couché haltères')).toBe('Développé couché haltères');
     expect(normalizeExerciseName('dev couche dumbbell')).toBe('Développé couché haltères');

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { AppData, SessionLog, calculate1RM, WORKOUT_COLORS, CardioActivityType, resolveProgramName } from '@/lib/types';
-import { normalizeExerciseName, splitEquipmentVariant, isBodyweightOptionalExercise } from '@/lib/exerciseNormalize';
+import { normalizeExerciseName, splitEquipmentVariant, isBodyweightOptionalExercise, foldAccents } from '@/lib/exerciseNormalize';
 import { computeSetTonnage, resolveBodyWeightAtDate, computeEffectiveLoadAtOneRep } from '@/lib/tonnage';
 import { STANDARD_MOVEMENTS, StandardMovement } from '@/lib/strengthStandards';
 import { calculatePaceMinPerKm, formatCardioDuration, formatPace, formatCardioDistance } from '@/lib/cardio';
@@ -51,8 +51,10 @@ const formatHM = (minsRaw: number) => {
   return `${h}h${String(m).padStart(2, '0')}`;
 };
 
-// 1 mois = 4 semaines pile (pas de semaine coupée) ; 3 mois ≈ 13 semaines.
-const rangeMonths = (range: RangeFilter): number | null => (range === '1m' ? 1 : range === '3m' ? 3 : null);
+// 1 mois = 4 semaines pile (pas de semaine coupée) ; 3 mois ≈ 13 semaines ; 6 mois ≈ 26.
+const rangeMonths = (range: RangeFilter): number | null => (
+  range === '1m' ? 1 : range === '3m' ? 3 : range === '6m' ? 6 : null
+);
 
 // Builds the list of Mondays to display for a given range: exactly `rangeWeeks` weeks
 // ending on the current week for '1m'/'3m', or every week since the earliest reference
@@ -108,10 +110,13 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession, onUpdateData }: Stat
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [data.sessions]);
 
+  // Empty query -> the full alphabetical list (already sorted above) so she can browse
+  // rather than type; a non-empty query folds accents on both sides ("developpe" must
+  // find "développé") and caps suggestions at 8 to keep the dropdown short.
   const searchResults = useMemo(() => {
-    const q = exerciseSearch.trim().toLowerCase();
-    if (!q) return [];
-    return allLoggedExerciseNames.filter(n => n.toLowerCase().includes(q)).slice(0, 8);
+    const q = foldAccents(exerciseSearch.trim());
+    if (!q) return allLoggedExerciseNames;
+    return allLoggedExerciseNames.filter(n => foldAccents(n).includes(q)).slice(0, 8);
   }, [allLoggedExerciseNames, exerciseSearch]);
 
   // All PRs, grouped by normalized name -> best e1rm ever
@@ -414,22 +419,22 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession, onUpdateData }: Stat
             placeholder="Rechercher un exercice..."
             className="w-full bg-secondary/50 rounded-lg px-3 py-2 text-sm text-foreground outline-none"
           />
-          {exerciseSearch.trim() !== '' && (
-            searchResults.length > 0 ? (
-              <div className="mt-2 space-y-1">
-                {searchResults.map(n => (
-                  <button
-                    key={n}
-                    onClick={() => setHistoryExercise(n)}
-                    className="w-full text-left min-h-11 flex items-center px-2 rounded-lg text-sm text-foreground active:bg-secondary/60"
-                  >
-                    {n}
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <p className="text-xs text-muted-foreground mt-2 px-2">Aucun exercice trouvé.</p>
-            )
+          {searchResults.length > 0 ? (
+            <div className="mt-2 space-y-1 max-h-72 overflow-y-auto">
+              {searchResults.map(n => (
+                <button
+                  key={n}
+                  onClick={() => setHistoryExercise(n)}
+                  className="w-full text-left min-h-11 flex items-center px-2 rounded-lg text-sm text-foreground active:bg-secondary/60"
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground mt-2 px-2">
+              {exerciseSearch.trim() !== '' ? 'Aucun exercice trouvé.' : 'Aucun exercice enregistré pour le moment.'}
+            </p>
           )}
         </div>
       )}
@@ -969,7 +974,7 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession, onUpdateData }: Stat
         <div className="glass-card p-4 mb-4">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-foreground">Temps d'entraînement mensuel</h3>
-            <RangeButtons value={monthlyTimeRange} onChange={setMonthlyTimeRange} />
+            <RangeButtons value={monthlyTimeRange} onChange={setMonthlyTimeRange} options={['3m', '6m', 'all']} />
           </div>
           <ResponsiveContainer width="100%" height={160}>
             <BarChart data={monthlyTimeData}>

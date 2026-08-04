@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight, Plus, Trash2, X, Activity } from 'lucide-rea
 import { formatCardioDuration, calculatePaceMinPerKm, formatPace, formatCardioDistance } from '@/lib/cardio';
 import SessionDetailView from './SessionDetailView';
 import { CARDIO_ACTIVITY_TYPES } from './WorkoutTab';
+import { useSwipeToClose } from '@/hooks/useSwipeToClose';
 
 interface CalendarTabProps {
   data: AppData;
@@ -21,6 +22,11 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession, onDe
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [confirmDeleteCardioId, setConfirmDeleteCardioId] = useState<string | null>(null);
   const cancelDeleteRef = useRef<HTMLButtonElement>(null);
+  // Swipe-to-close on the day view — same left-edge-swipe-right gesture as Réglages→Séance
+  // (see useSwipeToClose). No dirty-state concern here, so no canClose/onBlocked needed.
+  const { panelRef, handleTouchStart, handleTouchEnd, panelStyle } = useSwipeToClose({
+    onClose: () => setSelectedDate(null),
+  });
 
   // Default focus to the safe action, and let Escape back out — same expectations any
   // confirm dialog needs, easy to miss when a modal is hand-rolled instead of using a
@@ -174,7 +180,13 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession, onDe
     const plannedForDay = plannedByDate[selectedDate];
 
     return (
-      <div className="px-4 pt-12 pb-24 animate-slide-up">
+      <div
+        ref={panelRef}
+        className="px-4 pt-12 pb-24 animate-slide-up"
+        style={panelStyle}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+      >
         {/* Delete confirmation modal */}
         {confirmDeleteId && (
           <div
@@ -351,7 +363,7 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession, onDe
                 {activeWorkoutTypes.map(wt => (
                   <button
                     key={wt.id}
-                    onClick={() => setPlannedSession(selectedDate, wt.id)}
+                    onClick={() => { setPlannedSession(selectedDate, wt.id); setSelectedDate(null); }}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-secondary text-xs font-medium text-foreground active:scale-95 transition-transform"
                   >
                     <div className="w-2 h-2 rounded-full" style={{ backgroundColor: `hsl(${wt.color})` }} />

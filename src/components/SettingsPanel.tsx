@@ -1,5 +1,5 @@
 import { useState, useRef, useMemo, useEffect } from 'react';
-import { AppData, WorkoutType, Exercise, ExerciseMethod, Program, WORKOUT_COLORS, BodyWeightLog, DEFAULT_APP_DATA, Gender, DeloadType, DeloadIntensity } from '@/lib/types';
+import { AppData, WorkoutType, Exercise, ExerciseMethod, ExerciseEquipment, EQUIPMENT_LABELS, Program, WORKOUT_COLORS, BodyWeightLog, DEFAULT_APP_DATA, Gender, DeloadType, DeloadIntensity } from '@/lib/types';
 import { linkSuperset, unlinkSuperset, buildExerciseBlocks, flattenBlocks, ExerciseBlock } from '@/lib/superset';
 import { parseSessionNotes, parseMultiSessionNotes, NOTES_SYNTAX_HELP, NOTES_SYNTAX_HELP_FILL } from '@/lib/notesParser';
 import { getEmomConfig, getEmomWeight, getDefaultEmomPercentage } from '@/lib/emom';
@@ -7,11 +7,12 @@ import { getClusterConfig, getMiniSeriesWeight, CLUSTER_PRESETS } from '@/lib/cl
 import { estimateOneRepMax, estimateTrainingMax } from '@/lib/trainingMax';
 import { splitEquipmentVariant } from '@/lib/exerciseNormalize';
 import { STANDARD_MOVEMENTS, StandardMovement, isForceFocusExercise } from '@/lib/strengthStandards';
-import { ArrowLeft, Plus, Trash2, EyeOff, Eye, Scale, Link2, Link2Off, Download, Upload, Database, AlertTriangle, FileText, Zap, Timer, Clock, Layers, Check, Calculator, TrendingDown, User, Infinity as InfinityIcon, Pencil, X, RefreshCw, Dumbbell, ChevronDown } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, EyeOff, Eye, Scale, Link2, Link2Off, Download, Upload, Database, AlertTriangle, FileText, Zap, Timer, Clock, Layers, Check, Calculator, TrendingDown, User, Infinity as InfinityIcon, Pencil, X, RefreshCw, Dumbbell, ChevronDown, Repeat } from 'lucide-react';
 import { SortableList, DragHandle } from './SortableBlock';
 import { loadData, saveData } from '@/lib/storage';
 import { parseBackupFile } from '@/lib/backupFile';
 import { toast } from '@/hooks/use-toast';
+import { useSwipeToClose } from '@/hooks/useSwipeToClose';
 import { getActiveDeload, buildManualDeloadPatch, buildDeloadDeactivatePatch, evaluateDeloadCriteria, buildDeloadAcceptPatch, buildDeloadDismissPatch } from '@/lib/deload';
 
 
@@ -440,92 +441,17 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
     onClose();
   };
 
-  // Left-edge swipe right, mirroring the OS back gesture. Ignored unless it starts within
-  // the edge zone (a swipe starting mid-screen is more likely scrolling a horizontal row,
-  // e.g. the color picker swatches) and is mostly horizontal (not a vertical page scroll).
-  // The panel follows the finger live (dragX, no transition) while dragging, then either
-  // snaps back or finishes sliding out (transition re-enabled) so the close reads as one
-  // continuous gesture instead of the panel just vanishing under the finger. This panel is
-  // rendered as a `fixed` overlay ON TOP of the Séance screen (see WorkoutTab), which stays
-  // mounted underneath — so as dragX grows, the Séance screen is what's actually being
-  // revealed, not a plain background.
-  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
-  const draggingRef = useRef(false);
-  const [dragX, setDragX] = useState(0);
-  const [dragActive, setDragActive] = useState(false);
-  const [closing, setClosing] = useState(false);
-  const panelRef = useRef<HTMLDivElement>(null);
-
-  const handleTouchStart = (e: React.TouchEvent) => {
-    const t = e.touches[0];
-    touchStartRef.current = { x: t.clientX, y: t.clientY };
-    draggingRef.current = false;
-  };
-
-  // Native (non-passive) listener rather than React's onTouchMove: React attaches touch
-  // listeners as passive by default, so e.preventDefault() inside a JSX onTouchMove handler
-  // is silently ignored (and warns in the console) — it would never actually stop the page
-  // from also scrolling vertically underneath the horizontal drag. Locking that out via
-  // preventDefault once the gesture is confirmed horizontal is what keeps the panel moving
-  // strictly left-right instead of drifting diagonally with the finger.
-  useEffect(() => {
-    const el = panelRef.current;
-    if (!el) return;
-    const onMove = (e: TouchEvent) => {
-      const start = touchStartRef.current;
-      if (!start || start.x > 32) return;
-      const t = e.touches[0];
-      const dx = t.clientX - start.x;
-      const dy = t.clientY - start.y;
-      if (!draggingRef.current) {
-        if (dx > 10 && Math.abs(dx) > Math.abs(dy) * 2) {
-          draggingRef.current = true;
-          setDragActive(true);
-        } else {
-          return;
-        }
-      }
-      e.preventDefault();
-      setDragX(Math.max(0, dx));
-    };
-    el.addEventListener('touchmove', onMove, { passive: false });
-    return () => el.removeEventListener('touchmove', onMove);
-  }, []);
-
-  const handleTouchEnd = (e: React.TouchEvent) => {
-    const start = touchStartRef.current;
-    touchStartRef.current = null;
-    const wasDragging = draggingRef.current;
-    draggingRef.current = false;
-    setDragActive(false);
-    if (!wasDragging) { setDragX(0); return; }
-    const t = e.changedTouches[0];
-    const dx = start ? t.clientX - start.x : 0;
-    if (dx > 80) {
-      if (isDirty) {
-        // Snap back — the actual close is gated on the confirm dialog below.
-        setDragX(0);
-        setShowUnsavedConfirm(true);
-      } else {
-        setClosing(true);
-        setDragX(window.innerWidth);
-      }
-    } else {
-      setDragX(0);
-    }
-  };
-
-  // Let the slide-out finish before unmounting (onClose), so it reads as a close
-  // transition instead of a disappearance. onClose is read via a ref rather than a direct
-  // effect dependency: it's a fresh inline function on every parent render, and depending
-  // on it directly would restart the 220ms timer on any parent re-render while closing.
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
-  useEffect(() => {
-    if (!closing) return;
-    const timer = setTimeout(() => onCloseRef.current(), 220);
-    return () => clearTimeout(timer);
-  }, [closing]);
+  // Left-edge swipe right, mirroring the OS back gesture (see useSwipeToClose) — this
+  // panel is rendered as a `fixed` overlay ON TOP of the Séance screen (see WorkoutTab),
+  // which stays mounted underneath, so as the drag grows, the Séance screen is what's
+  // actually being revealed, not a plain background. `canClose` vetoes the close when
+  // there are unsaved changes; `onBlocked` then raises the same confirm dialog the
+  // back-arrow button uses instead of closing silently.
+  const { panelRef, handleTouchStart, handleTouchEnd, panelStyle } = useSwipeToClose({
+    onClose,
+    canClose: () => !isDirty,
+    onBlocked: () => setShowUnsavedConfirm(true),
+  });
 
   // Appended at the end (not prepended) so the "Ajouter un type de séance" button — itself
   // at the bottom of the list — lands right next to the card it just created; newlyAddedTypeId
@@ -644,11 +570,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
     <div
       ref={panelRef}
       className="fixed inset-0 z-40 bg-background overflow-y-auto px-4 pt-12 pb-24 animate-slide-up"
-      style={{
-        transform: dragX ? `translateX(${dragX}px)` : undefined,
-        transition: dragActive ? 'none' : 'transform 0.22s ease-out',
-        touchAction: 'pan-y',
-      }}
+      style={panelStyle}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
     >
@@ -964,6 +886,41 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                       );
                     };
 
+                    // Default unilatéral/équipement for this exercise — lives under "Options
+                    // avancées" like Drop set/Max de reps/Superset above. This is the PLAN's
+                    // default; WorkoutTab lets her override it for one session (e.g. she planned
+                    // barre but the rack was taken) without touching this default.
+                    const renderEquipmentFields = (ex: Exercise) => {
+                      const ei = type.exercises.findIndex(e => e.id === ex.id);
+                      return (
+                        <>
+                          <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                            <input
+                              type="checkbox"
+                              checked={!!ex.unilateral}
+                              onChange={e => updateExercise(ti, ei, 'unilateral', e.target.checked ? true : undefined)}
+                              className="w-3.5 h-3.5 accent-accent-blue"
+                            />
+                            <Repeat size={10} className="text-accent-blue" /> Unilatéral
+                          </label>
+                          <div className="flex items-center gap-1">
+                            <span className="text-[10px] text-muted-foreground">Équipement</span>
+                            <select
+                              value={ex.equipment ?? ''}
+                              onChange={e => updateExercise(ti, ei, 'equipment', e.target.value === '' ? undefined : e.target.value as ExerciseEquipment)}
+                              className="bg-secondary text-foreground text-[10px] rounded-md px-1.5 py-1 outline-none"
+                              aria-label={`Équipement par défaut de ${ex.name || 'cet exercice'}`}
+                            >
+                              <option value="">—</option>
+                              {(Object.keys(EQUIPMENT_LABELS) as ExerciseEquipment[]).map(eq => (
+                                <option key={eq} value={eq}>{EQUIPMENT_LABELS[eq]}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </>
+                      );
+                    };
+
                     const onReorder = (newBlocks: ExerciseBlock[]) => {
                       const updated = [...workoutTypes];
                       updated[ti] = { ...updated[ti], exercises: flattenBlocks(newBlocks, updated[ti].exercises) };
@@ -1065,10 +1022,25 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                 <DragHandle />
                                 {renderRow(ex)}
                               </div>
-                              {ex.method && freePartners.length > 0 && (
+                              {ex.method && (
                                 <div className="pl-6">
-                                  {supersetTriggerButton}
-                                  {supersetPickerChips}
+                                  <button
+                                    onClick={() => setExpandedAdvancedFor(expandedAdvancedFor === ex.id ? null : ex.id)}
+                                    className="text-[10px] text-muted-foreground flex items-center gap-1"
+                                    aria-expanded={expandedAdvancedFor === ex.id}
+                                  >
+                                    <ChevronDown size={10} className={`transition-transform ${expandedAdvancedFor === ex.id ? 'rotate-180' : ''}`} />
+                                    Options avancées
+                                  </button>
+                                  {expandedAdvancedFor === ex.id && (
+                                    <>
+                                      <div className="flex items-center gap-3 flex-wrap mt-1.5">
+                                        {renderEquipmentFields(ex)}
+                                        {freePartners.length > 0 && supersetTriggerButton}
+                                      </div>
+                                      {freePartners.length > 0 && supersetPickerChips}
+                                    </>
+                                  )}
                                 </div>
                               )}
                               {/* Force/Hypertrophie mis en évidence (pas replié sous "Options
@@ -1446,7 +1418,6 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                       <ChevronDown size={10} className={`transition-transform ${expandedAdvancedFor === ex.id ? 'rotate-180' : ''}`} />
                                       Options avancées
                                     </button>
-                                    {supersetTriggerButton}
                                   </div>
                                   {expandedAdvancedFor === ex.id && (
                                     <div className="flex items-center gap-3 flex-wrap mt-1.5">
@@ -1468,6 +1439,8 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                         />
                                         <InfinityIcon size={10} className="text-accent-purple" /> Max de reps
                                       </label>
+                                      {renderEquipmentFields(ex)}
+                                      {supersetTriggerButton}
                                     </div>
                                   )}
                                   {/* Own line, amber like the Drop set toggle above it — shown

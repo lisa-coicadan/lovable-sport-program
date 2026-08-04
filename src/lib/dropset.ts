@@ -1,5 +1,4 @@
 import { DropSetConfig } from './types';
-import { roundWeightSmart } from './weightRounding';
 
 // Drop set: unlike Cluster/EMOM (a Training-Max-driven method generating every set
 // upfront), a drop set cascades live in-session from whichever regular set she's
@@ -28,7 +27,24 @@ export function getDropSetStage(
   stage: number,
   config: ResolvedDropSetConfig
 ): { weight: number; reps: number } {
-  const weight = roundWeightSmart(anchorWeight * (1 - config.stepPercentage * stage));
+  // A drop set must get EASIER at every stage — for a normal (positive) load that means a
+  // lower number, but for an assisted rep (negative weight = assistance against
+  // bodyweight, see isBodyweightOptionalExercise in exerciseNormalize.ts) easier means
+  // MORE assistance, i.e. a MORE negative number. Multiplying a negative anchor by
+  // (1 - step) moves it toward zero — less assistance, harder, the wrong direction — so
+  // the delta is sized from the anchor's magnitude and always subtracted, which pushes a
+  // positive anchor down and a negative one further down (more negative) alike.
+  const delta = Math.abs(anchorWeight) * config.stepPercentage * stage;
+  const weight = roundDropSetWeight(anchorWeight - delta);
   const reps = Math.max(DROPSET_MIN_REPS, anchorReps - config.stepReps * stage);
   return { weight, reps };
+}
+
+// Like roundWeightSmart, but doesn't clamp negative values to 0 — needed here since an
+// assisted rep's weight is legitimately negative (see above), unlike every other caller of
+// roundWeightSmart where weight is always an absolute non-negative load.
+function roundDropSetWeight(value: number): number {
+  const abs = Math.abs(value);
+  const nearest = abs < 15 ? 0.5 : abs < 40 ? 1 : 2.5;
+  return Math.round(value / nearest) * nearest;
 }

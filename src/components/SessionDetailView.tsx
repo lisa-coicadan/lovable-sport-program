@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useRef } from 'react';
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { SessionLog, SetLog, AppData, calculate1RM, resolveProgramName } from '@/lib/types';
 import { isBodyweightOptionalExercise, weightFieldValue } from '@/lib/exerciseNormalize';
 import { computeSetTonnage, resolveBodyWeightAtDate } from '@/lib/tonnage';
@@ -12,10 +12,76 @@ interface SessionDetailViewProps {
   onDelete?: (sessionId: string) => void;
 }
 
+// The app's fixed brand hues (same trio BrandMark.tsx draws) — a stable identity constant,
+// not a themeable token, so hardcoded here exactly as there. Module-level (not rebuilt
+// per share) since it never changes.
+const BRAND_MARK_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="flow" x1="10" y1="10" x2="90" y2="90" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="hsl(189 94% 55%)" />
+      <stop offset="50%" stop-color="hsl(262 83% 66%)" />
+      <stop offset="100%" stop-color="hsl(322 100% 60%)" />
+    </linearGradient>
+    <linearGradient id="bar" x1="19" y1="50" x2="81" y2="50" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="hsl(189 94% 55%)" />
+      <stop offset="100%" stop-color="hsl(322 100% 60%)" />
+    </linearGradient>
+  </defs>
+  <circle cx="50" cy="50" r="46" fill="none" stroke="url(#flow)" stroke-width="3" stroke-linecap="round" stroke-dasharray="0.1 9.4" opacity="0.85" />
+  <circle cx="50" cy="4.3" r="2.8" fill="hsl(189 94% 55%)" />
+  <circle cx="90.5" cy="65" r="2.8" fill="hsl(322 100% 60%)" />
+  <path d="M 30 48 C 35 23, 46 13, 50 30 C 54 13, 65 23, 70 48" fill="none" stroke="url(#flow)" stroke-width="4.5" stroke-linecap="round" />
+  <rect x="28" y="47" width="44" height="6" rx="3" fill="url(#bar)" />
+  <rect x="15" y="41" width="6" height="18" rx="2.5" fill="hsl(189 94% 55%)" opacity="0.65" />
+  <rect x="19" y="36" width="9" height="28" rx="3" fill="hsl(189 94% 55%)" />
+  <rect x="72" y="36" width="9" height="28" rx="3" fill="hsl(322 100% 60%)" />
+  <rect x="79" y="41" width="6" height="18" rx="2.5" fill="hsl(322 100% 60%)" opacity="0.65" />
+</svg>`;
+
+const loadImage = (src: string) => new Promise<HTMLImageElement>((resolve, reject) => {
+  const img = new Image();
+  img.onload = () => resolve(img);
+  img.onerror = reject;
+  img.src = src;
+});
+
+// Turns a data: URL (from canvas.toDataURL, itself synchronous) into a Blob without any
+// async step — see the `logoImgRef` comment in the component for why this matters.
+function dataUrlToBlob(dataUrl: string): Blob {
+  const [header, base64] = dataUrl.split(',');
+  const mime = header.match(/:(.*?);/)?.[1] ?? 'image/png';
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+}
+
+function downloadBlob(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: SessionDetailViewProps) => {
   const [showConfirm, setShowConfirm] = useState(false);
   const [editing, setEditing] = useState(false);
   const recapRef = useRef<HTMLDivElement>(null);
+  // Pre-loaded ahead of the share click (see the effect below) so handleShare has zero
+  // `await` before it can call navigator.share — iOS Safari only allows the Web Share API
+  // within the synchronous tail of a user gesture; any real async wait first (an image
+  // load, canvas.toBlob's callback) silently expires that window, and the code's own
+  // catch-all then reads the resulting rejection as "she cancelled the share sheet" even
+  // though she never saw a share sheet at all. This was the actual bug behind "ça ne
+  // marche pas" — no error ever surfaced because the failure looked identical to a cancel.
+  const logoImgRef = useRef<HTMLImageElement | null>(null);
+  useEffect(() => {
+    loadImage(`data:image/svg+xml;base64,${btoa(BRAND_MARK_SVG)}`)
+      .then(img => { logoImgRef.current = img; })
+      .catch(() => { /* share falls back to loading it inline if this never resolved */ });
+  }, []);
 
   // Edit state
   const [editSets, setEditSets] = useState<SetLog[]>([]);
@@ -200,40 +266,13 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
     const successColor = hsl(rawSuccess);
     const destructiveColor = hsl(rawDestructive);
 
-    // The app's fixed brand hues (same trio BrandMark.tsx draws) — a stable identity
-    // constant, not a themeable token, so hardcoded here exactly as there.
-    const brandMarkSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-      <defs>
-        <linearGradient id="flow" x1="10" y1="10" x2="90" y2="90" gradientUnits="userSpaceOnUse">
-          <stop offset="0%" stop-color="hsl(189 94% 55%)" />
-          <stop offset="50%" stop-color="hsl(262 83% 66%)" />
-          <stop offset="100%" stop-color="hsl(322 100% 60%)" />
-        </linearGradient>
-        <linearGradient id="bar" x1="19" y1="50" x2="81" y2="50" gradientUnits="userSpaceOnUse">
-          <stop offset="0%" stop-color="hsl(189 94% 55%)" />
-          <stop offset="100%" stop-color="hsl(322 100% 60%)" />
-        </linearGradient>
-      </defs>
-      <circle cx="50" cy="50" r="46" fill="none" stroke="url(#flow)" stroke-width="3" stroke-linecap="round" stroke-dasharray="0.1 9.4" opacity="0.85" />
-      <circle cx="50" cy="4.3" r="2.8" fill="hsl(189 94% 55%)" />
-      <circle cx="90.5" cy="65" r="2.8" fill="hsl(322 100% 60%)" />
-      <path d="M 30 48 C 35 23, 46 13, 50 30 C 54 13, 65 23, 70 48" fill="none" stroke="url(#flow)" stroke-width="4.5" stroke-linecap="round" />
-      <rect x="28" y="47" width="44" height="6" rx="3" fill="url(#bar)" />
-      <rect x="15" y="41" width="6" height="18" rx="2.5" fill="hsl(189 94% 55%)" opacity="0.65" />
-      <rect x="19" y="36" width="9" height="28" rx="3" fill="hsl(189 94% 55%)" />
-      <rect x="72" y="36" width="9" height="28" rx="3" fill="hsl(322 100% 60%)" />
-      <rect x="79" y="41" width="6" height="18" rx="2.5" fill="hsl(322 100% 60%)" opacity="0.65" />
-    </svg>`;
-    const loadImage = (src: string) => new Promise<HTMLImageElement>((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => resolve(img);
-      img.onerror = reject;
-      img.src = src;
-    });
-    const [logoImg] = await Promise.all([
-      loadImage(`data:image/svg+xml;base64,${btoa(brandMarkSvg)}`),
-      document.fonts.ready,
-    ]);
+    // Prefer the pre-loaded logo (see the mount effect above) so there is no `await` at
+    // all before the canvas is built — only fall back to loading it here (a real async
+    // wait) on the rare chance the mount effect hasn't resolved yet.
+    const logoImg = logoImgRef.current ?? await loadImage(`data:image/svg+xml;base64,${btoa(BRAND_MARK_SVG)}`);
+    // Same reasoning — skip the await entirely when fonts are already loaded (the common
+    // case, since the app has been rendering text in them since first paint).
+    if (document.fonts.status !== 'loaded') await document.fonts.ready;
 
     const canvas = document.createElement('canvas');
     const w = 1080;
@@ -537,27 +576,28 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
     ctx.fillStyle = accentBarGradient(ctx, 0, w, canvas.height - 6);
     ctx.fillRect(0, canvas.height - 6, w, 6);
 
-    // Convert to blob and share
-    canvas.toBlob(async (blob) => {
-      if (!blob) return;
-      const file = new File([blob], `${session.workoutTypeName}-${session.date}.png`, { type: 'image/png' });
+    // toDataURL is SYNCHRONOUS (unlike canvas.toBlob's callback) — combined with the
+    // pre-loaded logo and skipped font wait above, navigator.share below now runs with
+    // zero real async gap since the click, which is what iOS Safari requires to honor it
+    // as still within the user gesture.
+    const blob = dataUrlToBlob(canvas.toDataURL('image/png'));
+    const file = new File([blob], `${session.workoutTypeName}-${session.date}.png`, { type: 'image/png' });
 
-      if (navigator.share && navigator.canShare?.({ files: [file] })) {
-        try {
-          await navigator.share({ files: [file] });
-        } catch {
-          // user cancelled the share sheet, nothing to do
+    if (navigator.share && navigator.canShare?.({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file] });
+      } catch (err) {
+        // AbortError = she dismissed the share sheet herself, nothing to do. Anything
+        // else (e.g. iOS refusing because the gesture window had already lapsed) falls
+        // back to a direct download instead of silently doing nothing — see the
+        // logoImgRef comment above for the bug this used to cause.
+        if (err instanceof Error && err.name !== 'AbortError') {
+          downloadBlob(blob, file.name);
         }
-      } else {
-        // Fallback: download
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = file.name;
-        a.click();
-        URL.revokeObjectURL(url);
       }
-    }, 'image/png');
+    } else {
+      downloadBlob(blob, file.name);
+    }
   };
 
   // =========== EDIT MODE ===========

@@ -75,14 +75,20 @@ const formatRestLabel = (seconds: number): string => {
 
 // Generates the SetLog rows for one exercise given whichever method actually applies
 // (its configured default, or a live session override) — shared by the initial session
-// build and by the in-session method switch, so both stay in sync.
-const buildSetsForExercise = (ex: Exercise, method: ExerciseMethod | undefined, lastWeight: number): SetLog[] => {
+// build and by the in-session method switch, so both stay in sync. `tags` is the
+// EFFECTIVE unilatéral/équipement to stamp (session override if any, else the exercise's
+// Réglages default) — this is a module-level pure function, so it can't read the
+// component's tagOverrides state itself; every caller passes getEffectiveTags(ex).
+const buildSetsForExercise = (
+  ex: Exercise, method: ExerciseMethod | undefined, lastWeight: number,
+  tags: { equipment?: ExerciseEquipment; unilateral?: boolean } = { equipment: ex.equipment, unilateral: ex.unilateral }
+): SetLog[] => {
   if (method?.type === '531') {
     const weekSets = getWeekSets(method.trainingMax, method.currentWeek);
     return weekSets.map((s, i) => ({
       exerciseId: ex.id, exerciseName: ex.name, setNumber: i + 1,
       reps: parseInt(s.reps) || 1, weight: s.weight, completed: false,
-      equipment: ex.equipment, unilateral: ex.unilateral,
+      equipment: tags.equipment, unilateral: tags.unilateral,
     }));
   }
   if (method?.type === 'cluster') {
@@ -94,7 +100,7 @@ const buildSetsForExercise = (ex: Exercise, method: ExerciseMethod | undefined, 
         result.push({
           exerciseId: ex.id, exerciseName: ex.name, setNumber: ++i,
           reps: m.reps, weight: getMiniSeriesWeight(method.trainingMax, m.percentage), completed: false,
-          equipment: ex.equipment, unilateral: ex.unilateral,
+          equipment: tags.equipment, unilateral: tags.unilateral,
         });
       });
     }
@@ -107,7 +113,7 @@ const buildSetsForExercise = (ex: Exercise, method: ExerciseMethod | undefined, 
     for (let i = 0; i < durationMinutes; i++) {
       result.push({
         exerciseId: ex.id, exerciseName: ex.name, setNumber: i + 1, reps: repsPerMinute, weight, completed: false,
-        equipment: ex.equipment, unilateral: ex.unilateral,
+        equipment: tags.equipment, unilateral: tags.unilateral,
       });
     }
     return result;
@@ -118,7 +124,7 @@ const buildSetsForExercise = (ex: Exercise, method: ExerciseMethod | undefined, 
       exerciseId: ex.id, exerciseName: ex.name, setNumber: i + 1,
       reps: ex.amrap ? 0 : ex.reps, weight: lastWeight, completed: false,
       amrap: ex.amrap || undefined,
-      equipment: ex.equipment, unilateral: ex.unilateral,
+      equipment: tags.equipment, unilateral: tags.unilateral,
     });
   }
   return result;
@@ -162,6 +168,11 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
   const [previewOpen, setPreviewOpen] = useState(true);
   const [clusterAutoTimer, setClusterAutoTimer] = useState(false);
   const [methodOverrides, setMethodOverrides] = useState<Record<string, MethodOverride>>({});
+  // Session-only unilatéral/équipement override, same pattern as methodOverrides above —
+  // Réglages now owns the exercise's PLANNED default (see SettingsPanel's "Options
+  // avancées"); this only lets her deviate from it for THIS session (e.g. the rack was
+  // taken, she used dumbbells instead) without rewriting that default. Never persisted.
+  const [tagOverrides, setTagOverrides] = useState<Record<string, { equipment?: ExerciseEquipment; unilateral?: boolean }>>({});
   const [showAbandonConfirm, setShowAbandonConfirm] = useState(false);
   const [reminderNoteEditor, setReminderNoteEditor] = useState<{ exerciseId: string; name: string; draft: string } | null>(null);
   // RPE per exercise, filled live during the session (not in the end-of-session recap,
@@ -187,8 +198,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
   // Quick weight entry inline in the bodyweight-reminder banner (select mode) — see
   // src/lib/bodyweightReminder.ts for the ~monthly trigger/snooze logic.
   const [bodyweightDraft, setBodyweightDraft] = useState('');
-  // Which exercise's unilatéral/équipement popover is open — moved here from Réglages,
-  // see updateExerciseTag above.
+  // Which exercise's unilatéral/équipement popover is open — see tagOverrides above.
   const [tagsEditorFor, setTagsEditorFor] = useState<string | null>(null);
   // "1RM ?" confirmation on a genuine 1-rep set (Force-focus exercises only, see
   // Exercise.trainingFocus) — the checkbox below is the RPE 9-10 self-report that makes
@@ -279,7 +289,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
       if (idx === -1) return prev;
       const insertAt = prev.slice(0, idx).filter(s => s.exerciseId !== ex.id).length;
       const filtered = prev.filter(s => s.exerciseId !== ex.id);
-      const fresh = buildSetsForExercise(ex, effectiveMethod, 0);
+      const fresh = buildSetsForExercise(ex, effectiveMethod, 0, getEffectiveTags(ex));
       const result = [...filtered];
       result.splice(insertAt, 0, ...fresh);
       return result;
@@ -391,6 +401,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     setStartTime(Date.now());
     setAmrapReps({});
     setMethodOverrides({});
+    setTagOverrides({});
     setRenamingExerciseId(null);
     setDropSetPickerFor(null);
     setExerciseDifficulty({});
@@ -682,13 +693,20 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     setTmUpdatePrompt(null);
   };
 
-  // Unilatéral/équipement moved here from Réglages (see item 5 of the v2.0 list) — same
-  // patchExercise-on-the-template + selectedType-snapshot-sync pattern as applyTmUpdate
-  // above, since these are exercise-template attributes, not per-session state.
-  const updateExerciseTag = (exerciseId: string, patch: Partial<Pick<Exercise, 'unilateral' | 'equipment'>>) => {
-    const patchExercise = (ex: Exercise) => ex.id === exerciseId ? { ...ex, ...patch } : ex;
-    onUpdateData({ workoutTypes: data.workoutTypes.map(t => ({ ...t, exercises: t.exercises.map(patchExercise) })) });
-    setSelectedType(prev => prev ? { ...prev, exercises: prev.exercises.map(patchExercise) } : prev);
+  // The tags actually in effect for this session — the session-only override if she set
+  // one, otherwise the exercise's planned default from Réglages. Used both to display the
+  // current unilatéral/équipement state and to stamp every newly-created SetLog.
+  const getEffectiveTags = (ex: Exercise): { equipment?: ExerciseEquipment; unilateral?: boolean } =>
+    tagOverrides[ex.id] ?? { equipment: ex.equipment, unilateral: ex.unilateral };
+
+  // Session-only — see tagOverrides above. Seeds from the exercise's current default the
+  // first time she touches it, so toggling just one field (e.g. unilatéral) doesn't lose
+  // the other (e.g. an already-different equipment override).
+  const updateTagOverride = (ex: Exercise, patch: Partial<{ equipment: ExerciseEquipment; unilateral: boolean }>) => {
+    setTagOverrides(prev => ({
+      ...prev,
+      [ex.id]: { ...(prev[ex.id] ?? { equipment: ex.equipment, unilateral: ex.unilateral }), ...patch },
+    }));
   };
 
   // Opens the target-1RM setup panel, pre-filled from the latest confirmed true 1RM for
@@ -723,10 +741,11 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     const target = parseFloat(testMaxTargetDraft[ex.id]) || 0;
     if (target <= 0) return;
     const plan = generateRampPlan(target);
+    const tags = getEffectiveTags(ex);
     const rampSets: SetLog[] = plan.map((p, i) => ({
       exerciseId: ex.id, exerciseName: ex.name, setNumber: i + 1,
       reps: p.reps, weight: p.weight, completed: false, isTestMax: true,
-      equipment: ex.equipment, unilateral: ex.unilateral,
+      equipment: tags.equipment, unilateral: tags.unilateral,
     }));
     setSets(prev => replaceExerciseSets(prev, ex.id, rampSets));
     setTestMaxSetupOpen(prev => ({ ...prev, [ex.id]: false }));
@@ -740,10 +759,11 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     const target = parseFloat(testMaxTargetDraft[ex.id]) || 0;
     if (target <= 0) return;
     const bonus = generateBonusStage(target);
+    const bonusTags = getEffectiveTags(ex);
     const bonusSet: SetLog = {
       exerciseId: ex.id, exerciseName: ex.name, setNumber: RAMP_STAGES.length + 1,
       reps: bonus.reps, weight: bonus.weight, completed: false, isTestMax: true,
-      equipment: ex.equipment, unilateral: ex.unilateral,
+      equipment: bonusTags.equipment, unilateral: bonusTags.unilateral,
     };
     setSets(prev => {
       const lastIdx = prev.reduce((acc, s, i) => (s.exerciseId === ex.id ? i : acc), -1);
@@ -758,14 +778,14 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
   // override made before starting the test is respected on cancel too, instead of
   // reverting to whatever method the template has configured by default.
   const cancelTestMaxRamp = (ex: Exercise) => {
-    const normalSets = buildSetsForExercise(ex, getEffectiveMethod(ex), 0);
+    const normalSets = buildSetsForExercise(ex, getEffectiveMethod(ex), 0, getEffectiveTags(ex));
     setSets(prev => replaceExerciseSets(prev, ex.id, normalSets));
   };
 
-  // Only offered on 531/Cluster/EMOM exercises — those are the ones with a defined
-  // TM-derived working weight to ramp toward; a plain exercise has nothing to anchor a %
-  // to. No cap on how many can be added — see src/lib/warmup.ts for the percentage table
-  // past 5 stages.
+  // Available on every exercise regardless of method — 531/Cluster/EMOM derive the
+  // working weight from their Training Max, a plain exercise anchors on whatever weight
+  // is already prefilled/entered on its own first working set instead. No cap on how many
+  // can be added — see src/lib/warmup.ts for the percentage table past 5 stages.
   const getWorkingWeight = (ex: Exercise): number => {
     const method = getEffectiveMethod(ex);
     if (method?.type === '531') return getWeekSets(method.trainingMax, (ex.method as FiveThreeOneMethod).currentWeek)[0]?.weight ?? 0;
@@ -777,9 +797,6 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
       const { percentage } = getEmomConfig(method);
       return getEmomWeight(method.trainingMax, percentage);
     }
-    // Plain exercise (only reachable for the first exercise of the session, see
-    // firstExerciseId above): no TM to derive a % from, so anchor on whatever weight is
-    // already prefilled/entered on its first working set.
     const firstWorkingSet = sets.find(s => s.exerciseId === ex.id && !s.isWarmup);
     return firstWorkingSet?.weight ?? 0;
   };
@@ -808,18 +825,31 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
   // this exercise's current working weight, but keep each stage's `completed` flag (and any
   // hand-edited reps) by position, so ticking off a warm-up before adding another doesn't
   // get silently undone.
-  const rebuildWarmupSets = (ex: Exercise, priorStages: (SetLog | undefined)[]): void => {
+  // `oldCount` is the number of warm-up stages that existed BEFORE this add/remove — used
+  // to tell an untouched auto-suggested weight (still equal to what the OLD percentage
+  // table would have produced for that position) from one she actually typed in live,
+  // which must survive the reshuffle instead of being silently overwritten. Real bug she
+  // hit: logging warm-up weights as she went, adding one more warm-up than planned wiped
+  // every previously-entered weight back to the auto-suggested figure.
+  const rebuildWarmupSets = (ex: Exercise, priorStages: (SetLog | undefined)[], oldCount: number): void => {
     const percentages = getWarmupPercentages(priorStages.length);
+    const oldPercentages = getWarmupPercentages(oldCount);
     const workingWeight = getWorkingWeight(ex);
     const workingReps = getWorkingReps(ex);
-    const newWarmupSets: SetLog[] = priorStages.map((prior, i) => ({
-      exerciseId: ex.id, exerciseName: ex.name, setNumber: i + 1,
-      reps: prior?.reps ?? workingReps,
-      weight: roundWeightSmart(workingWeight * (percentages[i] ?? 0)),
-      completed: prior?.completed ?? false,
-      isWarmup: true,
-      equipment: prior?.equipment ?? ex.equipment, unilateral: prior?.unilateral ?? ex.unilateral,
-    }));
+    const tags = getEffectiveTags(ex);
+    const newWarmupSets: SetLog[] = priorStages.map((prior, i) => {
+      const suggested = roundWeightSmart(workingWeight * (percentages[i] ?? 0));
+      const oldSuggested = prior ? roundWeightSmart(workingWeight * (oldPercentages[i] ?? 0)) : null;
+      const weight = prior && prior.weight !== oldSuggested ? prior.weight : suggested;
+      return {
+        exerciseId: ex.id, exerciseName: ex.name, setNumber: i + 1,
+        reps: prior?.reps ?? workingReps,
+        weight,
+        completed: prior?.completed ?? false,
+        isWarmup: true,
+        equipment: prior?.equipment ?? tags.equipment, unilateral: prior?.unilateral ?? tags.unilateral,
+      };
+    });
     setSets(prev => {
       const firstIdx = prev.findIndex(s => s.exerciseId === ex.id);
       const withoutOldWarmups = prev.filter(s => !(s.exerciseId === ex.id && s.isWarmup));
@@ -832,45 +862,51 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     const existingWarmups = sets
       .filter(s => s.exerciseId === ex.id && s.isWarmup)
       .sort((a, b) => a.setNumber - b.setNumber);
-    rebuildWarmupSets(ex, [...existingWarmups, undefined]);
+    rebuildWarmupSets(ex, [...existingWarmups, undefined], existingWarmups.length);
   };
 
   const removeWarmupSet = (ex: Exercise, indexToRemove: number) => {
     const existingWarmups = sets
       .filter(s => s.exerciseId === ex.id && s.isWarmup)
       .sort((a, b) => a.setNumber - b.setNumber);
-    rebuildWarmupSets(ex, existingWarmups.filter((_, i) => i !== indexToRemove));
+    rebuildWarmupSets(ex, existingWarmups.filter((_, i) => i !== indexToRemove), existingWarmups.length);
   };
 
   // Unilatéral/équipement tap-to-edit — icon button for the exercise's header row, shared
   // by every card type (531/Cluster/EMOM/plain) so it's reachable regardless of method,
   // not just on exercises with no method (see item 5/item 1 of the v2.0/v2.1 lists).
-  const renderTagsButton = (ex: Exercise) => (
-    <button
-      type="button"
-      onClick={() => setTagsEditorFor(tagsEditorFor === ex.id ? null : ex.id)}
-      className={`touch-target p-1.5 shrink-0 rounded-lg transition-colors ${
-        ex.unilateral || ex.equipment ? 'text-accent-blue' : 'text-muted-foreground/50 active:text-accent-blue'
-      }`}
-      aria-label={`Unilatéral / équipement pour ${ex.name}`}
-      aria-pressed={tagsEditorFor === ex.id}
-      title="Unilatéral / équipement"
-    >
-      <Repeat size={14} />
-    </button>
-  );
+  const renderTagsButton = (ex: Exercise) => {
+    const effective = getEffectiveTags(ex);
+    return (
+      <button
+        type="button"
+        onClick={() => setTagsEditorFor(tagsEditorFor === ex.id ? null : ex.id)}
+        className={`touch-target p-1.5 shrink-0 rounded-lg transition-colors ${
+          effective.unilateral || effective.equipment ? 'text-accent-blue' : 'text-muted-foreground/50 active:text-accent-blue'
+        }`}
+        aria-label={`Unilatéral / équipement pour ${ex.name}`}
+        aria-pressed={tagsEditorFor === ex.id}
+        title="Unilatéral / équipement"
+      >
+        <Repeat size={14} />
+      </button>
+    );
+  };
 
   // The popover itself (when open) or the read-only chips (when closed and set) — placed
-  // below the header row, same content regardless of card type.
+  // below the header row, same content regardless of card type. Reads/writes the session
+  // override (getEffectiveTags/updateTagOverride), never Réglages' planned default.
   const renderTagsPanel = (ex: Exercise) => {
+    const effective = getEffectiveTags(ex);
+    const isOverridden = !!tagOverrides[ex.id];
     if (tagsEditorFor === ex.id) {
       return (
         <div className="flex items-center gap-3 flex-wrap mb-2 bg-secondary/40 rounded-lg px-2.5 py-2">
           <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
             <input
               type="checkbox"
-              checked={!!ex.unilateral}
-              onChange={e => updateExerciseTag(ex.id, { unilateral: e.target.checked ? true : undefined })}
+              checked={!!effective.unilateral}
+              onChange={e => updateTagOverride(ex, { unilateral: e.target.checked ? true : undefined })}
               className="w-3.5 h-3.5 accent-accent-blue"
             />
             <Repeat size={10} className="text-accent-blue" /> Unilatéral
@@ -878,8 +914,8 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
           <div className="flex items-center gap-1">
             <span className="text-[10px] text-muted-foreground">Équipement</span>
             <select
-              value={ex.equipment ?? ''}
-              onChange={e => updateExerciseTag(ex.id, { equipment: e.target.value === '' ? undefined : e.target.value as ExerciseEquipment })}
+              value={effective.equipment ?? ''}
+              onChange={e => updateTagOverride(ex, { equipment: e.target.value === '' ? undefined : e.target.value as ExerciseEquipment })}
               className="bg-secondary text-foreground text-[10px] rounded-md px-1.5 py-1 outline-none"
               aria-label={`Équipement de ${ex.name}`}
             >
@@ -889,17 +925,29 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
               ))}
             </select>
           </div>
+          {isOverridden && (
+            <button
+              type="button"
+              onClick={() => setTagOverrides(prev => { const next = { ...prev }; delete next[ex.id]; return next; })}
+              className="text-[10px] text-muted-foreground underline"
+            >
+              Revenir au réglage par défaut
+            </button>
+          )}
         </div>
       );
     }
-    if (!ex.unilateral && !ex.equipment) return null;
+    if (!effective.unilateral && !effective.equipment) return null;
     return (
       <div className="flex items-center gap-1.5 mb-2 flex-wrap">
-        {ex.unilateral && (
+        {effective.unilateral && (
           <span className="text-[10px] text-accent-blue bg-accent-blue/10 px-2 py-0.5 rounded-full">Unilatéral</span>
         )}
-        {ex.equipment && (
-          <span className="text-[10px] text-muted-foreground bg-secondary px-2 py-0.5 rounded-full">{EQUIPMENT_LABELS[ex.equipment]}</span>
+        {effective.equipment && (
+          <span className="text-[10px] text-muted-foreground bg-secondary px-2 py-0.5 rounded-full">{EQUIPMENT_LABELS[effective.equipment]}</span>
+        )}
+        {isOverridden && (
+          <span className="text-[9px] text-warning/80">(pour cette séance)</span>
         )}
       </div>
     );
@@ -922,7 +970,10 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
             <span className="text-xs text-muted-foreground w-16 shrink-0">Éch. {i + 1}</span>
             <input
               type="number"
-              value={sets[s.globalIdx].weight || ''}
+              // Unlike a normal working set, 0kg is a legitimate warm-up entry (bodyweight-only
+              // ramp-up rep) regardless of the exercise's equipment — `weight || ''` would blank
+              // it right back out the moment it's typed, reading as "can't enter 0".
+              value={sets[s.globalIdx].weight === 0 ? 0 : sets[s.globalIdx].weight || ''}
               onChange={e => updateSet(s.globalIdx, 'weight', e.target.value)}
               className="w-14 bg-transparent text-foreground text-sm text-center outline-none font-mono"
               placeholder="kg"
@@ -1303,6 +1354,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     setSets([]);
     setPendingSession(null);
     setMethodOverrides({});
+    setTagOverrides({});
     setRenamingExerciseId(null);
     setDropSetPickerFor(null);
     setExerciseDifficulty({});
@@ -1319,19 +1371,21 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
   // every branch lets React's reconciliation preserve the same instance across mode
   // switches instead of remounting it.
   if (mode === 'summary' && pendingSession) {
+    // No RestTimer here (unlike every other mid-session mode) — the session is over, and
+    // the floating timer button lingering over the recap read as clutter/confusion. If
+    // she taps "back" into 'recap', RestTimer remounts fresh (any rest countdown that was
+    // running resets) — an acceptable tradeoff for an edge case vs. the timer visibly
+    // sitting on top of the final recap every single time.
     return (
-      <>
-        <SessionSummary
-          session={pendingSession}
-          previousSessions={data.sessions}
-          workoutTypes={data.workoutTypes}
-          gender={data.gender}
-          bodyWeightLogs={data.bodyWeightLogs}
-          onSave={handleSummaryComplete}
-          onBack={() => setMode(selectedType ? 'recap' : 'select')}
-        />
-        {selectedType && <RestTimer ref={restTimerRef} defaultSeconds={restDuration} />}
-      </>
+      <SessionSummary
+        session={pendingSession}
+        previousSessions={data.sessions}
+        workoutTypes={data.workoutTypes}
+        gender={data.gender}
+        bodyWeightLogs={data.bodyWeightLogs}
+        onSave={handleSummaryComplete}
+        onBack={() => setMode(selectedType ? 'recap' : 'select')}
+      />
     );
   }
 
@@ -1895,11 +1949,6 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
   const emomExerciseIds = new Set(
     (selectedType?.exercises || []).filter(ex => getEffectiveMethod(ex)?.type === 'emom').map(ex => ex.id)
   );
-  // Every 531/Cluster/EMOM exercise already gets its own warm-up section regardless of
-  // position — this id is only for the plain-exercise card below, which otherwise has no
-  // warm-up at all: it's shown solely when that plain exercise is the very first one of
-  // the session (configured order, not the live drag-reorder of the regular-exercises list).
-  const firstExerciseId = selectedType?.exercises[0]?.id;
   const regularSets = sets
     .map((s, i) => ({ ...s, globalIdx: i }))
     .filter(s => !s.isWarmup && !fiveThreeOneExerciseIds.has(s.exerciseId) && !clusterExerciseIds.has(s.exerciseId) && !emomExerciseIds.has(s.exerciseId));
@@ -1955,6 +2004,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     setSelectedType(null);
     setSets([]);
     setMethodOverrides({});
+    setTagOverrides({});
     setRenamingExerciseId(null);
     setDropSetPickerFor(null);
     setExerciseDifficulty({});
@@ -2612,7 +2662,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
 
               {templateEx && renderReminderNoteBanner(templateEx)}
               {templateEx && renderLowRpeBanner(templateEx)}
-              {templateEx && !isTestMaxActive && exerciseId === firstExerciseId && renderWarmupSection(templateEx)}
+              {templateEx && !isTestMaxActive && renderWarmupSection(templateEx)}
               {templateEx && renderTestMaxTrigger(templateEx, isTestMaxActive)}
 
               {!isTestMaxActive && methodEx && <MethodPickerRow active="none" onSelect={opt => applyMethodOverride(methodEx, opt)} />}
