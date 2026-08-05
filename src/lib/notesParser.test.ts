@@ -65,6 +65,19 @@ describe('parseSessionNotes', () => {
     expect(a.supersetGroupId).toBe(b.supersetGroupId);
   });
 
+  it('extracts weight on the second superset clause instead of losing it to the reps regex', () => {
+    const result = parseSessionNotes(
+      'Push\n3x12 Développé militaire + 20kg Élévations latérales'
+    );
+    expect(result.exercises).toHaveLength(2);
+    const [a, b] = result.exercises;
+    expect(a).toMatchObject({ name: 'Développé militaire', sets: 3, reps: 12 });
+    // Previously: weight lost, reps wrongly read as 20, name polluted with "kg".
+    expect(b).toMatchObject({ name: 'Élévations latérales', sets: 3, weight: 20 });
+    expect(b.reps).toBeFalsy();
+    expect(a.supersetGroupId).toBe(b.supersetGroupId);
+  });
+
   it('flags lines that match no pattern instead of guessing', () => {
     const result = parseSessionNotes(
       'Push\nDéveloppé couché : 3x8\nne pas oublier de bien manger avant\nune ligne sans aucun chiffre'

@@ -1,9 +1,24 @@
 import { useState, useMemo, useRef } from 'react';
-import { SessionLog, SetLog, WorkoutType, calculate1RM, Gender, BodyWeightLog, EQUIPMENT_LABELS } from '@/lib/types';
+import { SessionLog, SetLog, WorkoutType, Gender, BodyWeightLog, EQUIPMENT_LABELS, ExerciseMethod } from '@/lib/types';
 import { isBodyweightOptionalExercise, splitEquipmentVariant, resolveSetVariant, formatWeightDisplay } from '@/lib/exerciseNormalize';
-import { computeSetTonnage, resolveBodyWeightAtDate } from '@/lib/tonnage';
+import { computeSetTonnage, resolveBodyWeightAtDate, computeBodyweightAdjustedE1RM } from '@/lib/tonnage';
 import { STANDARD_MOVEMENTS, LEVEL_ORDER, LevelKey, getFranceRecord, getRecordMessage, getLevel, getLevelMessage } from '@/lib/strengthStandards';
+import { getClusterConfig } from '@/lib/cluster';
+import { getEmomConfig } from '@/lib/emom';
 import { ArrowLeft, ChevronRight, Share2, TrendingUp, TrendingDown, Minus, Trophy } from 'lucide-react';
+
+// One-line summary of what a method's config actually means for this session — 531's
+// week/cycle (the one piece of state that actually advances between sessions), Cluster's
+// round×mini-series shape, EMOM's duration/pace — so the recap says more than just "1RM".
+function methodDetailLabel(method: ExerciseMethod): string {
+  if (method.type === '531') return `5/3/1 — semaine ${method.currentWeek}/4, cycle ${method.currentCycle}`;
+  if (method.type === 'cluster') {
+    const { numSeries, miniSeries } = getClusterConfig(method);
+    return `Cluster — ${numSeries} séries de ${miniSeries.length} mini-séries`;
+  }
+  const { durationMinutes, repsPerMinute, percentage } = getEmomConfig(method);
+  return `EMOM — ${durationMinutes} min, ${repsPerMinute} reps/min @ ${Math.round(percentage * 100)}% TM`;
+}
 
 interface SessionSummaryProps {
   session: SessionLog;
@@ -31,12 +46,14 @@ const SessionSummary = ({ session, previousSessions = [], workoutTypes = [], gen
 
   // 1RM is only a meaningful headline number for exercises actively following a
   // structured method (5/3/1, Cluster, EMOM) — for everything else, volume (already
-  // compared above vs last session / vs average) is the metric that matters.
-  const methodExerciseNames = useMemo(() => {
-    const names = new Set<string>();
-    workoutTypes.forEach(t => t.exercises.forEach(e => { if (e.method) names.add(e.name); }));
-    return names;
+  // compared above vs last session / vs average) is the metric that matters. Keyed by
+  // name -> the method itself (not just a Set) so its week/cycle/config can be shown too.
+  const methodByName = useMemo(() => {
+    const map = new Map<string, ExerciseMethod>();
+    workoutTypes.forEach(t => t.exercises.forEach(e => { if (e.method) map.set(e.name, e.method); }));
+    return map;
   }, [workoutTypes]);
+  const methodExerciseNames = useMemo(() => new Set(methodByName.keys()), [methodByName]);
 
   // Group completed sets by exercise
   const groupedExercises = useMemo(() => {
@@ -47,6 +64,29 @@ const SessionSummary = ({ session, previousSessions = [], workoutTypes = [], gen
     });
     return Object.entries(map);
   }, [completedSets]);
+
+  // "Séries faites" counts logical rounds, not raw SetLog rows — an EMOM's whole per-
+  // minute block is ONE round (its mini-reps aren't independent sets), and a Cluster
+  // round is its configured mini-series bundled together, not each mini-series counted
+  // on its own. Counting every EMOM minute / cluster mini-series as its own "série" wildly
+  // overstated the total for these two methods. Tonnage is unaffected (already a sum).
+  const logicalSetsCount = useMemo(() => {
+    let count = 0;
+    groupedExercises.forEach(([name, exSets]) => {
+      const method = methodByName.get(name);
+      if (method?.type === 'emom') {
+        if (exSets.length > 0) count += 1;
+        return;
+      }
+      if (method?.type === 'cluster') {
+        const miniLen = getClusterConfig(method).miniSeries.length || 1;
+        count += new Set(exSets.map(s => Math.floor((s.setNumber - 1) / miniLen))).size;
+        return;
+      }
+      count += exSets.length;
+    });
+    return count;
+  }, [groupedExercises, methodByName]);
 
   // A deload or PR-test session's tonnage isn't comparable to a normal session (deload
   // deliberately cuts load/volume, a PR test swaps working sets for a handful of near-max
@@ -100,29 +140,30 @@ const SessionSummary = ({ session, previousSessions = [], workoutTypes = [], gen
     if (!lastSameTypeSession) return {};
 
     const result: Record<string, { weightDiff: number; repDiff: number; e1rmDiff: number }> = {};
+    const lastBodyWeight = resolveBodyWeightAtDate(bodyWeightLogs, lastSameTypeSession.date);
 
     groupedExercises.forEach(([name, sets]) => {
       const bestSet = sets.reduce((best, s) => {
-        const e1rm = calculate1RM(s.weight, s.reps);
-        return e1rm > calculate1RM(best.weight, best.reps) ? s : best;
+        const e1rm = computeBodyweightAdjustedE1RM(s, sessionBodyWeight);
+        return e1rm > computeBodyweightAdjustedE1RM(best, sessionBodyWeight) ? s : best;
       }, sets[0]);
 
       const lastSets = lastSameTypeSession.sets.filter(s => s.exerciseName === name && s.completed && (s.weight > 0 || isBodyweightOptionalExercise(name)));
       if (lastSets.length === 0) return;
 
       const lastBest = lastSets.reduce((best, s) => {
-        const e1rm = calculate1RM(s.weight, s.reps);
-        return e1rm > calculate1RM(best.weight, best.reps) ? s : best;
+        const e1rm = computeBodyweightAdjustedE1RM(s, lastBodyWeight);
+        return e1rm > computeBodyweightAdjustedE1RM(best, lastBodyWeight) ? s : best;
       }, lastSets[0]);
 
       result[name] = {
         weightDiff: bestSet.weight - lastBest.weight,
         repDiff: bestSet.reps - lastBest.reps,
-        e1rmDiff: Math.round((calculate1RM(bestSet.weight, bestSet.reps) - calculate1RM(lastBest.weight, lastBest.reps)) * 10) / 10,
+        e1rmDiff: Math.round((computeBodyweightAdjustedE1RM(bestSet, sessionBodyWeight) - computeBodyweightAdjustedE1RM(lastBest, lastBodyWeight)) * 10) / 10,
       };
     });
     return result;
-  }, [lastSameTypeSession, groupedExercises]);
+  }, [lastSameTypeSession, groupedExercises, sessionBodyWeight, bodyWeightLogs]);
 
   // Level-up detection (amélioration uniquement) — for each of the 5 movements the
   // Record de France / niveau feature recognizes (src/lib/strengthStandards.ts), compare
@@ -154,10 +195,16 @@ const SessionSummary = ({ session, previousSessions = [], workoutTypes = [], gen
 
       const newSets = session.sets.filter(qualifies);
       if (newSets.length === 0) return;
-      const newPR = Math.max(...newSets.map(s => calculate1RM(s.weight, s.reps)));
+      const newPR = Math.max(...newSets.map(s => computeBodyweightAdjustedE1RM(s, sessionBodyWeight)));
 
-      const prevSets = previousSessions.flatMap(s => s.sets.filter(qualifies));
-      const previousPR = prevSets.length > 0 ? Math.max(...prevSets.map(s => calculate1RM(s.weight, s.reps))) : 0;
+      // Each past set needs the bodyweight AT ITS OWN session date, not a single shared
+      // value — computeBodyweightAdjustedE1RM is a no-op for non-bodyweight-optional
+      // movements, so this stays correct for Squat/DC/SDT too.
+      const prevSets = previousSessions.flatMap(s => {
+        const bw = resolveBodyWeightAtDate(bodyWeightLogs, s.date);
+        return s.sets.filter(qualifies).map(set => computeBodyweightAdjustedE1RM(set, bw));
+      });
+      const previousPR = prevSets.length > 0 ? Math.max(...prevSets) : 0;
       if (newPR <= previousPR) return;
 
       const levelBefore = getLevel(gender, movement, previousPR / latestBodyweight);
@@ -169,7 +216,7 @@ const SessionSummary = ({ session, previousSessions = [], workoutTypes = [], gen
       results.push({ movement, level: levelAfter, record: getFranceRecord(gender, latestBodyweight, movement), newPR });
     });
     return results;
-  }, [gender, latestBodyweight, session.sets, previousSessions]);
+  }, [gender, latestBodyweight, session.sets, previousSessions, sessionBodyWeight, bodyWeightLogs]);
 
   const handleSave = () => {
     onSave({ ...session, duration: duration || 60, difficulty, notes });
@@ -178,8 +225,8 @@ const SessionSummary = ({ session, previousSessions = [], workoutTypes = [], gen
   const handleShare = async () => {
     const text = `${session.workoutTypeName} — ${new Date(session.date + 'T00:00:00').toLocaleDateString('fr-FR', { month: 'long', day: 'numeric', year: 'numeric' })}\n\n` +
       groupedExercises.map(([name, sets]) => {
-        const best = sets.reduce((b, s) => calculate1RM(s.weight, s.reps) > calculate1RM(b.weight, b.reps) ? s : b, sets[0]);
-        return `${name}: ${formatWeightDisplay(best.weight, name)} × ${best.reps} (1RM: ${calculate1RM(best.weight, best.reps)}kg)`;
+        const best = sets.reduce((b, s) => computeBodyweightAdjustedE1RM(s, sessionBodyWeight) > computeBodyweightAdjustedE1RM(b, sessionBodyWeight) ? s : b, sets[0]);
+        return `${name}: ${formatWeightDisplay(best.weight, name)} × ${best.reps} (1RM: ${computeBodyweightAdjustedE1RM(best, sessionBodyWeight)}kg)`;
       }).join('\n') +
       `\n\nDurée : ${duration || session.duration || 60} min | RPE : ${difficulty || session.difficulty || '?'}/10` +
       (notes ? `\n${notes}` : '');
@@ -238,7 +285,7 @@ const SessionSummary = ({ session, previousSessions = [], workoutTypes = [], gen
       {/* Stats summary */}
       <div className="grid grid-cols-3 gap-3 mb-6">
         <div className="glass-card p-3 text-center">
-          <p className="text-2xl font-bold text-primary">{completedSets.length}</p>
+          <p className="text-2xl font-bold text-primary">{logicalSetsCount}</p>
           <p className="text-[10px] text-muted-foreground">Séries faites</p>
         </div>
         <div className="glass-card p-3 text-center">
@@ -311,19 +358,24 @@ const SessionSummary = ({ session, previousSessions = [], workoutTypes = [], gen
       {groupedExercises.length > 0 && (
         <div className="space-y-3 mb-6">
           {groupedExercises.map(([name, sets]) => {
-            const best = sets.reduce((b, s) => calculate1RM(s.weight, s.reps) > calculate1RM(b.weight, b.reps) ? s : b, sets[0]);
-            const e1rm = calculate1RM(best.weight, best.reps);
+            const best = sets.reduce((b, s) => computeBodyweightAdjustedE1RM(s, sessionBodyWeight) > computeBodyweightAdjustedE1RM(b, sessionBodyWeight) ? s : b, sets[0]);
+            const e1rm = computeBodyweightAdjustedE1RM(best, sessionBodyWeight);
             const prog = progressions[name];
-            const hasMethod = methodExerciseNames.has(name);
+            const method = methodByName.get(name);
+            const hasMethod = !!method;
+            const methodColorClass = method?.type === 'cluster' ? 'text-accent-purple' : method?.type === 'emom' ? 'text-accent-blue' : 'text-primary';
 
             return (
               <div key={name} className="glass-card p-4">
-                <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center justify-between mb-1">
                   <h3 className="text-sm font-semibold text-foreground">{name}</h3>
                   {hasMethod && e1rm > 0 && (
                     <span className="text-xs text-primary font-medium">1RM: {e1rm} kg</span>
                   )}
                 </div>
+                {method && (
+                  <p className={`text-[10px] font-medium mb-1.5 ${methodColorClass}`}>{methodDetailLabel(method)}</p>
+                )}
                 <div className="space-y-1.5 mb-2">
                   {sets.map((s, i) => (
                     <div key={i} className="flex items-center justify-between bg-secondary rounded-lg px-3 py-2">

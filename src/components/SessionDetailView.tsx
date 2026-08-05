@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
-import { SessionLog, SetLog, AppData, calculate1RM, resolveProgramName } from '@/lib/types';
-import { isBodyweightOptionalExercise, weightFieldValue, formatWeightDisplay } from '@/lib/exerciseNormalize';
+import { SessionLog, SetLog, AppData, calculate1RM, resolveProgramName, ExerciseEquipment, EQUIPMENT_LABELS } from '@/lib/types';
+import { isBodyweightOptionalExercise, formatWeightDisplay } from '@/lib/exerciseNormalize';
 import { computeSetTonnage, resolveBodyWeightAtDate, computeBodyweightAdjustedE1RM } from '@/lib/tonnage';
 import { Trash2, Pencil, Share2, Plus, X, TrendingUp, TrendingDown, Minus, Check } from 'lucide-react';
 
@@ -105,6 +105,7 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
   const [editDifficulty, setEditDifficulty] = useState(5);
   const [editNotes, setEditNotes] = useState('');
   const [editDate, setEditDate] = useState('');
+  const [editExerciseDifficulty, setEditExerciseDifficulty] = useState<Record<string, number>>({});
 
   const completedSets = useMemo(() => session.sets.filter(s => s.completed), [session.sets]);
   const sessionBodyWeight = useMemo(
@@ -222,11 +223,16 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
 
   // --- Edit mode helpers ---
   const enterEditMode = () => {
-    setEditSets([...completedSets]);
+    // Per-object clone, not just a new array — updateEditSet/etc. below mutate a SetLog
+    // in place (`updated[index][field] = value`); without this, that mutation would land
+    // directly on the same objects referenced by session.sets/AppData, so typing a value
+    // and then hitting "Annuler" would leave the change applied anyway.
+    setEditSets(completedSets.map(s => ({ ...s })));
     setEditDuration(session.duration || 0);
     setEditDifficulty(session.difficulty || 5);
     setEditNotes(session.notes || '');
     setEditDate(session.date);
+    setEditExerciseDifficulty(session.exerciseDifficulty || {});
     setEditing(true);
   };
 
@@ -239,14 +245,35 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
       sets: editSets,
       duration: editDuration || 60,
       difficulty: editDifficulty,
+      exerciseDifficulty: editExerciseDifficulty,
       notes: editNotes,
     });
     setEditing(false);
   };
 
   const updateEditSet = (index: number, field: 'reps' | 'weight', value: string) => {
+    // Same fix as WorkoutTab's updateSet: don't commit an empty weight field to 0
+    // immediately while she's clearing it to type a new number — finalized on blur
+    // instead (finalizeEditWeightOnBlur). 0kg is a legitimate value on any exercise.
+    if (field === 'weight' && value === '') return;
     const updated = [...editSets];
     updated[index][field] = value === '' ? 0 : (field === 'weight' ? parseFloat(value) || 0 : parseInt(value) || 0);
+    setEditSets(updated);
+  };
+
+  const finalizeEditWeightOnBlur = (index: number, rawValue: string) => {
+    if (rawValue.trim() !== '') return;
+    const updated = [...editSets];
+    updated[index] = { ...updated[index], weight: 0 };
+    setEditSets(updated);
+  };
+
+  // Retroactive équipement/unilatéral/échauffement/drop-set correction — everything except
+  // reps/weight (above) and method, which stays out of scope for a past session (531/
+  // Cluster/EMOM's week/cycle bookkeeping isn't something this screen re-derives).
+  const updateEditSetTags = (index: number, patch: Partial<Pick<SetLog, 'equipment' | 'unilateral' | 'isWarmup' | 'dropSetStage'>>) => {
+    const updated = [...editSets];
+    updated[index] = { ...updated[index], ...patch };
     setEditSets(updated);
   };
 
@@ -419,6 +446,24 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
         ctx.fillStyle = mutedColor;
         ctx.fillText(sessionDate, left, y);
       }
+      // Programme badge — shown on screen whenever more than one exists, absent from the
+      // PNG until now.
+      const programName = (data.programs?.length ?? 0) > 1 ? resolveProgramName(session, data) : undefined;
+      if (programName) {
+        ctx.font = "600 22px 'Space Grotesk', -apple-system, sans-serif";
+        const badgeText = programName;
+        const badgeW = ctx.measureText(badgeText).width + 28;
+        const badgeH = 36;
+        const badgeX = right - badgeW;
+        const badgeY = y - 26;
+        if (draw) {
+          ctx.fillStyle = hsl(rawMuted, 0.15);
+          roundRect(ctx, badgeX, badgeY, badgeW, badgeH, badgeH / 2);
+          ctx.fill();
+          ctx.fillStyle = mutedColor;
+          ctx.fillText(badgeText, badgeX + 14, y);
+        }
+      }
       y += 52;
 
       // Draws one exercise's name/1RM/RPE/sets/progression-pill starting at cyStart,
@@ -453,6 +498,19 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
             ctx.fillText(`RPE ${rpe}/10`, innerLeft, cy);
           }
           cy += 34;
+        }
+
+        // "Dernière fois" is shown on screen (getLastPerformance) but used to silently
+        // disappear from the shared PNG — same info, drawn here too.
+        const lastPerf = getLastPerformance(name, session.id);
+        if (lastPerf) {
+          ctx.font = "400 22px 'Space Grotesk', -apple-system, sans-serif";
+          if (draw) {
+            ctx.fillStyle = mutedColor;
+            const lastText = `Dernière fois : ${formatWeightDisplay(lastPerf.weight, name)} × ${lastPerf.reps}`;
+            ctx.fillText(lastText, innerLeft, cy);
+          }
+          cy += 32;
         }
 
         sets.forEach((s, i) => {
@@ -514,9 +572,13 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
             ctx.fillText('SUPERSET', innerLeft, cy);
           }
           cy += 32;
-          cy = drawExerciseBody(block.a, cy, innerLeft, innerRight, 'A ·');
+          // Real supersetRole, not array position — a mislabeled/reordered pair used to
+          // always print "A"/"B" regardless of which side actually logged as A or B.
+          const aRole = block.a[1][0]?.supersetRole ?? 'A';
+          const bRole = block.b[1][0]?.supersetRole ?? 'B';
+          cy = drawExerciseBody(block.a, cy, innerLeft, innerRight, `${aRole} ·`);
           cy += 24;
-          cy = drawExerciseBody(block.b, cy, innerLeft, innerRight, 'B ·');
+          cy = drawExerciseBody(block.b, cy, innerLeft, innerRight, `${bRole} ·`);
         } else {
           cy = drawExerciseBody(block.entry, cy, innerLeft, innerRight);
         }
@@ -554,7 +616,7 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
         }
         cy += 52;
 
-        const secondary: string[] = [];
+        const secondary: string[] = [`Séries ${completedSets.length}`];
         if (session.duration) secondary.push(`Durée ${session.duration} min`);
         if (session.difficulty) secondary.push(`RPE ${session.difficulty}/10`);
         if (secondary.length > 0) {
@@ -726,30 +788,90 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
                     <Trash2 size={14} />
                   </button>
                 </div>
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="text-[10px] text-muted-foreground shrink-0">RPE</span>
+                  <input
+                    type="range"
+                    min={1}
+                    max={10}
+                    step={1}
+                    value={editExerciseDifficulty[exerciseId] ?? 5}
+                    onChange={e => setEditExerciseDifficulty(prev => ({ ...prev, [exerciseId]: parseInt(e.target.value) }))}
+                    className="flex-1 accent-accent-blue"
+                    aria-label={`RPE, ${name}`}
+                  />
+                  <span className="text-xs text-accent-blue font-mono w-10 text-right shrink-0">
+                    {editExerciseDifficulty[exerciseId] ?? '—'}/10
+                  </span>
+                </div>
                 <div className="space-y-2">
                   {sets.map((s, localIdx) => {
                     const gi = globalIndices[localIdx];
                     return (
-                      <div key={gi} className="flex items-center gap-2 bg-secondary/50 rounded-xl px-3 py-2.5">
-                        <span className="text-xs text-muted-foreground w-8">S{localIdx + 1}</span>
-                        <input
-                          type="number"
-                          value={weightFieldValue(s.weight, name)}
-                          onChange={e => updateEditSet(gi, 'weight', e.target.value)}
-                          className="w-16 bg-transparent text-foreground text-sm text-center outline-none font-mono"
-                          placeholder="kg"
-                        />
-                        <span className="text-muted-foreground text-xs">kg ×</span>
-                        <input
-                          type="number"
-                          value={s.reps || ''}
-                          onChange={e => updateEditSet(gi, 'reps', e.target.value)}
-                          className="w-12 bg-transparent text-foreground text-sm text-center outline-none font-mono"
-                          placeholder="reps"
-                        />
-                        <button onClick={() => removeEditSet(gi)} className="text-muted-foreground p-1 active:text-destructive ml-auto">
-                          <X size={14} />
-                        </button>
+                      <div key={gi} className="bg-secondary/50 rounded-xl px-3 py-2.5">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-muted-foreground w-8">S{localIdx + 1}</span>
+                          <input
+                            type="number"
+                            value={s.weight}
+                            onChange={e => updateEditSet(gi, 'weight', e.target.value)}
+                            onFocus={e => e.target.select()}
+                            onBlur={e => finalizeEditWeightOnBlur(gi, e.target.value)}
+                            className="w-16 bg-transparent text-foreground text-sm text-center outline-none font-mono"
+                            placeholder="kg"
+                          />
+                          <span className="text-muted-foreground text-xs">kg ×</span>
+                          <input
+                            type="number"
+                            value={s.reps || ''}
+                            onChange={e => updateEditSet(gi, 'reps', e.target.value)}
+                            className="w-12 bg-transparent text-foreground text-sm text-center outline-none font-mono"
+                            placeholder="reps"
+                          />
+                          <button onClick={() => removeEditSet(gi)} className="text-muted-foreground p-1 active:text-destructive ml-auto">
+                            <X size={14} />
+                          </button>
+                        </div>
+                        <div className="flex items-center gap-3 flex-wrap mt-1.5 pl-10">
+                          <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                            <input
+                              type="checkbox"
+                              checked={!!s.isWarmup}
+                              onChange={e => updateEditSetTags(gi, { isWarmup: e.target.checked ? true : undefined })}
+                              className="w-3.5 h-3.5 accent-muted-foreground"
+                            />
+                            Échauffement
+                          </label>
+                          <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                            <input
+                              type="checkbox"
+                              checked={!!s.dropSetStage}
+                              onChange={e => updateEditSetTags(gi, { dropSetStage: e.target.checked ? 1 : undefined })}
+                              className="w-3.5 h-3.5 accent-warning"
+                            />
+                            Drop set
+                          </label>
+                          <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                            <input
+                              type="checkbox"
+                              checked={!!s.unilateral}
+                              onChange={e => updateEditSetTags(gi, { unilateral: e.target.checked ? true : undefined })}
+                              className="w-3.5 h-3.5 accent-accent-blue"
+                            />
+                            Unilatéral
+                          </label>
+                          <select
+                            value={s.equipment ?? ''}
+                            onChange={e => updateEditSetTags(gi, { equipment: e.target.value === '' ? undefined : e.target.value as ExerciseEquipment })}
+                            className="bg-secondary/60 text-foreground text-[10px] rounded-md px-1.5 py-1 outline-none"
+                            aria-label={`Équipement série ${localIdx + 1}, ${name}`}
+                          >
+                            <option value="">Équipement —</option>
+                            {(Object.keys(EQUIPMENT_LABELS) as ExerciseEquipment[]).map(eq => (
+                              <option key={eq} value={eq}>{EQUIPMENT_LABELS[eq]}</option>
+                            ))}
+                          </select>
+                        </div>
                       </div>
                     );
                   })}
@@ -909,57 +1031,84 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
         </div>
       </div>
 
-      {/* Exercises */}
-      {groupedExercises.length > 0 && (
-        <div className="space-y-3 mb-6">
-          {groupedExercises.map(([name, sets]) => {
-            const best = sets.reduce((b, s) => effectiveE1RM(s, sessionBodyWeight) > effectiveE1RM(b, sessionBodyWeight) ? s : b, sets[0]);
-            const e1rm = effectiveE1RM(best, sessionBodyWeight);
-            const prog = progressions[name];
-            const lastPerf = getLastPerformance(name, session.id);
-
-            return (
-              <div key={name} className="glass-card p-4">
-                <div className="flex items-center justify-between mb-1">
-                  <h3 className="text-sm font-semibold text-foreground">{name}</h3>
+      {/* Exercises — grouped via renderBlocks so a superset pair shows the same "SUPERSET"
+          grouping on screen as it already does on the shared PNG (they used to disagree:
+          two unrelated solo cards here vs a single paired panel on the canvas). */}
+      {(() => {
+        const renderExerciseCard = ([name, sets]: [string, SetLog[]]) => {
+          const best = sets.reduce((b, s) => effectiveE1RM(s, sessionBodyWeight) > effectiveE1RM(b, sessionBodyWeight) ? s : b, sets[0]);
+          const e1rm = effectiveE1RM(best, sessionBodyWeight);
+          const prog = progressions[name];
+          const lastPerf = getLastPerformance(name, session.id);
+          const rpe = session.exerciseDifficulty?.[sets[0].exerciseId];
+          return (
+            <div key={name}>
+              <div className="flex items-center justify-between mb-1">
+                <h3 className="text-sm font-semibold text-foreground">{name}</h3>
+                <div className="flex items-center gap-2 shrink-0">
+                  {rpe !== undefined && (
+                    <span className="text-[10px] text-accent-blue font-medium">RPE {rpe}/10</span>
+                  )}
                   {e1rm > 0 && (
                     <span className="text-xs text-primary font-medium">1RM: {e1rm} kg</span>
                   )}
                 </div>
-                {lastPerf && (
-                  <p className="text-[10px] text-muted-foreground mb-2">
-                    Dernière fois : {formatWeightDisplay(lastPerf.weight, name)} × {lastPerf.reps} — {new Date(lastPerf.date + 'T00:00:00').toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })}
-                  </p>
-                )}
-                <div className="space-y-1.5 mb-2">
-                  {sets.map((s, i) => (
-                    <div key={i} className="flex items-center justify-between bg-secondary rounded-lg px-3 py-2">
-                      <span className="text-xs text-muted-foreground">Série {i + 1}</span>
-                      <span className="text-sm text-foreground font-mono">{formatWeightDisplay(s.weight, name)} × {s.reps}</span>
-                    </div>
-                  ))}
-                </div>
-                {prog && (
-                  <div className="flex items-center gap-2 mt-2">
-                    {prog.e1rmDiff > 0 ? (
-                      <TrendingUp size={12} className="text-success" />
-                    ) : prog.e1rmDiff < 0 ? (
-                      <TrendingDown size={12} className="text-destructive" />
-                    ) : (
-                      <Minus size={12} className="text-muted-foreground" />
-                    )}
-                    <span className={`text-xs font-medium ${
-                      prog.e1rmPct > 0 ? 'text-success' : prog.e1rmPct < 0 ? 'text-destructive' : 'text-muted-foreground'
-                    }`}>
-                      {prog.e1rmPct !== 0 ? `${prog.e1rmPct > 0 ? '+' : ''}${prog.e1rmPct}% vs séance précédente` : 'Identique à la séance précédente'}
-                    </span>
-                  </div>
-                )}
               </div>
-            );
-          })}
-        </div>
-      )}
+              {lastPerf && (
+                <p className="text-[10px] text-muted-foreground mb-2">
+                  Dernière fois : {formatWeightDisplay(lastPerf.weight, name)} × {lastPerf.reps} — {new Date(lastPerf.date + 'T00:00:00').toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })}
+                </p>
+              )}
+              <div className="space-y-1.5 mb-2">
+                {sets.map((s, i) => (
+                  <div key={i} className="flex items-center justify-between bg-secondary rounded-lg px-3 py-2">
+                    <span className="text-xs text-muted-foreground">Série {i + 1}</span>
+                    <span className="text-sm text-foreground font-mono">{formatWeightDisplay(s.weight, name)} × {s.reps}</span>
+                  </div>
+                ))}
+              </div>
+              {prog && (
+                <div className="flex items-center gap-2 mt-2">
+                  {prog.e1rmDiff > 0 ? (
+                    <TrendingUp size={12} className="text-success" />
+                  ) : prog.e1rmDiff < 0 ? (
+                    <TrendingDown size={12} className="text-destructive" />
+                  ) : (
+                    <Minus size={12} className="text-muted-foreground" />
+                  )}
+                  <span className={`text-xs font-medium ${
+                    prog.e1rmPct > 0 ? 'text-success' : prog.e1rmPct < 0 ? 'text-destructive' : 'text-muted-foreground'
+                  }`}>
+                    {prog.e1rmPct !== 0 ? `${prog.e1rmPct > 0 ? '+' : ''}${prog.e1rmPct}% vs séance précédente` : 'Identique à la séance précédente'}
+                  </span>
+                </div>
+              )}
+            </div>
+          );
+        };
+
+        return renderBlocks.length > 0 && (
+          <div className="space-y-3 mb-6">
+            {renderBlocks.map(block => {
+              if (block.kind === 'solo') {
+                return (
+                  <div key={block.entry[0]} className="glass-card p-4">
+                    {renderExerciseCard(block.entry)}
+                  </div>
+                );
+              }
+              return (
+                <div key={`${block.a[0]}+${block.b[0]}`} className="glass-card p-4 border border-primary/40 bg-primary/5 space-y-3">
+                  <span className="text-[10px] font-bold text-primary tracking-wider">SUPERSET</span>
+                  {renderExerciseCard(block.a)}
+                  <div className="h-px bg-primary/20" />
+                  {renderExerciseCard(block.b)}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
 
       {/* RPE & Notes */}
       {session.difficulty && (

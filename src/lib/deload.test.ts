@@ -213,6 +213,24 @@ describe('shouldShowDeloadRecommendation', () => {
     expect(result.show).toBe(true);
   });
 
+  it('stops holding back a time-only trigger past 5 weeks, even mid-cycle (not week 4)', () => {
+    // Same shape as the "holds back" test above (531 stuck at week 2, never reaching 4)
+    // but with a 5th consecutive week added — this is the exact case the `timeWeeks < 5`
+    // safety-net clause exists for, and the only test that actually flips it to false.
+    const sessions = [
+      session({ date: '2026-06-02' }), session({ date: '2026-06-09' }),
+      session({ date: '2026-06-16' }), session({ date: '2026-06-23' }),
+      session({ date: '2026-06-30' }),
+    ];
+    const workoutTypes: WorkoutType[] = [{
+      id: 't1', name: 'A', color: '0 0% 0%',
+      exercises: [{ id: 'e1', name: 'Squat', sets: 3, reps: 5, method: { type: '531', trainingMax: 100, currentCycle: 1, currentWeek: 2 } }],
+    }];
+    const result = shouldShowDeloadRecommendation(data({ sessions, workoutTypes }), new Date('2026-07-01'));
+    expect(result.criteria.timeWeeks).toBe(5);
+    expect(result.show).toBe(true);
+  });
+
   it('never holds back a fatigue-driven trigger, 5/3/1 alignment or not', () => {
     const sessions = [
       session({ date: '2026-06-20', difficulty: 9 }),

@@ -1,14 +1,14 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { AppData, WorkoutType, SetLog, SessionLog, FiveThreeOneMethod, ClusterMethod, EMOMMethod, ExerciseMethod, Exercise, calculate1RM, CardioSession, CardioActivityType, DeloadType, DeloadIntensity, PlannedSession, EQUIPMENT_LABELS, ExerciseEquipment } from '@/lib/types';
+import { AppData, WorkoutType, SetLog, SessionLog, FiveThreeOneMethod, ClusterMethod, EMOMMethod, ExerciseMethod, Exercise, CardioSession, CardioActivityType, DeloadType, DeloadIntensity, PlannedSession, EQUIPMENT_LABELS, ExerciseEquipment } from '@/lib/types';
 import { getWeekSets, getWeekLabel, computeNextFiveThreeOneWeekState } from '@/lib/531';
 import { getClusterConfig, getMiniSeriesWeight } from '@/lib/cluster';
 import { getEmomConfig, getEmomWeight } from '@/lib/emom';
 import { buildExerciseBlocks } from '@/lib/superset';
-import { isBodyweightOptionalExercise, weightFieldValue, splitEquipmentVariant } from '@/lib/exerciseNormalize';
+import { isBodyweightOptionalExercise, splitEquipmentVariant } from '@/lib/exerciseNormalize';
 import { getDropSetConfig, getDropSetStage } from '@/lib/dropset';
 import { compareCardioSession, formatCardioDuration, formatPace } from '@/lib/cardio';
 import { isForceFocusExercise } from '@/lib/strengthStandards';
-import { computeEffectiveLoadAtOneRep, resolveBodyWeightAtDate } from '@/lib/tonnage';
+import { computeEffectiveLoadAtOneRep, resolveBodyWeightAtDate, computeBodyweightAdjustedE1RM } from '@/lib/tonnage';
 import { estimateTrainingMax } from '@/lib/trainingMax';
 import { RAMP_STAGES, generateRampPlan, generateBonusStage, getOuvertureGuidance, getFailureGuidance } from '@/lib/oneRepMaxTest';
 import { roundWeightSmart } from '@/lib/weightRounding';
@@ -173,7 +173,17 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
   // avancées"); this only lets her deviate from it for THIS session (e.g. the rack was
   // taken, she used dumbbells instead) without rewriting that default. Never persisted.
   const [tagOverrides, setTagOverrides] = useState<Record<string, { equipment?: ExerciseEquipment; unilateral?: boolean }>>({});
+  // Bodyweight for THIS live session's date — feeds computeBodyweightAdjustedE1RM for any
+  // live 1RM badge on a bodyweight-optional exercise (tractions/dips/muscle-up/pompes),
+  // same resolution rule as everywhere else (most recent log on/before the session date).
+  const liveBodyWeight = useMemo(
+    () => resolveBodyWeightAtDate(data.bodyWeightLogs, selectedDate || new Date().toISOString().split('T')[0]),
+    [data.bodyWeightLogs, selectedDate]
+  );
   const [showAbandonConfirm, setShowAbandonConfirm] = useState(false);
+  // Set when switching Cluster/EMOM/Normal would silently wipe a drop set on this
+  // exercise — see applyMethodOverride/doApplyMethodOverride.
+  const [methodSwitchConfirm, setMethodSwitchConfirm] = useState<{ ex: Exercise; opt: 'cluster' | 'emom' | 'none' } | null>(null);
   const [reminderNoteEditor, setReminderNoteEditor] = useState<{ exerciseId: string; name: string; draft: string } | null>(null);
   // RPE per exercise, filled live during the session (not in the end-of-session recap,
   // which only asks for one session-wide value) — merged into the SessionLog at
@@ -279,9 +289,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
   // Switches an exercise's technique for the current session only (never touches its
   // configured default) and regenerates its live sets in place, at the same position
   // in the flat `sets` array, so ordering and other exercises are undisturbed.
-  const applyMethodOverride = (ex: Exercise, opt: 'cluster' | 'emom' | 'none') => {
-    const currentType = getEffectiveMethod(ex)?.type ?? 'none';
-    if (currentType === opt) return;
+  const doApplyMethodOverride = (ex: Exercise, opt: 'cluster' | 'emom' | 'none') => {
     setMethodOverrides(prev => ({ ...prev, [ex.id]: opt }));
     const effectiveMethod = resolveOverrideMethod(ex, opt);
     setSets(prev => {
@@ -294,6 +302,17 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
       result.splice(insertAt, 0, ...fresh);
       return result;
     });
+  };
+
+  const applyMethodOverride = (ex: Exercise, opt: 'cluster' | 'emom' | 'none') => {
+    const currentType = getEffectiveMethod(ex)?.type ?? 'none';
+    if (currentType === opt) return;
+    // Regenerating this exercise's sets for the new method wipes any drop set stage(s)
+    // she's added on it (manually, or from a preconfigured dropSet) without carrying them
+    // over — ask first instead of losing them silently.
+    const hasDropSet = sets.some(s => s.exerciseId === ex.id && s.dropSetStage);
+    if (hasDropSet) { setMethodSwitchConfirm({ ex, opt }); return; }
+    doApplyMethodOverride(ex, opt);
   };
 
   // "Ajouter une séance" on a Calendar day sets `selectedDate` and switches to this tab —
@@ -437,8 +456,14 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
         const sharedSets = deloadSets(a.sets);
         const aWeight = deloadWeight(lastWeights[a.id] || a.weight || 0);
         const bWeight = deloadWeight(lastWeights[b.id] || b.weight || 0);
+        // Either side of a superset can have its own pre-configured drop set (Settings) —
+        // same auto-cascade-stage-1 behavior as a standalone exercise, just scoped to
+        // whichever partner(s) actually have one, and stamped with that partner's own
+        // supersetGroupId/role so it stays attached to its side of the pair.
+        const aDropConfig = a.dropSet ? getDropSetConfig(a.dropSet) : null;
+        const bDropConfig = b.dropSet ? getDropSetConfig(b.dropSet) : null;
         for (let i = 0; i < sharedSets; i++) {
-          initialSets.push({
+          const aAnchor: SetLog = {
             exerciseId: a.id,
             exerciseName: a.name,
             setNumber: i + 1,
@@ -449,8 +474,18 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
             supersetRole: 'A',
             amrap: a.amrap || undefined,
             equipment: a.equipment, unilateral: a.unilateral,
-          });
-          initialSets.push({
+          };
+          initialSets.push(aAnchor);
+          if (aDropConfig) {
+            const { weight, reps } = getDropSetStage(aAnchor.weight, aAnchor.reps, 1, aDropConfig);
+            initialSets.push({
+              exerciseId: a.id, exerciseName: a.name, setNumber: aAnchor.setNumber + 1,
+              reps, weight, completed: false, dropSetStage: 1,
+              equipment: a.equipment, unilateral: a.unilateral,
+              supersetGroupId: a.supersetGroupId, supersetRole: 'A',
+            });
+          }
+          const bAnchor: SetLog = {
             exerciseId: b.id,
             exerciseName: b.name,
             setNumber: i + 1,
@@ -461,7 +496,17 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
             supersetRole: 'B',
             amrap: b.amrap || undefined,
             equipment: b.equipment, unilateral: b.unilateral,
-          });
+          };
+          initialSets.push(bAnchor);
+          if (bDropConfig) {
+            const { weight, reps } = getDropSetStage(bAnchor.weight, bAnchor.reps, 1, bDropConfig);
+            initialSets.push({
+              exerciseId: b.id, exerciseName: b.name, setNumber: bAnchor.setNumber + 1,
+              reps, weight, completed: false, dropSetStage: 1,
+              equipment: b.equipment, unilateral: b.unilateral,
+              supersetGroupId: b.supersetGroupId, supersetRole: 'B',
+            });
+          }
         }
       } else {
         // Session always starts from each exercise's configured default method — the
@@ -511,6 +556,12 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
   };
 
   const updateSet = (index: number, field: 'reps' | 'weight', value: string) => {
+    // A weight field left momentarily empty (e.g. she's clearing "20" to type "50") must
+    // NOT commit to 0 right away — that would force the input back to "0" on every
+    // keystroke and fight her typing. Left truly empty, it finalizes to 0 on blur instead
+    // (see finalizeWeightOnBlur/finalizeSimpleWeightOnBlur) — 0kg is a legitimate value on
+    // any exercise, not just bodyweight ones, so it must stay displayed once committed.
+    if (field === 'weight' && value === '') return;
     const updated = [...sets];
     if (value === '') {
       updated[index][field] = 0;
@@ -547,12 +598,16 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     setSets(updated);
   };
 
-  // Propagate first-set weight to remaining empty sets when user leaves the field
-  const propagateWeightOnBlur = (index: number) => {
-    const currentSet = sets[index];
-    if (!currentSet || currentSet.setNumber !== 1) return;
-    if (currentSet.weight <= 0 && !isBodyweightOptionalExercise(currentSet.exerciseName)) return;
+  // Weight field left empty on blur finalizes to 0 (an abandoned edit shouldn't leave a
+  // stale pre-clear value behind) and propagates set-1's weight to remaining empty sets —
+  // merged into one pass over `sets` so the propagate step always reads the just-finalized
+  // value instead of stale state from before the blur.
+  const finalizeWeightOnBlur = (index: number, rawValue: string) => {
     const updated = [...sets];
+    if (rawValue.trim() === '') updated[index] = { ...updated[index], weight: 0 };
+    const currentSet = updated[index];
+    if (!currentSet || currentSet.setNumber !== 1) { setSets(updated); return; }
+    if (currentSet.weight <= 0 && !isBodyweightOptionalExercise(currentSet.exerciseName)) { setSets(updated); return; }
     for (let i = index + 1; i < updated.length; i++) {
       // Drop-set rows keep their own computed (discounted) weight — never overwritten by
       // this. Completed sets are already logged and protected too — only sync forward
@@ -560,9 +615,18 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
       // she just set on the first set, whether it was empty or already pre-filled with a
       // different value — editing set 1 is meant to carry through to the rest.
       if (updated[i].exerciseId === currentSet.exerciseId && !updated[i].dropSetStage && !updated[i].completed) {
-        updated[i].weight = currentSet.weight;
+        updated[i] = { ...updated[i], weight: currentSet.weight };
       }
     }
+    setSets(updated);
+  };
+
+  // Same "empty finalizes to 0 instead of a stale value" fix, for weight fields that never
+  // propagate forward (warm-up rows, the 1RM-test ramp, 5/3/1 rows).
+  const finalizeSimpleWeightOnBlur = (index: number, rawValue: string) => {
+    if (rawValue.trim() !== '') return;
+    const updated = [...sets];
+    updated[index] = { ...updated[index], weight: 0 };
     setSets(updated);
   };
 
@@ -574,7 +638,11 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     for (let i = sets.length - 1; i >= 0; i--) {
       if (sets[i].exerciseId === exerciseId) { insertIndex = i + 1; break; }
     }
-    
+    // The effective (override-aware) tags, not the last set's — a free/temp exercise with
+    // no template entry falls back to whatever the last set already carried.
+    const templateEx = selectedType?.exercises.find(e => e.id === exerciseId);
+    const effectiveTags = templateEx ? getEffectiveTags(templateEx) : { equipment: lastSet?.equipment, unilateral: lastSet?.unilateral };
+
     const newSet: SetLog = {
       exerciseId,
       exerciseName,
@@ -583,7 +651,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
       weight: lastSet?.weight || 0,
       completed: false,
       amrap: lastSet?.amrap || undefined,
-      equipment: lastSet?.equipment, unilateral: lastSet?.unilateral,
+      equipment: effectiveTags.equipment, unilateral: effectiveTags.unilateral,
     };
 
     const updated = [...sets];
@@ -615,6 +683,9 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
       exerciseId, exerciseName, setNumber: anchor.setNumber + stage,
       reps, weight, completed: false, dropSetStage: stage,
       equipment: anchor.equipment, unilateral: anchor.unilateral,
+      // Carries the anchor's superset membership forward — a drop set on one side of a
+      // superset stays attached to that side (never orphaned into a standalone row).
+      supersetGroupId: anchor.supersetGroupId, supersetRole: anchor.supersetRole,
     };
     const updated = [...sets];
     updated.splice(insertIdx, 0, newSet);
@@ -710,6 +781,11 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
       ...prev,
       [ex.id]: { ...(prev[ex.id] ?? { equipment: ex.equipment, unilateral: ex.unilateral }), ...patch },
     }));
+    // Changing the equipment mid-session must also reach the sets already built for this
+    // exercise — otherwise the badge shows the new value while every SetLog still carries
+    // the stale one. Completed sets are already logged and stay untouched (they reflect
+    // what she actually did), same rule as propagateWeightOnBlur/finalizeWeightOnBlur.
+    setSets(prev => prev.map(s => (s.exerciseId === ex.id && !s.completed) ? { ...s, ...patch } : s));
   };
 
   // Opens the target-1RM setup panel, pre-filled from the latest confirmed true 1RM for
@@ -973,11 +1049,10 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
             <span className="text-xs text-muted-foreground w-16 shrink-0">Éch. {i + 1}</span>
             <input
               type="number"
-              // Unlike a normal working set, 0kg is a legitimate warm-up entry (bodyweight-only
-              // ramp-up rep) regardless of the exercise's equipment — `weight || ''` would blank
-              // it right back out the moment it's typed, reading as "can't enter 0".
-              value={sets[s.globalIdx].weight === 0 ? 0 : sets[s.globalIdx].weight || ''}
+              value={sets[s.globalIdx].weight}
               onChange={e => updateSet(s.globalIdx, 'weight', e.target.value)}
+              onFocus={e => e.target.select()}
+              onBlur={e => finalizeSimpleWeightOnBlur(s.globalIdx, e.target.value)}
               className="w-14 bg-transparent text-foreground text-sm text-center outline-none font-mono"
               placeholder="kg"
               aria-label={`Poids échauffement ${i + 1}, ${ex.name} (kg)`}
@@ -1086,8 +1161,10 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                   <span className="text-[10px] text-muted-foreground w-16 shrink-0">{label}</span>
                   <input
                     type="number"
-                    value={set.weight || ''}
+                    value={set.weight}
                     onChange={e => updateSet(globalIdx, 'weight', e.target.value)}
+                    onFocus={e => e.target.select()}
+                    onBlur={e => finalizeSimpleWeightOnBlur(globalIdx, e.target.value)}
                     className="w-14 bg-transparent text-foreground text-sm text-center outline-none font-mono"
                     placeholder="kg"
                     aria-label={`Poids ${label}, ${ex.name} (kg)`}
@@ -1605,8 +1682,11 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                 {type.exercises.some(e => e.method?.type === '531') && (
                   <span className="text-[10px] font-medium text-primary bg-primary/10 px-2 py-0.5 rounded-full">5/3/1</span>
                 )}
+                {/* --accent-purple text at its own lightness (66%) on a 10%-tint of itself
+                    lands at 4.49:1, just under the 4.5:1 AA floor — lightened to 72% here
+                    (~5.9:1), same fix already applied in SetupWizard.tsx. */}
                 {type.exercises.some(e => e.method?.type === 'cluster') && (
-                  <span className="text-[10px] font-medium text-accent-purple bg-accent-purple/10 px-2 py-0.5 rounded-full">Cluster</span>
+                  <span className="text-[10px] font-medium text-[hsl(262_83%_72%)] bg-accent-purple/10 px-2 py-0.5 rounded-full">Cluster</span>
                 )}
                 {type.exercises.some(e => e.method?.type === 'emom') && (
                   <span className="text-[10px] font-medium text-accent-blue bg-accent-blue/10 px-2 py-0.5 rounded-full">EMOM</span>
@@ -1976,7 +2056,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     groupId: string;
     aId: string; aName: string;
     bId: string; bName: string;
-    series: { aIdx: number; bIdx: number }[];
+    series: { aIdx: number; aDropIdxs: number[]; bIdx: number; bDropIdxs: number[] }[];
   };
   const blocks: (SingleBlock | SupersetBlock)[] = [];
   const seenSingle = new Set<string>();
@@ -1985,14 +2065,28 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     if (s.supersetGroupId) {
       if (seenSuperset.has(s.supersetGroupId)) return;
       seenSuperset.add(s.supersetGroupId);
-      const groupEntries = regularSets.filter(r => r.supersetGroupId === s.supersetGroupId);
-      const aEntries = groupEntries.filter(r => r.supersetRole === 'A').sort((a, b) => a.setNumber - b.setNumber);
-      const bEntries = groupEntries.filter(r => r.supersetRole === 'B').sort((a, b) => a.setNumber - b.setNumber);
-      const first = aEntries[0] || groupEntries[0];
-      const secondSample = bEntries[0];
-      const series = aEntries.map((a, i) => ({
+      // Order-preserving (globalIdx ascending, matching `sets`) so each anchor's own drop
+      // cascade — inserted immediately after it, same convention as the standalone
+      // exercise cascade and addDropSet — can be picked up by scanning forward from it.
+      const groupEntries = regularSets.filter(r => r.supersetGroupId === s.supersetGroupId).sort((a, b) => a.globalIdx - b.globalIdx);
+      const aAnchors = groupEntries.filter(r => r.supersetRole === 'A' && !r.dropSetStage);
+      const bAnchors = groupEntries.filter(r => r.supersetRole === 'B' && !r.dropSetStage);
+      const first = aAnchors[0] || groupEntries[0];
+      const secondSample = bAnchors[0];
+      const dropsAfter = (anchorGlobalIdx: number, role: 'A' | 'B'): number[] => {
+        const pos = groupEntries.findIndex(r => r.globalIdx === anchorGlobalIdx);
+        const drops: number[] = [];
+        for (let i = pos + 1; i < groupEntries.length; i++) {
+          if (groupEntries[i].supersetRole === role && groupEntries[i].dropSetStage) drops.push(groupEntries[i].globalIdx);
+          else break;
+        }
+        return drops;
+      };
+      const series = aAnchors.map((a, i) => ({
         aIdx: a.globalIdx,
-        bIdx: bEntries[i]?.globalIdx ?? -1,
+        aDropIdxs: dropsAfter(a.globalIdx, 'A'),
+        bIdx: bAnchors[i]?.globalIdx ?? -1,
+        bDropIdxs: bAnchors[i] ? dropsAfter(bAnchors[i].globalIdx, 'B') : [],
       })).filter(x => x.bIdx !== -1);
       blocks.push({
         kind: 'superset',
@@ -2177,7 +2271,9 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                     const amrap = isAmrap(localIdx);
                     const actualWeight = sets[globalIdx].weight;
                     const actualReps = amrapReps[globalIdx] !== undefined ? amrapReps[globalIdx] : sets[globalIdx].reps;
-                    const realE1rm = actualWeight > 0 && actualReps > 0 ? calculate1RM(actualWeight, actualReps) : 0;
+                    const realE1rm = (actualWeight > 0 || isBodyweightOptionalExercise(ex.name)) && actualReps > 0
+                      ? computeBodyweightAdjustedE1RM({ weight: actualWeight, reps: actualReps, exerciseName: ex.name }, liveBodyWeight)
+                      : 0;
 
                     return (
                       <div
@@ -2189,8 +2285,10 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                         <span className="text-xs text-muted-foreground w-6">S{localIdx + 1}</span>
                         <input
                           type="number"
-                          value={sets[globalIdx].weight || ''}
+                          value={sets[globalIdx].weight}
                           onChange={e => updateSet(globalIdx, 'weight', e.target.value)}
+                          onFocus={e => e.target.select()}
+                          onBlur={e => finalizeSimpleWeightOnBlur(globalIdx, e.target.value)}
                           className="w-14 bg-transparent text-foreground text-sm text-center outline-none font-mono"
                           placeholder="kg"
                           aria-label={`Poids série ${localIdx + 1}, ${ex.name} (kg)`}
@@ -2435,7 +2533,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
             blocks.forEach(b => {
               const key = b.kind === 'superset' ? b.groupId : b.exerciseId;
               const idxs = b.kind === 'superset'
-                ? b.series.flatMap(s => [s.aIdx, s.bIdx])
+                ? b.series.flatMap(s => [s.aIdx, ...s.aDropIdxs, s.bIdx, ...s.bDropIdxs])
                 : b.entries.map(e => e.globalIdx);
               idxsByKey.set(key, idxs);
             });
@@ -2448,17 +2546,21 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
               {({ block }) => {
 
           if (block.kind === 'superset') {
-            const toggleSeries = (aIdx: number, bIdx: number) => {
-              const bothDone = sets[aIdx].completed && sets[bIdx].completed;
+            // A round's Check completes BOTH sides together, each side along with its own
+            // drop-set cascade (if any) — same "anchor + its drops validate as one group"
+            // convention as the standalone exercise cascade (toggleCascade).
+            const toggleSeries = (serie: SupersetBlock['series'][number]) => {
+              const allIdxs = [serie.aIdx, ...serie.aDropIdxs, serie.bIdx, ...serie.bDropIdxs];
+              const allDone = allIdxs.every(i => sets[i].completed);
               const updated = [...sets];
-              updated[aIdx] = { ...updated[aIdx], completed: !bothDone };
-              updated[bIdx] = { ...updated[bIdx], completed: !bothDone };
+              allIdxs.forEach(i => { updated[i] = { ...updated[i], completed: !allDone }; });
               setSets(updated);
             };
             // One reminder note per superset (not one per exercise inside it) — attached
             // to the A exercise, same "A is canonical for the pair" convention as sets
             // count above. Absent for a temp/ad-hoc exercise with no template to attach to.
             const templateAEx = selectedType?.exercises.find(e => e.id === block.aId);
+            const templateBEx = selectedType?.exercises.find(e => e.id === block.bId);
             return (
               <div key={block.groupId} className="glass-card p-4 border border-primary/40 bg-primary/5">
                 <div className="flex items-center justify-between mb-2">
@@ -2483,77 +2585,117 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
 
                 <div className="space-y-3">
                   {block.series.map((serie, localIdx) => {
-                    const aDone = sets[serie.aIdx].completed;
-                    const bDone = sets[serie.bIdx].completed;
-                    const bothDone = aDone && bDone;
+                    const allIdxs = [serie.aIdx, ...serie.aDropIdxs, serie.bIdx, ...serie.bDropIdxs];
+                    const allDone = allIdxs.every(i => sets[i].completed);
                     return (
                       <div
                         key={localIdx}
                         className={`rounded-xl p-2.5 border transition-all ${
-                          bothDone ? 'bg-success/15 border-success/40' : 'bg-secondary/40 border-transparent'
+                          allDone ? 'bg-success/15 border-success/40' : 'bg-secondary/40 border-transparent'
                         }`}
                       >
                         <div className="flex items-center justify-between mb-1.5">
                           <span className="text-[11px] font-semibold text-muted-foreground">Série {localIdx + 1}</span>
                           <button
-                            onClick={() => toggleSeries(serie.aIdx, serie.bIdx)}
+                            onClick={() => toggleSeries(serie)}
                             className={`touch-target rounded-lg p-1.5 transition-colors ${
-                              bothDone ? 'text-success glow-success' : 'text-muted-foreground active:text-success'
+                              allDone ? 'text-success glow-success' : 'text-muted-foreground active:text-success'
                             }`}
-                            aria-label={bothDone ? `Série ${localIdx + 1} validée` : `Valider la série ${localIdx + 1}`}
-                            aria-pressed={bothDone}
+                            aria-label={allDone ? `Série ${localIdx + 1} validée` : `Valider la série ${localIdx + 1}`}
+                            aria-pressed={allDone}
                           >
                             <Check size={18} />
                           </button>
                         </div>
                         {[
-                          { role: 'A', name: block.aName, idx: serie.aIdx },
-                          { role: 'B', name: block.bName, idx: serie.bIdx },
+                          { role: 'A' as const, name: block.aName, idx: serie.aIdx, dropIdxs: serie.aDropIdxs, templateEx: templateAEx },
+                          { role: 'B' as const, name: block.bName, idx: serie.bIdx, dropIdxs: serie.bDropIdxs, templateEx: templateBEx },
                         ].map(row => (
-                          <div key={row.role} className="flex items-center gap-2 py-1">
-                            <span className="text-[10px] font-bold text-primary w-4">{row.role}</span>
-                            <button
-                              onClick={() => { setHistoryExercise(row.name); setMode('history'); }}
-                              className="min-h-11 flex items-center gap-1 flex-1 min-w-0 group"
-                            >
-                              <span className="text-xs text-foreground/80 truncate group-active:text-primary transition-colors">{row.name}</span>
-                              <History size={11} className="text-muted-foreground/70 group-active:text-primary shrink-0" />
-                            </button>
-                            {isBodyweightOptionalExercise(row.name) && (
-                              <>
-                                <span className="text-[9px] text-muted-foreground shrink-0">pdc</span>
+                          <div key={row.role}>
+                            <div className="flex items-center gap-2 py-1">
+                              <span className="text-[10px] font-bold text-primary w-4">{row.role}</span>
+                              <button
+                                onClick={() => { setHistoryExercise(row.name); setMode('history'); }}
+                                className="min-h-11 flex items-center gap-1 flex-1 min-w-0 group"
+                              >
+                                <span className="text-xs text-foreground/80 truncate group-active:text-primary transition-colors">{row.name}</span>
+                                <History size={11} className="text-muted-foreground/70 group-active:text-primary shrink-0" />
+                              </button>
+                              {isBodyweightOptionalExercise(row.name) && (
+                                <>
+                                  <span className="text-[9px] text-muted-foreground shrink-0">pdc</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleWeightSign(row.idx)}
+                                    className="w-5 h-5 shrink-0 rounded-md bg-background/60 text-muted-foreground text-[10px] leading-none font-bold"
+                                    aria-label={sets[row.idx].weight < 0 ? 'Assisté (élastique/machine) — repasser en lesté' : 'Lesté — passer en assisté (élastique/machine)'}
+                                    title={sets[row.idx].weight < 0 ? 'Assisté' : 'Lesté'}
+                                  >
+                                    {sets[row.idx].weight < 0 ? '−' : '+'}
+                                  </button>
+                                </>
+                              )}
+                              <input
+                                type="number"
+                                value={sets[row.idx].weight}
+                                onChange={e => updateSet(row.idx, 'weight', e.target.value)}
+                                onFocus={e => e.target.select()}
+                                onBlur={e => finalizeWeightOnBlur(row.idx, e.target.value)}
+                                className="w-14 bg-background/60 rounded-md text-foreground text-sm text-center outline-none font-mono py-1"
+                                placeholder="kg"
+                                aria-label={`Poids série ${localIdx + 1}, ${row.name} (kg)`}
+                              />
+                              <span className="text-muted-foreground text-xs">×</span>
+                              <input
+                                type="number"
+                                value={sets[row.idx].reps || ''}
+                                onChange={e => updateSet(row.idx, 'reps', e.target.value)}
+                                className={`w-12 bg-background/60 rounded-md text-sm text-center outline-none font-mono py-1 ${
+                                  sets[row.idx].amrap ? 'text-accent-purple placeholder:text-accent-purple/70' : 'text-foreground'
+                                }`}
+                                aria-label={`Répétitions série ${localIdx + 1}, ${row.name}`}
+                                placeholder={sets[row.idx].amrap ? 'Max' : 'reps'}
+                              />
+                              {row.templateEx && renderTagsButton(row.templateEx)}
+                            </div>
+                            {row.templateEx && renderTagsPanel(row.templateEx)}
+                            {row.dropIdxs.map((dropIdx, dropI) => (
+                              <div key={dropIdx} className="flex items-center gap-2 py-1 ml-4">
+                                <span className="text-[10px] font-bold text-warning w-4">Δ</span>
+                                <span className="flex-1 min-w-0 text-[11px] text-warning font-medium truncate">Drop {dropI + 1}</span>
+                                <input
+                                  type="number"
+                                  value={sets[dropIdx].weight}
+                                  onChange={e => updateSet(dropIdx, 'weight', e.target.value)}
+                                  onFocus={e => e.target.select()}
+                                  onBlur={e => finalizeSimpleWeightOnBlur(dropIdx, e.target.value)}
+                                  className="w-14 bg-background/60 rounded-md text-foreground text-sm text-center outline-none font-mono py-1"
+                                  placeholder="kg"
+                                  aria-label={`Poids Drop ${dropI + 1} ${row.role}, ${row.name} (kg)`}
+                                />
+                                <span className="text-muted-foreground text-xs">×</span>
+                                <input
+                                  type="number"
+                                  value={sets[dropIdx].reps || ''}
+                                  onChange={e => updateSet(dropIdx, 'reps', e.target.value)}
+                                  className="w-12 bg-background/60 rounded-md text-sm text-center outline-none font-mono py-1 text-foreground"
+                                  aria-label={`Répétitions Drop ${dropI + 1} ${row.role}, ${row.name}`}
+                                />
                                 <button
-                                  type="button"
-                                  onClick={() => toggleWeightSign(row.idx)}
-                                  className="w-5 h-5 shrink-0 rounded-md bg-background/60 text-muted-foreground text-[10px] leading-none font-bold"
-                                  aria-label={sets[row.idx].weight < 0 ? 'Assisté (élastique/machine) — repasser en lesté' : 'Lesté — passer en assisté (élastique/machine)'}
-                                  title={sets[row.idx].weight < 0 ? 'Assisté' : 'Lesté'}
+                                  onClick={() => removeSet(dropIdx)}
+                                  className="touch-target inline-flex items-center justify-center text-muted-foreground active:text-destructive"
+                                  aria-label={`Supprimer Drop ${dropI + 1} ${row.role}`}
                                 >
-                                  {sets[row.idx].weight < 0 ? '−' : '+'}
+                                  <Trash2 size={14} />
                                 </button>
-                              </>
-                            )}
-                            <input
-                              type="number"
-                              value={weightFieldValue(sets[row.idx].weight, row.name)}
-                              onChange={e => updateSet(row.idx, 'weight', e.target.value)}
-                              onFocus={e => e.target.select()}
-                              onBlur={() => propagateWeightOnBlur(row.idx)}
-                              className="w-14 bg-background/60 rounded-md text-foreground text-sm text-center outline-none font-mono py-1"
-                              placeholder="kg"
-                              aria-label={`Poids série ${localIdx + 1}, ${row.name} (kg)`}
-                            />
-                            <span className="text-muted-foreground text-xs">×</span>
-                            <input
-                              type="number"
-                              value={sets[row.idx].reps || ''}
-                              onChange={e => updateSet(row.idx, 'reps', e.target.value)}
-                              className={`w-12 bg-background/60 rounded-md text-sm text-center outline-none font-mono py-1 ${
-                                sets[row.idx].amrap ? 'text-accent-purple placeholder:text-accent-purple/70' : 'text-foreground'
-                              }`}
-                              aria-label={`Répétitions série ${localIdx + 1}, ${row.name}`}
-                              placeholder={sets[row.idx].amrap ? 'Max' : 'reps'}
-                            />
+                              </div>
+                            ))}
+                            <button
+                              onClick={() => addDropSet(row.role === 'A' ? block.aId : block.bId, row.name, row.idx)}
+                              className="w-full min-h-8 flex items-center justify-center gap-1 text-warning text-[10px] font-medium ml-4"
+                            >
+                              <TrendingDown size={10} /> + Drop set
+                            </button>
                           </div>
                         ))}
                       </div>
@@ -2759,10 +2901,10 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                         )}
                         <input
                           type="number"
-                          value={weightFieldValue(sets[globalIdx].weight, name)}
+                          value={sets[globalIdx].weight}
                           onChange={e => updateSet(globalIdx, 'weight', e.target.value)}
                           onFocus={e => e.target.select()}
-                          onBlur={() => propagateWeightOnBlur(globalIdx)}
+                          onBlur={e => finalizeWeightOnBlur(globalIdx, e.target.value)}
                           className="w-16 bg-transparent text-foreground text-sm text-center outline-none font-mono"
                           placeholder="kg"
                           aria-label={`Poids ${rowLabel}, ${name} (kg)`}
@@ -2868,6 +3010,39 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
         treat `fixed` descendants as if they were `absolute` to that ancestor instead) */}
     {mode === 'recap' && (
       <RestTimer ref={restTimerRef} defaultSeconds={restDuration} />
+    )}
+
+    {methodSwitchConfirm && (
+      <div
+        className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-6 animate-fade-in"
+        onClick={() => setMethodSwitchConfirm(null)}
+      >
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="method-switch-title"
+          className="glass-card p-6 max-w-sm w-full"
+          onClick={e => e.stopPropagation()}
+        >
+          <h3 id="method-switch-title" className="text-lg font-bold text-foreground mb-2">
+            Changer de méthode va effacer le drop set en cours sur cet exercice. Continuer ?
+          </h3>
+          <div className="flex gap-3 mt-4">
+            <button
+              onClick={() => setMethodSwitchConfirm(null)}
+              className="flex-1 bg-secondary text-secondary-foreground font-medium py-2.5 rounded-xl text-sm touch-target"
+            >
+              Annuler
+            </button>
+            <button
+              onClick={() => { const c = methodSwitchConfirm; setMethodSwitchConfirm(null); if (c) doApplyMethodOverride(c.ex, c.opt); }}
+              className="flex-1 bg-destructive text-destructive-foreground font-medium py-2.5 rounded-xl text-sm touch-target"
+            >
+              Oui, changer
+            </button>
+          </div>
+        </div>
+      </div>
     )}
 
     {showAbandonConfirm && (

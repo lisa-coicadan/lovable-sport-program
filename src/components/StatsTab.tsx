@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
-import { AppData, SessionLog, calculate1RM, WORKOUT_COLORS, CardioActivityType, resolveProgramName } from '@/lib/types';
+import { AppData, SessionLog, WORKOUT_COLORS, CardioActivityType, resolveProgramName } from '@/lib/types';
 import { normalizeExerciseName, splitEquipmentVariant, isBodyweightOptionalExercise, foldAccents, formatWeightDisplay } from '@/lib/exerciseNormalize';
-import { computeSetTonnage, resolveBodyWeightAtDate, computeEffectiveLoadAtOneRep } from '@/lib/tonnage';
+import { computeSetTonnage, resolveBodyWeightAtDate, computeEffectiveLoadAtOneRep, computeBodyweightAdjustedE1RM } from '@/lib/tonnage';
 import { FORCE_ELIGIBLE_MOVEMENTS, ForceEligibleMovement } from '@/lib/strengthStandards';
 import { calculatePaceMinPerKm, formatCardioDuration, formatPace, formatCardioDistance } from '@/lib/cardio';
 import { Trophy, Scale, Crown, ChevronDown, Search, X, Plus, Dumbbell } from 'lucide-react';
@@ -119,20 +119,28 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession, onUpdateData }: Stat
     return allLoggedExerciseNames.filter(n => foldAccents(n).includes(q)).slice(0, 8);
   }, [allLoggedExerciseNames, exerciseSearch]);
 
-  // All PRs, grouped by normalized name -> best e1rm ever
+  // All PRs, grouped by normalized name -> best e1rm ever. weight > 0 is required for
+  // everything except bodyweight-optional movements (tractions/dips/muscle-up/pompes,
+  // where 0 or a negative/assisted weight is a real logged value, not "not filled in") —
+  // and a failed max attempt never counts as a record even though it's `completed`.
+  // e1rm uses the bodyweight-adjusted estimate (computeBodyweightAdjustedE1RM), a no-op
+  // for every other movement, so this stays correct for Squat/DC/SDT too.
   const prByName = useMemo(() => {
     const map: Record<string, PR> = {};
     data.sessions.forEach(session => {
-      session.sets.filter(s => s.completed && s.weight > 0 && s.reps > 0).forEach(s => {
-        const name = normalizeExerciseName(s.exerciseName);
-        const e1rm = calculate1RM(s.weight, s.reps);
-        if (!map[name] || e1rm > map[name].e1rm) {
-          map[name] = { name, e1rm, weight: s.weight, reps: s.reps, date: session.date };
-        }
-      });
+      const bw = resolveBodyWeightAtDate(data.bodyWeightLogs, session.date);
+      session.sets
+        .filter(s => s.completed && !s.failed && s.reps > 0 && (s.weight > 0 || isBodyweightOptionalExercise(s.exerciseName)))
+        .forEach(s => {
+          const name = normalizeExerciseName(s.exerciseName);
+          const e1rm = computeBodyweightAdjustedE1RM(s, bw);
+          if (!map[name] || e1rm > map[name].e1rm) {
+            map[name] = { name, e1rm, weight: s.weight, reps: s.reps, date: session.date };
+          }
+        });
     });
     return map;
-  }, [data.sessions]);
+  }, [data.sessions, data.bodyWeightLogs]);
 
   // Exercises with an active training method (5/3/1, Cluster, EMOM) get their own
   // isolated PR card up top, same treatment the Squat card used to get alone.
@@ -172,12 +180,14 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession, onUpdateData }: Stat
     const byName: Record<string, { date: string; e1rm: number; weight: number; reps: number }[]> = {};
     methodExerciseNames.forEach(name => { byName[name] = []; });
     data.sessions.forEach(session => {
+      const bw = resolveBodyWeightAtDate(data.bodyWeightLogs, session.date);
       const bestByName: Record<string, { e1rm: number; weight: number; reps: number }> = {};
       session.sets.forEach(s => {
-        if (!s.completed || s.weight <= 0 || s.reps <= 0) return;
+        if (!s.completed || s.failed || s.reps <= 0) return;
+        if (s.weight <= 0 && !isBodyweightOptionalExercise(s.exerciseName)) return;
         const canon = normalizeExerciseName(s.exerciseName);
         if (!methodExerciseNames.has(canon)) return;
-        const e1 = calculate1RM(s.weight, s.reps);
+        const e1 = computeBodyweightAdjustedE1RM(s, bw);
         if (!bestByName[canon] || e1 > bestByName[canon].e1rm) bestByName[canon] = { e1rm: e1, weight: s.weight, reps: s.reps };
       });
       Object.entries(bestByName).forEach(([name, best]) => {
@@ -192,7 +202,7 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession, onUpdateData }: Stat
           .sort((a, b) => a.date.localeCompare(b.date))
           .map(p => ({ date: new Date(p.date).getTime(), e1rm: p.e1rm, weight: p.weight, reps: p.reps })),
       }));
-  }, [methodExerciseNames, data.sessions]);
+  }, [methodExerciseNames, data.sessions, data.bodyWeightLogs]);
 
   // Weekly frequency — include empty weeks
   const weeklyData = useMemo(() => {
@@ -505,23 +515,12 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession, onUpdateData }: Stat
           <div className="space-y-2">
             {otherPRs.map(pr => {
               const d = daysAgo(pr.date);
-              const isForceEligible = FORCE_ELIGIBLE_MOVEMENTS.includes(splitEquipmentVariant(pr.name).base as ForceEligibleMovement);
               return (
                 <div key={pr.name} className="flex items-center justify-between bg-secondary rounded-lg px-3 py-2 border border-primary/15">
                   <div className="min-w-0 flex-1">
                     <p className="text-sm text-foreground truncate">{pr.name}</p>
                     <p className="text-[10px] text-muted-foreground">Il y a {d} jour{d > 1 ? 's' : ''}</p>
                   </div>
-                  {isForceEligible && (
-                    <button
-                      onClick={() => { setAddTrueOneRMDraft({ date: new Date().toISOString().split('T')[0], weight: '' }); setAddTrueOneRMFor(splitEquipmentVariant(pr.name).base); }}
-                      className="touch-target p-1 text-warning shrink-0"
-                      aria-label={`Ajouter un vrai 1RM pour ${pr.name}`}
-                      title="Ajouter un vrai 1RM"
-                    >
-                      <Dumbbell size={14} />
-                    </button>
-                  )}
                   <div className="text-right shrink-0 ml-2">
                     <span className="text-sm font-bold text-primary">{pr.reps} × {formatWeightDisplay(pr.weight, pr.name)}</span>
                     <p className="text-[10px] text-muted-foreground">1RM {pr.e1rm} kg</p>

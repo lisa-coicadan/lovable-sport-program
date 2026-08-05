@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AppData, ExerciseEquipment, EQUIPMENT_LABELS, calculate1RM } from '@/lib/types';
-import { splitEquipmentVariant, isBodyweightOptionalExercise, resolveSetVariant, formatWeightDisplay, formatWeightDisplayFor } from '@/lib/exerciseNormalize';
+import { AppData, ExerciseEquipment, EQUIPMENT_LABELS } from '@/lib/types';
+import { splitEquipmentVariant, isBodyweightOptionalExercise, resolveSetVariant, formatWeightDisplay, formatWeightDisplayFor, bodyweightTonnageFraction } from '@/lib/exerciseNormalize';
 import { STANDARD_MOVEMENTS, StandardMovement, FORCE_ELIGIBLE_MOVEMENTS, ForceEligibleMovement, getFranceRecord, getRecordMessage, getLevel, getLevelMessage } from '@/lib/strengthStandards';
 import { computeBodyweightAdjustedE1RM, computeEffectiveLoadAtOneRep, resolveBodyWeightAtDate } from '@/lib/tonnage';
 import { ArrowLeft, Trophy, Dumbbell, Plus, Repeat } from 'lucide-react';
@@ -18,13 +18,14 @@ interface HistoryEntry {
   date: string;
   weight: number;
   reps: number;
+  // Estimated 1RM via computeBodyweightAdjustedE1RM — for bodyweight-driven exercises
+  // (tractions/dips/muscle-up/pompes) this is Epley applied to the TRUE total load
+  // (bodyweight*fraction + weight) with the bodyweight contribution subtracted back out,
+  // expressed as a delta from bodyweight (0 = a strict bodyweight rep, negative =
+  // net-assisted) — the same "kg ajoutés" axis as the France-record/niveau thresholds
+  // (src/lib/strengthStandards.ts), just computed correctly instead of running Epley
+  // directly on the raw delta. Identical to plain calculate1RM for every other exercise.
   e1rm: number;
-  // Same estimated 1RM, but for bodyweight-driven exercises (tractions/dips/pompes)
-  // re-expressed as a DELTA from bodyweight (0 = a strict bodyweight rep, negative =
-  // net-assisted) — see computeBodyweightAdjustedE1RM. Identical to e1rm for every other
-  // exercise. Used for the chart line only; the Record headline/list below and the
-  // France-record comparison deliberately keep using the raw e1rm above.
-  chartValue: number;
   exerciseId: string;
   // Per-exercise RPE logged live during that session (WorkoutTab), not the session-wide
   // `difficulty` — absent when she didn't rate this exercise that day.
@@ -36,6 +37,14 @@ interface HistoryEntry {
   setIndex: number;
   equipment?: ExerciseEquipment;
   unilateral?: boolean;
+  // Badges so a warm-up rep, a drop-set stage, a method-driven set or a superset partner
+  // don't read as an indistinguishable "normal" working set in this list — they still
+  // count toward the same Record/graph/PR as before (that inclusion is intentional, see
+  // types.ts), only the display gained a marker.
+  isWarmup?: boolean;
+  dropSetStage?: number;
+  methodType?: '531' | 'cluster' | 'emom';
+  supersetGroupId?: string;
 }
 
 interface VariantGroup {
@@ -80,6 +89,14 @@ const ExerciseHistory = ({ exerciseName, data, onUpdateData, onClose }: Exercise
   // Tractions/dips are meaningfully loggable at 0kg (bodyweight) or negative (assisted) —
   // everywhere else, weight <= 0 just means "not filled in", so it stays excluded.
   const bodyweightOptional = useMemo(() => isBodyweightOptionalExercise(exerciseName), [exerciseName]);
+  // Exact exerciseName -> method, for the method badge below — a set logged while the
+  // exercise had an active 531/Cluster/EMOM method (methodOverrides in WorkoutTab aren't
+  // reflected here, only the template's own configured method).
+  const methodByName = useMemo(() => {
+    const map = new Map<string, '531' | 'cluster' | 'emom'>();
+    data.workoutTypes.forEach(t => t.exercises.forEach(e => { if (e.method) map.set(e.name, e.method.type); }));
+    return map;
+  }, [data.workoutTypes]);
 
   const variantGroups = useMemo(() => {
     const groups = new Map<string, VariantGroup>();
@@ -104,19 +121,22 @@ const ExerciseHistory = ({ exerciseName, data, onUpdateData, onClose }: Exercise
             date: session.date,
             weight: s.weight,
             reps: s.reps,
-            e1rm: calculate1RM(s.weight, s.reps),
-            chartValue: computeBodyweightAdjustedE1RM(s, sessionBodyWeight),
+            e1rm: computeBodyweightAdjustedE1RM(s, sessionBodyWeight),
             exerciseId: s.exerciseId,
             difficulty: session.exerciseDifficulty?.[s.exerciseId],
             sessionId: session.id,
             setIndex,
+            isWarmup: s.isWarmup,
+            dropSetStage: s.dropSetStage,
+            methodType: methodByName.get(s.exerciseName),
+            supersetGroupId: s.supersetGroupId,
             equipment: s.equipment,
             unilateral: s.unilateral,
           });
         });
       });
     return [...groups.values()];
-  }, [data.sessions, base, bodyweightOptional]);
+  }, [data.sessions, base, bodyweightOptional, methodByName]);
 
   // The headline "Record" number alone doesn't say what weight×reps produced it — she has
   // to go dig through the list below to find it. Keep the actual best set alongside it.
@@ -164,6 +184,18 @@ const ExerciseHistory = ({ exerciseName, data, onUpdateData, onClose }: Exercise
       .sort((a, b) => b.date.localeCompare(a.date));
   }, [data.trueOneRepMaxes, base]);
   const latestTrueOneRM = trueOneRepMaxHistory[0];
+  // TrueOneRepMax.weight is always stored as an absolute total load (bodyweight-adjusted
+  // at entry time via computeEffectiveLoadAtOneRep, see types.ts) — never a delta, unlike
+  // every OTHER weight in the app for these exercises. Converting it back to a delta here
+  // (subtracting the bodyweight contribution AT THAT TEST'S OWN DATE) keeps the headline
+  // and the "écart vs 1RM estimé" on the same "pdc ±X kg" axis as defaultVariantPR and
+  // everywhere else — comparing the raw absolute value against a delta was the bug.
+  const latestTrueOneRMDelta = useMemo(() => {
+    if (!latestTrueOneRM || !bodyweightOptional) return null;
+    const bwAtTest = resolveBodyWeightAtDate(data.bodyWeightLogs, latestTrueOneRM.date);
+    return Math.round((latestTrueOneRM.weight - (bwAtTest ?? 0) * bodyweightTonnageFraction(base)) * 10) / 10;
+  }, [latestTrueOneRM, bodyweightOptional, data.bodyWeightLogs, base]);
+  const latestTrueOneRMDisplayWeight = bodyweightOptional ? (latestTrueOneRMDelta ?? 0) : (latestTrueOneRM?.weight ?? 0);
 
   const [showAddTrueOneRM, setShowAddTrueOneRM] = useState(false);
   const [addTrueOneRMDraft, setAddTrueOneRMDraft] = useState({ date: new Date().toISOString().split('T')[0], weight: '' });
@@ -251,15 +283,15 @@ const ExerciseHistory = ({ exerciseName, data, onUpdateData, onClose }: Exercise
           {latestTrueOneRM ? (
             <div className="space-y-1">
               <p className="text-sm text-foreground font-semibold">
-                {latestTrueOneRM.weight} kg{' '}
+                {formatWeightDisplayFor(latestTrueOneRMDisplayWeight, bodyweightOptional)}{' '}
                 <span className="text-xs text-muted-foreground font-normal">
                   — {new Date(latestTrueOneRM.date + 'T00:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
                 </span>
               </p>
               {defaultVariantPR > 0 && (
                 <p className="text-[11px] text-muted-foreground">
-                  1RM estimé : {defaultVariantPR} kg ({latestTrueOneRM.weight >= defaultVariantPR ? '+' : ''}
-                  {Math.round((latestTrueOneRM.weight - defaultVariantPR) * 10) / 10} kg d'écart)
+                  1RM estimé : {defaultVariantPR} kg ({latestTrueOneRMDisplayWeight >= defaultVariantPR ? '+' : ''}
+                  {Math.round((latestTrueOneRMDisplayWeight - defaultVariantPR) * 10) / 10} kg d'écart)
                 </p>
               )}
             </div>
@@ -370,10 +402,10 @@ const VariantSection = ({ group, showHeader, bodyweightOptional, onUpdateSetVari
     const byDate: Record<string, HistoryEntry> = {};
     group.history.forEach(h => {
       if (cutoff && new Date(h.date + 'T00:00:00') < cutoff) return;
-      if (!byDate[h.date] || h.chartValue > byDate[h.date].chartValue) byDate[h.date] = h;
+      if (!byDate[h.date] || h.e1rm > byDate[h.date].e1rm) byDate[h.date] = h;
     });
     return Object.values(byDate)
-      .map(h => ({ date: new Date(h.date + 'T00:00:00').getTime(), value: h.chartValue, weight: h.weight, reps: h.reps }))
+      .map(h => ({ date: new Date(h.date + 'T00:00:00').getTime(), value: h.e1rm, weight: h.weight, reps: h.reps }))
       .sort((a, b) => a.date - b.date);
   }, [group.history, range]);
 
@@ -585,9 +617,36 @@ const VariantSection = ({ group, showHeader, bodyweightOptional, onUpdateSetVari
               ) : null}
               <div className="space-y-1">
                 {sets.map((s, i) => (
-                  <div key={i} className="flex items-center justify-between bg-secondary rounded-lg px-3 py-2">
-                    <span className="text-sm text-foreground font-mono">{formatWeightDisplayFor(s.weight, bodyweightOptional)} × {s.reps}</span>
-                    <span className="text-xs text-muted-foreground">1RM: {bodyweightOptional ? s.chartValue : s.e1rm} kg</span>
+                  <div key={i} className="bg-secondary rounded-lg px-3 py-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-foreground font-mono">{formatWeightDisplayFor(s.weight, bodyweightOptional)} × {s.reps}</span>
+                      <span className="text-xs text-muted-foreground">1RM: {s.e1rm} kg</span>
+                    </div>
+                    {(s.isWarmup || s.dropSetStage || s.methodType || s.supersetGroupId) && (
+                      <div className="flex items-center gap-1 mt-1 flex-wrap">
+                        {s.isWarmup && (
+                          <span className="text-[9px] text-muted-foreground bg-background/60 px-1.5 py-0.5 rounded-full">Échauffement</span>
+                        )}
+                        {s.dropSetStage && (
+                          <span className="text-[9px] text-warning bg-warning/10 px-1.5 py-0.5 rounded-full">Drop {s.dropSetStage}</span>
+                        )}
+                        {s.methodType && (
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${
+                            // Lightened hsl, not the raw --accent-purple token: on this same
+                            // 10%-tint background the raw color fails AA (4.49:1) — same fix
+                            // as SetupWizard.tsx/WorkoutTab.tsx/SettingsPanel.tsx.
+                            s.methodType === 'cluster' ? 'text-[hsl(262_83%_72%)] bg-accent-purple/10'
+                            : s.methodType === 'emom' ? 'text-accent-blue bg-accent-blue/10'
+                            : 'text-primary bg-primary/10'
+                          }`}>
+                            {s.methodType === 'cluster' ? 'Cluster' : s.methodType === 'emom' ? 'EMOM' : '5/3/1'}
+                          </span>
+                        )}
+                        {s.supersetGroupId && (
+                          <span className="text-[9px] text-primary bg-primary/10 px-1.5 py-0.5 rounded-full">Superset</span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

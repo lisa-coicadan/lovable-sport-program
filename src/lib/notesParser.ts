@@ -101,14 +101,26 @@ function parseLine(line: string): ParsedExercise[] | null {
       b = parseClause(rightRaw);
       if (b) b.sets = a.sets; // sets are always shared across the superset pair
     } else {
-      const repsMatch = rightRaw.match(/[x×]?\s*(\d+)/i);
-      if (repsMatch && repsMatch.index !== undefined) {
-        const name = (rightRaw.slice(0, repsMatch.index) + rightRaw.slice(repsMatch.index + repsMatch[0].length))
-          .replace(EDGE_PUNCT_RE, '')
-          .replace(/\s+/g, ' ')
-          .trim();
-        if (name) b = { name, sets: a.sets, reps: parseInt(repsMatch[1], 10) };
+      // Weight must be stripped BEFORE the bare-number-as-reps read below, or a second
+      // clause like "20kg Élévations latérales" has its "20" swallowed as reps and "kg"
+      // left polluting the name — weight silently lost. Mirrors parseClause's own
+      // weight-first order, just without also requiring "NxM"/"Nx"/"xN" (a bare number
+      // still means reps here, per this clause's own more lenient rule below).
+      let weight: number | undefined;
+      let rem = rightRaw;
+      const weightMatch = rem.match(WEIGHT_RE);
+      if (weightMatch && weightMatch.index !== undefined) {
+        weight = parseFloat(weightMatch[1].replace(',', '.'));
+        rem = (rem.slice(0, weightMatch.index) + rem.slice(weightMatch.index + weightMatch[0].length)).trim();
       }
+      let reps: number | undefined;
+      const repsMatch = rem.match(/[x×]?\s*(\d+)/i);
+      if (repsMatch && repsMatch.index !== undefined) {
+        reps = parseInt(repsMatch[1], 10);
+        rem = (rem.slice(0, repsMatch.index) + rem.slice(repsMatch.index + repsMatch[0].length)).trim();
+      }
+      const name = rem.replace(EDGE_PUNCT_RE, '').replace(/\s+/g, ' ').trim();
+      if (name) b = { name, sets: a.sets, reps, weight };
     }
     if (!b) return null;
 

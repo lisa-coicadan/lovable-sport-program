@@ -141,6 +141,11 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
   // default, since most exercises never touch them and showing all three inline on every
   // card made this list of exercises feel dense/overwhelming to scan.
   const [expandedAdvancedFor, setExpandedAdvancedFor] = useState<string | null>(null);
+  // Remembers the Training Max an exercise had right before "Retirer" (Réglages-session
+  // only, never persisted) — so accidentally removing a method then picking one again
+  // doesn't silently reset it to the 60 default. Lost on reload, same tradeoff as
+  // WorkoutTab's session-only tagOverrides/methodOverrides.
+  const [lastKnownTM, setLastKnownTM] = useState<Record<string, number>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Manual deload activation (Réglages) — separate from the auto-recommended flow in
   // WorkoutTab (shouldShowDeloadRecommendation), lets her start a recovery week on her own
@@ -828,15 +833,24 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                     const renderRow = (ex: Exercise, opts?: { hideSets?: boolean }) => {
                       const ei = type.exercises.findIndex(e => e.id === ex.id);
                       const hasMethod = !!ex.method;
+                      // Same trio as the detail panel below (531=primary/magenta,
+                      // Cluster=accent-purple/violet, EMOM=accent-blue/cyan) — this badge
+                      // used to stay magenta for all three, disagreeing with its own panel.
+                      // Cluster's text uses a lightened hsl (72% vs --accent-purple's 66%)
+                      // instead of the raw token — on this same tint background the raw
+                      // color lands under the 4.5:1 AA floor, same fix as SetupWizard.tsx.
+                      const methodBadgeClass = ex.method?.type === 'cluster'
+                        ? 'bg-accent-purple/15 text-[hsl(262_83%_72%)] font-medium border border-accent-purple/40'
+                        : ex.method?.type === 'emom'
+                        ? 'bg-accent-blue/15 text-accent-blue font-medium border border-accent-blue/40'
+                        : 'bg-primary/15 text-primary font-medium border border-primary/40';
                       return (
                         <div className="flex items-center gap-1.5 flex-1 min-w-0">
                           <input
                             value={ex.name}
                             onChange={e => updateExercise(ti, ei, 'name', e.target.value)}
                             className={`flex-1 min-w-0 rounded-lg px-2.5 py-1.5 text-sm outline-none ${
-                              hasMethod
-                                ? 'bg-primary/15 text-primary font-medium border border-primary/40'
-                                : 'bg-secondary text-foreground'
+                              hasMethod ? methodBadgeClass : 'bg-secondary text-foreground'
                             }`}
                             placeholder="Exercice"
                           />
@@ -935,6 +949,46 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                             const a = type.exercises.find(e => e.id === aId)!;
                             const b = type.exercises.find(e => e.id === bId);
                             const aIdx = type.exercises.findIndex(e => e.id === aId);
+                            const bIdx = type.exercises.findIndex(e => e.id === bId);
+                            // Being in a superset only ever hides the METHOD controls (531/
+                            // Cluster/EMOM are structurally incompatible with a shared-sets
+                            // pair) — drop set, max de reps and équipement stay fully
+                            // configurable per side, same as a standalone exercise.
+                            const renderSubExerciseOptions = (subEx: Exercise, subExIdx: number) => (
+                              <div className="pl-5 mt-0.5">
+                                <button
+                                  onClick={() => setExpandedAdvancedFor(expandedAdvancedFor === subEx.id ? null : subEx.id)}
+                                  className="text-[10px] text-muted-foreground flex items-center gap-1"
+                                  aria-expanded={expandedAdvancedFor === subEx.id}
+                                >
+                                  <ChevronDown size={10} className={`transition-transform ${expandedAdvancedFor === subEx.id ? 'rotate-180' : ''}`} />
+                                  Options avancées
+                                </button>
+                                {expandedAdvancedFor === subEx.id && (
+                                  <div className="flex items-center gap-3 flex-wrap mt-1.5">
+                                    <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                                      <input
+                                        type="checkbox"
+                                        checked={!!subEx.dropSet}
+                                        onChange={e => updateExercise(ti, subExIdx, 'dropSet', e.target.checked ? {} : undefined)}
+                                        className="w-3.5 h-3.5 accent-warning"
+                                      />
+                                      <TrendingDown size={10} className="text-warning" /> Drop set
+                                    </label>
+                                    <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                                      <input
+                                        type="checkbox"
+                                        checked={!!subEx.amrap}
+                                        onChange={e => updateExercise(ti, subExIdx, 'amrap', e.target.checked)}
+                                        className="w-3.5 h-3.5 accent-accent-purple"
+                                      />
+                                      <InfinityIcon size={10} className="text-accent-purple" /> Max de reps
+                                    </label>
+                                    {renderEquipmentFields(subEx)}
+                                  </div>
+                                )}
+                              </div>
+                            );
                             return (
                               <div className="border border-primary/40 bg-primary/5 rounded-xl p-2.5 space-y-1.5 mb-1.5">
                                 <div className="flex items-center justify-between mb-1">
@@ -971,6 +1025,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                     <span className="text-[10px] font-bold text-primary w-4">A</span>
                                     {renderRow(a, { hideSets: true })}
                                   </div>
+                                  {renderSubExerciseOptions(a, aIdx)}
                                 </div>
                                 {b && (
                                   <div>
@@ -979,6 +1034,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                       <span className="text-[10px] font-bold text-primary w-4">B</span>
                                       {renderRow(b, { hideSets: true })}
                                     </div>
+                                    {renderSubExerciseOptions(b, bIdx)}
                                   </div>
                                 )}
                               </div>
@@ -986,7 +1042,11 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                           }
                           const ex = type.exercises.find(e => e.id === block.exerciseIds[0])!;
                           const exIdx = type.exercises.findIndex(e => e.id === ex.id);
-                          const freePartners = type.exercises.filter(e => e.id !== ex.id && !e.supersetGroupId);
+                          // A methodical exercise (531/Cluster/EMOM) can never be paired into a
+                          // superset — its set count/structure comes from its Training Max, not
+                          // a fixed `sets` field a superset partner can share. Excluded both as a
+                          // pickable partner here AND from offering the trigger below.
+                          const freePartners = type.exercises.filter(e => e.id !== ex.id && !e.supersetGroupId && !e.method);
                           const method531 = ex.method?.type === '531' ? ex.method : null;
                           const methodCluster = ex.method?.type === 'cluster' ? ex.method : null;
                           const methodEmom = ex.method?.type === 'emom' ? ex.method : null;
@@ -994,7 +1054,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                           // set/Max de reps on one line) and the method-active branches
                           // (own small line just below renderRow, no room to join a row
                           // that doesn't exist for them).
-                          const supersetTriggerButton = freePartners.length > 0 && (
+                          const supersetTriggerButton = !ex.method && freePartners.length > 0 && (
                             <button
                               onClick={() => setSupersetPickerFor(supersetPickerFor === ex.id ? null : ex.id)}
                               className="text-[10px] text-muted-foreground flex items-center gap-1"
@@ -1090,7 +1150,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                       </span> 5/3/1 actif
                                     </span>
                                     <button
-                                      onClick={() => updateExerciseMethod(ti, exIdx, undefined)}
+                                      onClick={() => { if (method531) setLastKnownTM(prev => ({ ...prev, [ex.id]: method531.trainingMax })); updateExerciseMethod(ti, exIdx, undefined); }}
                                       className="text-[10px] text-muted-foreground underline"
                                     >
                                       Retirer
@@ -1161,14 +1221,17 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                               ) : methodCluster ? (
                                 <div className="rounded-xl p-3 bg-accent-purple/10 border border-accent-purple/30 space-y-2.5">
                                   <div className="flex items-center justify-between">
-                                    <span className="text-xs font-bold text-accent-purple flex items-center gap-1">
+                                    {/* text-[hsl(262_83%_72%)] not text-accent-purple: the raw
+                                        token on this same 10%-tint background fails AA
+                                        (4.49:1) — lightened version fix, see SetupWizard.tsx. */}
+                                    <span className="text-xs font-bold text-[hsl(262_83%_72%)] flex items-center gap-1">
                                       <span className="relative inline-flex w-3 h-3 items-center justify-center">
                                         <span className="absolute inset-0 bg-accent-purple/50 rounded-full blur-sm animate-pulse-glow" />
                                         <Timer size={12} className="relative" />
                                       </span> Cluster actif
                                     </span>
                                     <button
-                                      onClick={() => updateExerciseMethod(ti, exIdx, undefined)}
+                                      onClick={() => { if (methodCluster) setLastKnownTM(prev => ({ ...prev, [ex.id]: methodCluster.trainingMax })); updateExerciseMethod(ti, exIdx, undefined); }}
                                       className="text-[10px] text-muted-foreground underline"
                                     >
                                       Retirer
@@ -1316,7 +1379,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                       </span> EMOM actif
                                     </span>
                                     <button
-                                      onClick={() => updateExerciseMethod(ti, exIdx, undefined)}
+                                      onClick={() => { if (methodEmom) setLastKnownTM(prev => ({ ...prev, [ex.id]: methodEmom.trainingMax })); updateExerciseMethod(ti, exIdx, undefined); }}
                                       className="text-[10px] text-muted-foreground underline"
                                     >
                                       Retirer
@@ -1447,19 +1510,19 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                   {expandedMethodFor === ex.id && (
                                     <div className="flex items-center gap-3 mt-1.5 flex-wrap">
                                       <button
-                                        onClick={() => { updateExerciseMethod(ti, exIdx, { type: '531', trainingMax: 60, currentCycle: 1, currentWeek: 1, increment: 2.5 }); setExpandedMethodFor(null); }}
+                                        onClick={() => { updateExerciseMethod(ti, exIdx, { type: '531', trainingMax: lastKnownTM[ex.id] ?? 60, currentCycle: 1, currentWeek: 1, increment: 2.5 }); setExpandedMethodFor(null); }}
                                         className="text-[10px] text-muted-foreground flex items-center gap-1"
                                       >
                                         <Zap size={10} /> 5/3/1
                                       </button>
                                       <button
-                                        onClick={() => { updateExerciseMethod(ti, exIdx, { type: 'cluster', trainingMax: 60 }); setExpandedMethodFor(null); }}
+                                        onClick={() => { updateExerciseMethod(ti, exIdx, { type: 'cluster', trainingMax: lastKnownTM[ex.id] ?? 60 }); setExpandedMethodFor(null); }}
                                         className="text-[10px] text-muted-foreground flex items-center gap-1"
                                       >
                                         <Timer size={10} /> Cluster
                                       </button>
                                       <button
-                                        onClick={() => { updateExerciseMethod(ti, exIdx, { type: 'emom', trainingMax: 60 }); setExpandedMethodFor(null); }}
+                                        onClick={() => { updateExerciseMethod(ti, exIdx, { type: 'emom', trainingMax: lastKnownTM[ex.id] ?? 60 }); setExpandedMethodFor(null); }}
                                         className="text-[10px] text-muted-foreground flex items-center gap-1"
                                       >
                                         <Clock size={10} /> EMOM

@@ -358,14 +358,6 @@ export function isBodyweightOptionalExercise(name: string): boolean {
   return bodyweightTonnageFraction(name) > 0;
 }
 
-// A plain `weight || ''` blanks the input on 0 — right for every other exercise (0 means
-// "not filled in"), wrong here where 0 (bodyweight) or a negative (assisted) value is a
-// real, meaningful entry that must stay visible instead of reading as empty.
-export function weightFieldValue(weight: number, exerciseName: string): number | '' {
-  if (weight === 0 && isBodyweightOptionalExercise(exerciseName)) return 0;
-  return weight || '';
-}
-
 // A bare "+10 kg" or "-5 kg" doesn't say what it's relative to — for tractions/dips lestés
 // (and any other bodyweight-optional exercise), this makes the "poids du corps" baseline
 // explicit: "pdc +10 kg" (weighted), "pdc -5 kg" (assisted), or plain "pdc" for a strict
