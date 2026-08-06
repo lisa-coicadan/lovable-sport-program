@@ -252,12 +252,16 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
   };
 
   const updateEditSet = (index: number, field: 'reps' | 'weight', value: string) => {
-    // Same fix as WorkoutTab's updateSet: don't commit an empty weight field to 0
-    // immediately while she's clearing it to type a new number — finalized on blur
-    // instead (finalizeEditWeightOnBlur). 0kg is a legitimate value on any exercise.
-    if (field === 'weight' && value === '') return;
+    // Same fix as WorkoutTab's updateSet: don't commit an empty field to 0 immediately while
+    // she's clearing it to type a new number (also covers <input type="number"> briefly
+    // reporting an empty value while she types a French decimal comma) — finalized on blur
+    // instead (finalizeEditWeightOnBlur/finalizeEditRepsOnBlur). 0kg is a legitimate value on
+    // any exercise.
+    if (value === '') return;
     const updated = [...editSets];
-    updated[index][field] = value === '' ? 0 : (field === 'weight' ? parseFloat(value) || 0 : parseInt(value) || 0);
+    updated[index][field] = field === 'weight'
+      ? parseFloat(value.replace(',', '.')) || 0
+      : parseInt(value.replace(',', '.'), 10) || 0;
     setEditSets(updated);
   };
 
@@ -265,6 +269,13 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
     if (rawValue.trim() !== '') return;
     const updated = [...editSets];
     updated[index] = { ...updated[index], weight: 0 };
+    setEditSets(updated);
+  };
+
+  const finalizeEditRepsOnBlur = (index: number, rawValue: string) => {
+    if (rawValue.trim() !== '') return;
+    const updated = [...editSets];
+    updated[index] = { ...updated[index], reps: 0 };
     setEditSets(updated);
   };
 
@@ -825,6 +836,7 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
                             type="number"
                             value={s.reps || ''}
                             onChange={e => updateEditSet(gi, 'reps', e.target.value)}
+                            onBlur={e => finalizeEditRepsOnBlur(gi, e.target.value)}
                             className="w-12 bg-transparent text-foreground text-sm text-center outline-none font-mono"
                             placeholder="reps"
                           />

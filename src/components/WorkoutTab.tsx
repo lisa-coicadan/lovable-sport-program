@@ -556,17 +556,18 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
   };
 
   const updateSet = (index: number, field: 'reps' | 'weight', value: string) => {
-    // A weight field left momentarily empty (e.g. she's clearing "20" to type "50") must
-    // NOT commit to 0 right away — that would force the input back to "0" on every
-    // keystroke and fight her typing. Left truly empty, it finalizes to 0 on blur instead
-    // (see finalizeWeightOnBlur/finalizeSimpleWeightOnBlur) — 0kg is a legitimate value on
-    // any exercise, not just bodyweight ones, so it must stay displayed once committed.
-    if (field === 'weight' && value === '') return;
+    // A field left momentarily empty must NOT commit to 0 right away — that would force the
+    // input back to "0" on every keystroke and fight her typing. This also covers <input
+    // type="number"> briefly reporting an empty value while she types a French decimal comma
+    // (the browser can't parse "62," until the digits after it land) — without this guard,
+    // that intermediate keystroke used to wipe the field to 0 instead of just waiting for the
+    // rest of the number. Left truly empty on blur, it finalizes to 0 instead (see
+    // finalizeWeightOnBlur/finalizeSimpleWeightOnBlur/finalizeRepsOnBlur) — 0kg is a legitimate
+    // value on any exercise, not just bodyweight ones, so it must stay displayed once committed.
+    if (value === '') return;
     const updated = [...sets];
-    if (value === '') {
-      updated[index][field] = 0;
-    } else if (field === 'weight') {
-      const parsed = parseFloat(value) || 0;
+    if (field === 'weight') {
+      const parsed = parseFloat(value.replace(',', '.')) || 0;
       // The mobile numeric keypad for <input type="number"> rarely offers a minus key, so
       // she can't just type "-20" — instead, the +/- toggle button sets the sign and this
       // preserves it while she types the magnitude (onFocus selects-all, so each edit here
@@ -576,7 +577,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
       const wasNegative = updated[index].weight < 0;
       updated[index][field] = typedNegative ? parsed : (wasNegative ? -Math.abs(parsed) : parsed);
     } else {
-      updated[index][field] = parseInt(value) || 0;
+      updated[index][field] = parseInt(value.replace(',', '.'), 10) || 0;
     }
     setSets(updated);
   };
@@ -627,6 +628,16 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     if (rawValue.trim() !== '') return;
     const updated = [...sets];
     updated[index] = { ...updated[index], weight: 0 };
+    setSets(updated);
+  };
+
+  // Mirrors finalizeSimpleWeightOnBlur for reps fields — updateSet's guard above (no-op on a
+  // transiently-empty value) leaves a truly-abandoned edit uncommitted, so it's finalized to 0
+  // here on blur instead.
+  const finalizeRepsOnBlur = (index: number, rawValue: string) => {
+    if (rawValue.trim() !== '') return;
+    const updated = [...sets];
+    updated[index] = { ...updated[index], reps: 0 };
     setSets(updated);
   };
 
@@ -955,13 +966,12 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
   // by every card type (531/Cluster/EMOM/plain) so it's reachable regardless of method,
   // not just on exercises with no method (see item 5/item 1 of the v2.0/v2.1 lists).
   const renderTagsButton = (ex: Exercise) => {
-    const effective = getEffectiveTags(ex);
     return (
       <button
         type="button"
         onClick={() => setTagsEditorFor(tagsEditorFor === ex.id ? null : ex.id)}
         className={`touch-target p-1.5 shrink-0 rounded-lg transition-colors ${
-          tagsEditorFor === ex.id || effective.unilateral || effective.equipment ? 'text-accent-blue' : 'text-muted-foreground/50 active:text-accent-blue'
+          tagsEditorFor === ex.id ? 'text-accent-blue' : 'text-muted-foreground/50 active:text-accent-blue'
         }`}
         aria-label={`Unilatéral / équipement pour ${ex.name}`}
         aria-pressed={tagsEditorFor === ex.id}
@@ -1062,6 +1072,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
               type="number"
               value={sets[s.globalIdx].reps || ''}
               onChange={e => updateSet(s.globalIdx, 'reps', e.target.value)}
+              onBlur={e => finalizeRepsOnBlur(s.globalIdx, e.target.value)}
               className="w-10 bg-transparent text-foreground text-sm text-center outline-none font-mono"
               aria-label={`Répétitions échauffement ${i + 1}, ${ex.name}`}
             />
@@ -1174,6 +1185,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                     type="number"
                     value={set.reps || ''}
                     onChange={e => updateSet(globalIdx, 'reps', e.target.value)}
+                    onBlur={e => finalizeRepsOnBlur(globalIdx, e.target.value)}
                     className="w-10 bg-transparent text-foreground text-sm text-center outline-none font-mono"
                     aria-label={`Répétitions ${label}, ${ex.name}`}
                   />
@@ -1310,7 +1322,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
   const renderLowRpeBanner = (ex: Exercise) => {
     if (exerciseDifficulty[ex.id] !== undefined) return null;
     const last = getLastExerciseDifficulty(ex.id);
-    if (last === null || last >= 6) return null;
+    if (last === null || last > 7) return null;
     return (
       <div className="flex items-start gap-2 bg-warning/10 border border-warning/30 rounded-lg px-3 py-2 mb-3">
         <Gauge size={14} className="text-warning shrink-0 mt-0.5" />
@@ -2299,7 +2311,17 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                             <input
                               type="number"
                               value={amrapReps[globalIdx] !== undefined ? (amrapReps[globalIdx] || '') : (sets[globalIdx].reps || '')}
-                              onChange={e => setAmrapReps(prev => ({ ...prev, [globalIdx]: e.target.value === '' ? 0 : parseInt(e.target.value) || 0 }))}
+                              onChange={e => {
+                                // Same guard as updateSet: a French decimal comma briefly makes
+                                // <input type="number"> report an empty value mid-keystroke —
+                                // ignore that instead of wiping to 0 right away.
+                                if (e.target.value === '') return;
+                                setAmrapReps(prev => ({ ...prev, [globalIdx]: parseInt(e.target.value, 10) || 0 }));
+                              }}
+                              onBlur={e => {
+                                if (e.target.value.trim() !== '') return;
+                                setAmrapReps(prev => ({ ...prev, [globalIdx]: 0 }));
+                              }}
                               className="w-12 bg-primary/10 text-primary text-sm text-center outline-none font-mono rounded-lg py-1 border border-primary/30"
                               placeholder="reps"
                               aria-label={`Répétitions AMRAP série ${localIdx + 1}, ${ex.name}`}
@@ -2650,6 +2672,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                                 type="number"
                                 value={sets[row.idx].reps || ''}
                                 onChange={e => updateSet(row.idx, 'reps', e.target.value)}
+                                onBlur={e => finalizeRepsOnBlur(row.idx, e.target.value)}
                                 className={`w-12 bg-background/60 rounded-md text-sm text-center outline-none font-mono py-1 ${
                                   sets[row.idx].amrap ? 'text-accent-purple placeholder:text-accent-purple/70' : 'text-foreground'
                                 }`}
@@ -2678,6 +2701,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                                   type="number"
                                   value={sets[dropIdx].reps || ''}
                                   onChange={e => updateSet(dropIdx, 'reps', e.target.value)}
+                                  onBlur={e => finalizeRepsOnBlur(dropIdx, e.target.value)}
                                   className="w-12 bg-background/60 rounded-md text-sm text-center outline-none font-mono py-1 text-foreground"
                                   aria-label={`Répétitions Drop ${dropI + 1} ${row.role}, ${row.name}`}
                                 />
@@ -2914,6 +2938,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                           type="number"
                           value={sets[globalIdx].reps || ''}
                           onChange={e => updateSet(globalIdx, 'reps', e.target.value)}
+                          onBlur={e => finalizeRepsOnBlur(globalIdx, e.target.value)}
                           className={`w-12 bg-transparent text-sm text-center outline-none font-mono ${
                             sets[globalIdx].amrap ? 'text-accent-purple placeholder:text-accent-purple/70' : 'text-foreground'
                           }`}
