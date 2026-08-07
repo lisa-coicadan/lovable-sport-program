@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { AppData, WorkoutType, SetLog, SessionLog, FiveThreeOneMethod, ClusterMethod, EMOMMethod, ExerciseMethod, Exercise, CardioSession, CardioActivityType, DeloadType, DeloadIntensity, PlannedSession, EQUIPMENT_LABELS, ExerciseEquipment } from '@/lib/types';
-import { getWeekSets, getWeekLabel, computeNextFiveThreeOneWeekState } from '@/lib/531';
+import { getWeekSets, getWeekLabel, computeNextFiveThreeOneWeekState, FiveThreeOneWeekState } from '@/lib/531';
 import { getClusterConfig, getMiniSeriesWeight } from '@/lib/cluster';
 import { getEmomConfig, getEmomWeight } from '@/lib/emom';
 import { buildExerciseBlocks } from '@/lib/superset';
@@ -279,12 +279,20 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
   // Resolves what method actually applies to this exercise for the session about to
   // start: the per-session override if she picked one, otherwise the exercise's
   // configured default. Only cluster/emom exercises get an override control — 5/3/1
-  // stays a standing program, always following its configured state.
+  // stays a standing program, always following its configured state, except its week is
+  // read as 4 (deload) while a deload is genuinely active and pending for this session's
+  // workout type — never persisted, see buildDeloadAcceptPatch's comment in deload.ts.
   const getEffectiveMethod = useCallback((ex: Exercise): ExerciseMethod | undefined => {
     const override = methodOverrides[ex.id];
-    if (!override || override === 'default') return ex.method;
-    return resolveOverrideMethod(ex, override as 'cluster' | 'emom' | 'none');
-  }, [methodOverrides]);
+    if (override && override !== 'default') return resolveOverrideMethod(ex, override as 'cluster' | 'emom' | 'none');
+    if (ex.method?.type === '531' && ex.method.currentWeek !== 4 && selectedType) {
+      const deloadActive = getActiveDeload(data);
+      if (deloadActive?.pendingWorkoutTypeIds.includes(selectedType.id)) {
+        return { ...ex.method, currentWeek: 4 };
+      }
+    }
+    return ex.method;
+  }, [methodOverrides, data, selectedType]);
 
   // Switches an exercise's technique for the current session only (never touches its
   // configured default) and regenerates its live sets in place, at the same position
@@ -426,19 +434,10 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     setExerciseDifficulty({});
     setDifficultyEditor(null);
 
-    const initialWeeks: Record<string, number> = {};
-    type.exercises.forEach(ex => {
-      if (ex.method?.type === '531') initialWeeks[ex.id] = ex.method.currentWeek;
-    });
-    setSelectedWeeks(initialWeeks);
-
-    const lastWeights = getLastSessionWeights(type.id, type.exercises);
-    const initialSets: SetLog[] = [];
-
-    // 5/3/1 exercises are never adjusted here: their deload is applied by forcing
-    // currentWeek straight to 4 at accept time (buildDeloadAcceptPatch), so they just read
-    // like any other week by the time a session actually starts. Cluster/EMOM only ever
-    // get a charge (Training Max) cut, never a volume one (no clean equivalent — see
+    // 5/3/1's own deload week is only forced while a deload is genuinely active and pending
+    // for THIS workout type right now — never persisted onto the exercise itself (see
+    // deload.ts's buildDeloadAcceptPatch/buildManualDeloadPatch comment). Cluster/EMOM only
+    // ever get a charge (Training Max) cut, never a volume one (no clean equivalent — see
     // getDeloadSetCount's doc comment); regular exercises get whichever of the two the
     // chosen deload type calls for.
     const deloadActive = getActiveDeload(data);
@@ -447,6 +446,16 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     const deloadReduceSets = isDeloadPending && shouldReduceSets(deloadActive!.type);
     const deloadWeight = (w: number) => deloadReduceCharge ? applyDeloadToWeight(w, deloadActive!.type, deloadActive!.intensity) : w;
     const deloadSets = (n: number) => deloadReduceSets ? getDeloadSetCount(n, deloadActive!.intensity) : n;
+    const effectiveFiveThreeOneWeek = (m: FiveThreeOneMethod) => (isDeloadPending && m.currentWeek !== 4) ? 4 : m.currentWeek;
+
+    const initialWeeks: Record<string, number> = {};
+    type.exercises.forEach(ex => {
+      if (ex.method?.type === '531') initialWeeks[ex.id] = effectiveFiveThreeOneWeek(ex.method);
+    });
+    setSelectedWeeks(initialWeeks);
+
+    const lastWeights = getLastSessionWeights(type.id, type.exercises);
+    const initialSets: SetLog[] = [];
 
     const exerciseMap = new Map(type.exercises.map(e => [e.id, e]));
     buildExerciseBlocks(type.exercises).forEach(block => {
@@ -515,8 +524,13 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
         const lastWeight = lastWeights[ex.id] || 0;
         let effectiveEx = ex;
         let effectiveWeight = lastWeight;
-        if (isDeloadPending && ex.method?.type !== '531') {
-          if (ex.method?.type === 'cluster' || ex.method?.type === 'emom') {
+        if (isDeloadPending) {
+          if (ex.method?.type === '531') {
+            const effectiveWeek = effectiveFiveThreeOneWeek(ex.method);
+            if (effectiveWeek !== ex.method.currentWeek) {
+              effectiveEx = { ...ex, method: { ...ex.method, currentWeek: effectiveWeek } };
+            }
+          } else if (ex.method?.type === 'cluster' || ex.method?.type === 'emom') {
             if (deloadReduceCharge) {
               effectiveEx = { ...ex, method: { ...ex.method, trainingMax: applyDeloadToTrainingMax(ex.method.trainingMax, deloadActive!.type, deloadActive!.intensity) } };
             }
@@ -878,7 +892,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
   // can be added — see src/lib/warmup.ts for the percentage table past 5 stages.
   const getWorkingWeight = (ex: Exercise): number => {
     const method = getEffectiveMethod(ex);
-    if (method?.type === '531') return getWeekSets(method.trainingMax, (ex.method as FiveThreeOneMethod).currentWeek)[0]?.weight ?? 0;
+    if (method?.type === '531') return getWeekSets(method.trainingMax, method.currentWeek)[0]?.weight ?? 0;
     if (method?.type === 'cluster') {
       const { miniSeries } = getClusterConfig(method);
       return getMiniSeriesWeight(method.trainingMax, miniSeries[0]?.percentage ?? 0.9);
@@ -896,7 +910,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
   // goes to failure) — not a fixed number.
   const getWorkingReps = (ex: Exercise): number => {
     const method = getEffectiveMethod(ex);
-    if (method?.type === '531') return parseInt(getWeekSets(method.trainingMax, (ex.method as FiveThreeOneMethod).currentWeek)[0]?.reps) || 5;
+    if (method?.type === '531') return parseInt(getWeekSets(method.trainingMax, method.currentWeek)[0]?.reps) || 5;
     if (method?.type === 'cluster') {
       const { miniSeries } = getClusterConfig(method);
       return miniSeries[0]?.reps ?? 5;
@@ -1410,7 +1424,15 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
         // was actually progressed today is applied to every 5/3/1 exercise, not just the
         // ones in this session. Training Max stays per-exercise (each lift has its own),
         // only bumped for a given exercise when the shared cycle actually advances.
-        const shared = computeNextFiveThreeOneWeekState(progressed[0].method as FiveThreeOneMethod);
+        const baseMethod = progressed[0].method as FiveThreeOneMethod;
+        // The forced deload week is only ever committed to storage HERE, at the moment a
+        // session actually happens while a deload is genuinely active/pending — never
+        // eagerly at accept/activate time (see deload.ts). A deload window she never
+        // trains 531 during never touches baseMethod.currentWeek at all.
+        const methodForAdvance: FiveThreeOneWeekState = (wasDeloadPending && baseMethod.currentWeek !== 4)
+          ? { currentWeek: 4, currentCycle: baseMethod.currentCycle, deloadResumeWeek: baseMethod.currentWeek }
+          : baseMethod;
+        const shared = computeNextFiveThreeOneWeekState(methodForAdvance);
         updatePatch.workoutTypes = data.workoutTypes.map(t => ({
           ...t,
           exercises: t.exercises.map(ex => {
@@ -1627,9 +1649,12 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
         )}
 
         {/* 5/3/1 Block — one card per exercise using the method, if any */}
-        {fiveThreeOneExercises.map(({ exercise, method }) => {
-          const weekSets = getWeekSets(method.trainingMax, method.currentWeek);
-          const weekLabel = getWeekLabel(method.currentWeek);
+        {fiveThreeOneExercises.map(({ type, exercise, method }) => {
+          // Same live "effective week" rule as startWorkout — a deload pending for this
+          // exercise's workout type previews as week 4 without ever touching method.currentWeek.
+          const effectiveWeek = (method.currentWeek !== 4 && pendingDeloadIds?.includes(type.id)) ? 4 : method.currentWeek;
+          const weekSets = getWeekSets(method.trainingMax, effectiveWeek);
+          const weekLabel = getWeekLabel(effectiveWeek);
           return (
             <div key={exercise.id} className="glass-card p-4 mb-6">
               <div className="flex items-center justify-between mb-2">

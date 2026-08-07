@@ -259,32 +259,23 @@ export function getDeloadTargetWorkoutTypes(data: AppData): WorkoutType[] {
   );
 }
 
-// Force every 5/3/1 exercise straight to week 4 — their own deload week — regardless of
-// the Type/Intensity chosen for normal/Cluster/EMOM exercises. Already-synced exercises
-// already at week 4 are left untouched (nothing to resume afterwards). Shared by both the
-// recommendation-accept and the manual-activation flows below: a deload is a deload
-// regardless of how it was triggered.
-function forceFiveThreeOneToDeloadWeek(workoutTypes: WorkoutType[]): WorkoutType[] {
-  return workoutTypes.map(t => ({
-    ...t,
-    exercises: t.exercises.map(ex => {
-      if (ex.method?.type !== '531' || ex.method.currentWeek === 4) return ex;
-      return { ...ex, method: { ...ex.method, currentWeek: 4, deloadResumeWeek: ex.method.currentWeek } };
-    }),
-  }));
-}
-
+// A 5/3/1 exercise's own week/cycle is NEVER mutated just because a deload gets accepted or
+// activated — only while a deload is genuinely active and pending for its workout type does
+// it get read as week 4 (see the live "effective week" resolution in WorkoutTab, mirroring
+// how cluster/EMOM/normal get their charge/volume cut live rather than persisted). The actual
+// currentWeek/deloadResumeWeek transition is only committed once a session covering that
+// exercise is actually logged while the deload is active (see computeNextFiveThreeOneWeekState
+// usage in WorkoutTab's handleSummaryComplete) — so a deload window she never trains 531
+// during leaves its week completely untouched, instead of getting stuck on week 4 forever.
 export function buildDeloadAcceptPatch(
   data: AppData,
   type: DeloadType,
   intensity: DeloadIntensity,
   now: Date = new Date()
-): { workoutTypes: WorkoutType[]; deload: DeloadState } {
+): { deload: DeloadState } {
   const pendingWorkoutTypeIds = getDeloadTargetWorkoutTypes(data).map(t => t.id);
-  const workoutTypes = forceFiveThreeOneToDeloadWeek(data.workoutTypes);
 
   return {
-    workoutTypes,
     deload: {
       ...data.deload,
       active: { type, intensity, pendingWorkoutTypeIds, acceptedAt: toISODate(now) },
@@ -317,13 +308,11 @@ export function buildManualDeloadPatch(
   intensity: DeloadIntensity,
   days: number,
   now: Date = new Date()
-): { workoutTypes: WorkoutType[]; deload: DeloadState } {
+): { deload: DeloadState } {
   const pendingWorkoutTypeIds = getDeloadTargetWorkoutTypes(data).map(t => t.id);
-  const workoutTypes = forceFiveThreeOneToDeloadWeek(data.workoutTypes);
   const expiresAt = toISODate(new Date(now.getTime() + Math.max(1, days) * DAY_MS - DAY_MS));
 
   return {
-    workoutTypes,
     deload: {
       ...data.deload,
       active: { type, intensity, pendingWorkoutTypeIds, acceptedAt: toISODate(now), expiresAt },

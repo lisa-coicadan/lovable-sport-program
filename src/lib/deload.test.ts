@@ -319,26 +319,14 @@ describe('getDeloadTargetWorkoutTypes / buildDeloadAcceptPatch', () => {
     expect(getDeloadTargetWorkoutTypes(data({ workoutTypes })).map(t => t.id)).toEqual(['t1']);
   });
 
-  it('forces a 5/3/1 exercise to week 4 and remembers the resume week', () => {
+  it('never touches a 5/3/1 exercise\'s week/cycle at accept time — only the pending list is set', () => {
     const workoutTypes: WorkoutType[] = [{
       id: 't1', name: 'A', color: '0 0% 0%',
       exercises: [{ id: 'e1', name: 'Squat', sets: 3, reps: 5, method: { type: '531', trainingMax: 100, currentCycle: 1, currentWeek: 2 } }],
     }];
     const patch = buildDeloadAcceptPatch(data({ workoutTypes }), 'both', 'medium', new Date('2026-06-24'));
-    const method = patch.workoutTypes[0].exercises[0].method as any;
-    expect(method.currentWeek).toBe(4);
-    expect(method.deloadResumeWeek).toBe(2);
+    expect(patch).not.toHaveProperty('workoutTypes');
     expect(patch.deload.active?.pendingWorkoutTypeIds).toEqual(['t1']);
-  });
-
-  it('leaves a 5/3/1 exercise already on week 4 untouched', () => {
-    const workoutTypes: WorkoutType[] = [{
-      id: 't1', name: 'A', color: '0 0% 0%',
-      exercises: [{ id: 'e1', name: 'Squat', sets: 3, reps: 5, method: { type: '531', trainingMax: 100, currentCycle: 1, currentWeek: 4 } }],
-    }];
-    const patch = buildDeloadAcceptPatch(data({ workoutTypes }), 'both', 'medium', new Date('2026-06-24'));
-    const method = patch.workoutTypes[0].exercises[0].method as any;
-    expect(method.deloadResumeWeek).toBeUndefined();
   });
 });
 
@@ -415,15 +403,13 @@ describe('buildManualDeloadPatch', () => {
     expect(patch.deload.active?.expiresAt).toBe('2026-06-24'); // 20,21,22,23,24 = 5 days
   });
 
-  it('forces 5/3/1 exercises to week 4 just like the recommendation-accept flow', () => {
+  it('never touches a 5/3/1 exercise\'s week/cycle, just like the recommendation-accept flow', () => {
     const workoutTypes: WorkoutType[] = [{
       id: 't1', name: 'A', color: '0 0% 0%',
       exercises: [{ id: 'e1', name: 'Squat', sets: 3, reps: 5, method: { type: '531', trainingMax: 100, currentCycle: 1, currentWeek: 2 } }],
     }];
     const patch = buildManualDeloadPatch(data({ workoutTypes }), 'both', 'medium', 7, new Date('2026-06-20'));
-    const method = patch.workoutTypes[0].exercises[0].method as any;
-    expect(method.currentWeek).toBe(4);
-    expect(method.deloadResumeWeek).toBe(2);
+    expect(patch).not.toHaveProperty('workoutTypes');
   });
 
   it('treats a days value below 1 as 1 day', () => {
