@@ -112,7 +112,9 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
     () => resolveBodyWeightAtDate(data.bodyWeightLogs, session.date),
     [data.bodyWeightLogs, session.date]
   );
-  const totalVolume = completedSets.reduce((acc, s) => acc + computeSetTonnage(s, sessionBodyWeight), 0);
+  // Warm-up sets stay in completedSets (they're still shown, badged, in the card below)
+  // but don't count toward tonnage — a warm-up ramp isn't real training volume.
+  const totalVolume = completedSets.filter(s => !s.isWarmup).reduce((acc, s) => acc + computeSetTonnage(s, sessionBodyWeight), 0);
 
   const getLastPerformance = useCallback((exerciseName: string, excludeSessionId: string) => {
     for (let i = data.sessions.length - 1; i >= 0; i--) {

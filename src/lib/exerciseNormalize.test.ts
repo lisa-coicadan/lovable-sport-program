@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeExerciseName, isPrTracked, PR_TRACKED_CANONICAL, splitEquipmentVariant, isBodyweightOptionalExercise, formatWeightDisplay, bodyweightTonnageFraction, resolveSetVariant } from './exerciseNormalize';
+import { normalizeExerciseName, isPrTracked, PR_TRACKED_CANONICAL, splitEquipmentVariant, isBodyweightOptionalExercise, formatWeightDisplay, bodyweightTonnageFraction, resolveSetVariant, resolveSetVariantName, detectEquipmentFromName, detectUnilateralFromName, withNameDetectedTags } from './exerciseNormalize';
 
 describe('normalizeExerciseName', () => {
   it('maps spelling variants to the same canonical name', () => {
@@ -133,8 +133,11 @@ describe('splitEquipmentVariant', () => {
     expect(splitEquipmentVariant('Développé couché haltères')).toEqual({
       base: 'Développé couché', variantLabel: 'aux haltères',
     });
+    // Must equal EQUIPMENT_LABELS.barre exactly (not a separate "à la barre" phrasing) —
+    // resolveSetVariant relies on this to unify legacy name-inferred barbell sets with
+    // sets tagged via the structured `equipment: 'barre'` field into the same group.
     expect(splitEquipmentVariant('Développé couché barre')).toEqual({
-      base: 'Développé couché', variantLabel: 'à la barre',
+      base: 'Développé couché', variantLabel: 'Barre',
     });
     expect(splitEquipmentVariant('Développé couché machine')).toEqual({
       base: 'Développé couché', variantLabel: 'à la machine',
@@ -276,5 +279,83 @@ describe('resolveSetVariant', () => {
       .toEqual({ equipmentLabel: 'aux haltères', unilateral: false });
     expect(resolveSetVariant({ exerciseName: 'Développé couché' }))
       .toEqual({ equipmentLabel: null, unilateral: false });
+  });
+});
+
+describe('resolveSetVariantName', () => {
+  it('matches splitEquipmentVariant/resolveSetVariant when name and structured fields agree', () => {
+    expect(resolveSetVariantName({ exerciseName: 'Développé couché haltères' })).toBe('Développé couché aux haltères');
+    expect(resolveSetVariantName({ exerciseName: 'Développé couché' })).toBe('Développé couché');
+  });
+
+  it('gives priority to the structured fields over the name text (the StatsTab/ExerciseHistory conflict this fixes)', () => {
+    // Name says nothing about equipment, structured field says haltères — must NOT be
+    // grouped as the plain barbell/canonical "Développé couché" the way
+    // normalizeExerciseName(name) alone would. Structured path uses the plain
+    // EQUIPMENT_LABELS ("Haltères"), not the text-fallback's phrased "aux haltères".
+    expect(resolveSetVariantName({ exerciseName: 'Développé couché', equipment: 'halteres' }))
+      .toBe('Développé couché Haltères');
+    // Name says haltères, structured field explicitly overrides to barre — must land in
+    // the barbell bucket, matching ExerciseHistory/SessionSummary's France-record logic.
+    expect(resolveSetVariantName({ exerciseName: 'Développé couché haltères', equipment: 'barre' }))
+      .toBe('Développé couché Barre');
+  });
+
+  it('composes unilateral into the label', () => {
+    expect(resolveSetVariantName({ exerciseName: 'Développé couché', equipment: 'halteres', unilateral: true }))
+      .toBe('Développé couché Haltères · unilatéral');
+  });
+});
+
+describe('detectEquipmentFromName', () => {
+  it('detects the 5 structured equipment values from keywords in the name', () => {
+    expect(detectEquipmentFromName('Curl haltères')).toBe('halteres');
+    expect(detectEquipmentFromName('Développé couché barre')).toBe('barre');
+    expect(detectEquipmentFromName('Développé couché Smith')).toBe('smith');
+    expect(detectEquipmentFromName('Curl machine')).toBe('machine');
+    expect(detectEquipmentFromName('Curl poulie')).toBe('poulie');
+  });
+
+  it('returns undefined for keywords with no structured equivalent (élastique/assisté)', () => {
+    expect(detectEquipmentFromName('Tractions élastique')).toBeUndefined();
+    expect(detectEquipmentFromName('Dips assisté')).toBeUndefined();
+  });
+
+  it('returns undefined when no equipment keyword is present', () => {
+    expect(detectEquipmentFromName('Curl biceps')).toBeUndefined();
+    expect(detectEquipmentFromName('')).toBeUndefined();
+  });
+});
+
+describe('detectUnilateralFromName', () => {
+  it('detects "uni"/"unilat"/"unilatéral" tokens regardless of accent/case', () => {
+    expect(detectUnilateralFromName('Curl uni')).toBe(true);
+    expect(detectUnilateralFromName('Row unilat')).toBe(true);
+    expect(detectUnilateralFromName('Rowing unilatéral')).toBe(true);
+    expect(detectUnilateralFromName('ROWING UNILATERAL')).toBe(true);
+  });
+
+  it('is false when no such keyword is present', () => {
+    expect(detectUnilateralFromName('Développé couché haltères')).toBe(false);
+    expect(detectUnilateralFromName('')).toBe(false);
+  });
+});
+
+describe('withNameDetectedTags', () => {
+  it('fills in equipment/unilateral from the name when both are still unset', () => {
+    expect(withNameDetectedTags({ name: 'Curl haltères' })).toEqual({ name: 'Curl haltères', equipment: 'halteres', unilateral: undefined });
+    expect(withNameDetectedTags({ name: 'Row unilatéral' })).toEqual({ name: 'Row unilatéral', equipment: undefined, unilateral: true });
+  });
+
+  it('never overrides an already-explicit manual choice, even if it disagrees with the name', () => {
+    expect(withNameDetectedTags({ name: 'Développé couché haltères', equipment: 'barre' }))
+      .toEqual({ name: 'Développé couché haltères', equipment: 'barre', unilateral: undefined });
+    expect(withNameDetectedTags({ name: 'Curl haltères', unilateral: false }))
+      .toEqual({ name: 'Curl haltères', equipment: 'halteres', unilateral: false });
+  });
+
+  it('is a no-op when nothing is detected and nothing was set', () => {
+    const ex = { name: 'Curl biceps' };
+    expect(withNameDetectedTags(ex)).toEqual({ name: 'Curl biceps', equipment: undefined, unilateral: undefined });
   });
 });

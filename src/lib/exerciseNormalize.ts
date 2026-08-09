@@ -285,12 +285,19 @@ export function isPrTracked(name: string): boolean {
 export const PR_TRACKED_EXERCISES = PR_TRACKED_CANONICAL;
 
 // French sub-group label for each equipment variant, for grouping in the history view
-// (e.g. "Développé couché" as a group, with "à la barre" / "aux haltères" / ... as
+// (e.g. "Développé couché" as a group, with "Barre" / "aux haltères" / ... as
 // sub-exercises). Distinct from the PR-tracking convention above, where the barbell
 // variant has no suffix — here every detected variant, barbell included, gets an
 // explicit label so they can be shown as siblings without merging their loads.
+// IMPORTANT: barre must stay IDENTICAL to EQUIPMENT_LABELS.barre ('Barre'), not a
+// separate French phrasing ("à la barre") — resolveSetVariant falls back to this table
+// for sets logged before the structured `equipment` field existed, and it must produce
+// the exact same label a structured `equipment: 'barre'` set would, or legacy barbell
+// sets silently split into a second group and drop out of every "must be barbell"
+// comparison (France-record panel, niveau-up detection) that tests equality against
+// EQUIPMENT_LABELS.barre.
 const EQUIPMENT_VARIANT_LABEL: Record<EquipmentDetection['key'], string> = {
-  barre: 'à la barre',
+  barre: EQUIPMENT_LABELS.barre,
   haltere: 'aux haltères',
   smith: 'à la Smith',
   machine: 'à la machine',
@@ -333,6 +340,65 @@ export function resolveSetVariant(set: { exerciseName: string; equipment?: Exerc
   }
   const { variantLabel } = splitEquipmentVariant(set.exerciseName);
   return { equipmentLabel: variantLabel, unilateral: false };
+}
+
+// Single display/grouping string combining the equipment-agnostic parent movement name
+// with the structured-first variant label (same precedence as resolveSetVariant) — e.g.
+// "Développé couché aux haltères". Use this anywhere a set needs ONE grouping key/label
+// (Record maps, chart series names) instead of normalizeExerciseName alone: that one is
+// name-text-only, so it can silently disagree with resolveSetVariant (and therefore with
+// ExerciseHistory/SessionSummary's grouping) whenever a set's structured equipment/
+// unilateral fields contradict what the name text says.
+export function resolveSetVariantName(set: { exerciseName: string; equipment?: ExerciseEquipment; unilateral?: boolean }): string {
+  const base = splitEquipmentVariant(set.exerciseName).base;
+  const variant = resolveSetVariant(set);
+  const labelParts = [variant.equipmentLabel, variant.unilateral ? 'unilatéral' : null].filter((p): p is string => !!p);
+  return labelParts.length > 0 ? `${base} ${labelParts.join(' · ')}` : base;
+}
+
+// Suggests a structured `Exercise.equipment` value from keywords already present in the
+// exercise's name (e.g. "Curl haltères" -> 'halteres') — used to pre-fill the equipment
+// dropdown when an exercise is created/renamed, so the free-text name and the structured
+// field start in sync instead of silently disagreeing (see resolveSetVariantName above,
+// which is what makes that disagreement actually harmful downstream). 'élastique'/
+// 'assisté' are detectable in text but have no slot in ExerciseEquipment (the dropdown
+// doesn't offer them) — no suggestion for those, name text stays their only signal, same
+// as today.
+const STRUCTURED_EQUIPMENT: Partial<Record<EquipmentDetection['key'], ExerciseEquipment>> = {
+  haltere: 'halteres',
+  smith: 'smith',
+  machine: 'machine',
+  poulie: 'poulie',
+  barre: 'barre',
+};
+
+export function detectEquipmentFromName(name: string): ExerciseEquipment | undefined {
+  if (!name) return undefined;
+  const eq = detectEquipment(clean(name));
+  return eq ? STRUCTURED_EQUIPMENT[eq.key] : undefined;
+}
+
+const UNILATERAL_NAME_KEYWORDS = ['uni', 'unilat', 'unilateral', 'unilaterale'];
+
+// Same idea as detectEquipmentFromName, for the separate `Exercise.unilateral` boolean —
+// "uni"/"unilat"/"unilatéral" in a name was previously only ever rewritten for display
+// (WORD_CANONICAL above), never read as an actual signal for grouping/pre-filling.
+export function detectUnilateralFromName(name: string): boolean {
+  if (!name) return false;
+  const tokens = clean(name).split(' ');
+  return tokens.some(t => UNILATERAL_NAME_KEYWORDS.includes(t));
+}
+
+// Pre-fills equipment/unilateral from the name, but ONLY for fields still untouched
+// (undefined) — a manual choice, once made (via the dropdown/checkbox, even to explicitly
+// clear it back to "—"), always wins over whatever the name says next time this runs.
+// Safe to call on every name edit: an exercise with both fields already set passes
+// through unchanged.
+export function withNameDetectedTags<T extends { name: string; equipment?: ExerciseEquipment; unilateral?: boolean }>(ex: T): T {
+  const equipment = ex.equipment ?? detectEquipmentFromName(ex.name);
+  const unilateral = ex.unilateral ?? (detectUnilateralFromName(ex.name) || undefined);
+  if (equipment === ex.equipment && unilateral === ex.unilateral) return ex;
+  return { ...ex, equipment, unilateral };
 }
 
 // Fraction of bodyweight actually moved by one rep, for exercises where `weight` is

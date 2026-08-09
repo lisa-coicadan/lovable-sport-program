@@ -4,6 +4,7 @@ import { CLUSTER_PRESETS } from '@/lib/cluster';
 import { getDefaultEmomPercentage } from '@/lib/emom';
 import { estimateOneRepMax, estimateTrainingMax } from '@/lib/trainingMax';
 import { parseMultiSessionNotes, NOTES_SYNTAX_HELP } from '@/lib/notesParser';
+import { withNameDetectedTags } from '@/lib/exerciseNormalize';
 import { linkSuperset, unlinkSuperset, buildExerciseBlocks, flattenBlocks, ExerciseBlock } from '@/lib/superset';
 import { parseBackupFile } from '@/lib/backupFile';
 import { Plus, Trash2, ChevronRight, ChevronLeft, Check, Zap, Timer, Clock, FileText, X, Calculator, TrendingDown, Infinity as InfinityIcon, Link2, Link2Off, User, Scale, Upload } from 'lucide-react';
@@ -132,7 +133,14 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
     setWorkoutTypes(prev => prev.map((t, i) => {
       if (i !== editingIndex) return t;
       const ex = t.exercises[exIndex];
-      let exercises = t.exercises.map((e, ei) => ei === exIndex ? { ...e, [field]: value } : e);
+      let exercises = t.exercises.map((e, ei) => {
+        if (ei !== exIndex) return e;
+        const next = { ...e, [field]: value };
+        // Pre-fill equipment/unilatéral from keywords in the new name ("Curl haltères",
+        // "Row uni"...) — withNameDetectedTags only touches whichever of the two is
+        // still untouched, so a manual dropdown/checkbox choice is never overwritten.
+        return field === 'name' ? withNameDetectedTags(next) : next;
+      });
       // Keep sets synced between superset partners
       if (field === 'sets' && ex.supersetGroupId) {
         exercises = exercises.map(e => e.supersetGroupId === ex.supersetGroupId ? { ...e, sets: value as number } : e);
@@ -231,7 +239,7 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
         id: `t${Date.now()}_${i}`,
         name: r.sessionName || 'Nouvelle séance',
         color: WORKOUT_COLORS[(baseIndex + i) % WORKOUT_COLORS.length],
-        exercises: r.exercises.map((e, ei) => ({
+        exercises: r.exercises.map((e, ei) => withNameDetectedTags({
           id: `e${Date.now()}-${i}-${ei}`,
           name: e.name,
           sets: e.sets,
@@ -569,16 +577,23 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
 
               // opts.showDragHandle defaults to true (plain exercise row); superset A/B
               // sub-rows pass false since the whole pair drags as one unit via the card's
-              // own handle instead.
-              const renderExerciseRow = (ex: Exercise, opts?: { hideSets?: boolean; showDragHandle?: boolean }) => {
+              // own handle instead. opts.isSupersetSubRow hides the Méthode control
+              // entirely — a superset partner can never carry a method (531/Cluster/EMOM
+              // structurally can't share a fixed `sets` field with a partner), mirroring
+              // SettingsPanel's split between renderRow (has Méthode) and
+              // renderSubExerciseOptions (doesn't).
+              const renderExerciseRow = (ex: Exercise, opts?: { hideSets?: boolean; showDragHandle?: boolean; isSupersetSubRow?: boolean }) => {
                 const ei = type.exercises.findIndex(e => e.id === ex.id);
                 const methodType = ex.method?.type as MethodType | undefined;
                 const isExpanded = expandedMethodFor === ex.id;
-                const freePartners = type.exercises.filter(e => e.id !== ex.id && !e.supersetGroupId);
+                // A methodical exercise (531/Cluster/EMOM) can never be paired into a
+                // superset — excluded both as a pickable partner here AND (below) from
+                // offering the trigger on a method-active exercise itself.
+                const freePartners = type.exercises.filter(e => e.id !== ex.id && !e.supersetGroupId && !e.method);
                 // Shared between the compact "no method" row (joins Méthode/Drop set/Max
                 // de reps on one line) and a method-active exercise's own small line
                 // further down — no row for it to join there.
-                const supersetTriggerButton = !ex.supersetGroupId && freePartners.length > 0 && (
+                const supersetTriggerButton = !ex.supersetGroupId && !ex.method && freePartners.length > 0 && (
                   <button
                     onClick={() => setSupersetPickerFor(supersetPickerFor === ex.id ? null : ex.id)}
                     className="text-[10px] text-muted-foreground flex items-center gap-1"
@@ -649,17 +664,20 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
 
                     {/* Méthode / Drop set / Max de reps on one row — the latter two only
                         make sense without an active method (531/Cluster/EMOM already
-                        generates its sets from the TM). */}
+                        generates its sets from the TM). Méthode itself is hidden entirely
+                        on a superset sub-row — never combinable with a superset. */}
                     <div className="flex items-center gap-3 mt-1.5 flex-wrap">
-                      <button
-                        onClick={() => setExpandedMethodFor(isExpanded ? null : ex.id)}
-                        className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-medium border transition-all ${
-                          methodType ? METHOD_HUES[methodType] : 'text-muted-foreground bg-transparent border-border/60'
-                        }`}
-                      >
-                        {methodType ? (() => { const Icon = METHOD_ICONS[methodType]; return <Icon size={10} />; })() : <Plus size={10} />}
-                        {methodType ? METHOD_LABELS[methodType] : 'Méthode'}
-                      </button>
+                      {!opts?.isSupersetSubRow && (
+                        <button
+                          onClick={() => setExpandedMethodFor(isExpanded ? null : ex.id)}
+                          className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-medium border transition-all ${
+                            methodType ? METHOD_HUES[methodType] : 'text-muted-foreground bg-transparent border-border/60'
+                          }`}
+                        >
+                          {methodType ? (() => { const Icon = METHOD_ICONS[methodType]; return <Icon size={10} />; })() : <Plus size={10} />}
+                          {methodType ? METHOD_LABELS[methodType] : 'Méthode'}
+                        </button>
+                      )}
                       {!methodType && (
                         <>
                           <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
@@ -710,7 +728,7 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
                     )}
                     {!methodType && supersetPickerChips}
 
-                    {isExpanded && (
+                    {isExpanded && !opts?.isSupersetSubRow && (
                       <div className="mt-1.5">
                         <div className="flex gap-1.5">
                           {(['531', 'cluster', 'emom'] as const).map(mt => (
@@ -801,12 +819,12 @@ const SetupWizard = ({ onComplete }: SetupWizardProps) => {
                           </div>
                           <div className="flex items-start gap-1.5">
                             <span className="text-[10px] font-bold text-primary w-4 shrink-0 mt-2">A</span>
-                            <div className="flex-1 min-w-0">{renderExerciseRow(a, { hideSets: true, showDragHandle: false })}</div>
+                            <div className="flex-1 min-w-0">{renderExerciseRow(a, { hideSets: true, showDragHandle: false, isSupersetSubRow: true })}</div>
                           </div>
                           {b && (
                             <div className="flex items-start gap-1.5">
                               <span className="text-[10px] font-bold text-primary w-4 shrink-0 mt-2">B</span>
-                              <div className="flex-1 min-w-0">{renderExerciseRow(b, { hideSets: true, showDragHandle: false })}</div>
+                              <div className="flex-1 min-w-0">{renderExerciseRow(b, { hideSets: true, showDragHandle: false, isSupersetSubRow: true })}</div>
                             </div>
                           )}
                         </div>

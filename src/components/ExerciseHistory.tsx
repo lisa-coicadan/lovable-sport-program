@@ -38,9 +38,9 @@ interface HistoryEntry {
   equipment?: ExerciseEquipment;
   unilateral?: boolean;
   // Badges so a warm-up rep, a drop-set stage, a method-driven set or a superset partner
-  // don't read as an indistinguishable "normal" working set in this list — they still
-  // count toward the same Record/graph/PR as before (that inclusion is intentional, see
-  // types.ts), only the display gained a marker.
+  // don't read as an indistinguishable "normal" working set in this list. Warm-up sets
+  // are still shown here (badged) but excluded from the Record/graph/PR computations
+  // below — see the `.filter(h => !h.isWarmup)` call sites.
   isWarmup?: boolean;
   dropSetStage?: number;
   methodType?: '531' | 'cluster' | 'emom';
@@ -64,6 +64,32 @@ const tooltipStyle = {
   boxShadow: '0 0 24px -8px hsl(189 94% 55% / 0.35)',
 };
 
+// Colors for CombinedVariantChart's overlaid lines — index 0 (magenta) is reserved for
+// the default/barbell variant, matching the single-variant chart's existing line color
+// (below) so the most common case stays visually consistent. The rest cycle if there are
+// ever more than 5 variants for one movement (rare in practice).
+const VARIANT_PALETTE = [
+  'hsl(322 100% 60%)', // --primary
+  'hsl(189 94% 55%)',  // --accent-blue
+  'hsl(262 83% 66%)',  // --accent-purple
+  'hsl(145 85% 50%)',  // --success
+  'hsl(38 92% 52%)',   // --warning
+];
+
+// Deterministic label -> color: the default/barbell variant always gets the reserved
+// magenta, everything else is sorted alphabetically (not by array/insertion order, which
+// could vary run to run) so a given variant's color stays stable across renders.
+function assignVariantColors(labels: (string | null)[]): Map<string, string> {
+  const keyOf = (l: string | null) => l ?? 'Sans précision';
+  const isDefault = (l: string | null) => l === null || l === EQUIPMENT_LABELS.barre;
+  const map = new Map<string, string>();
+  const defaultLabel = labels.find(isDefault);
+  if (defaultLabel !== undefined) map.set(keyOf(defaultLabel), VARIANT_PALETTE[0]);
+  const others = [...new Set(labels.filter(l => !isDefault(l)).map(keyOf))].sort((a, b) => a.localeCompare(b, 'fr'));
+  others.forEach((key, i) => map.set(key, VARIANT_PALETTE[(i + 1) % VARIANT_PALETTE.length]));
+  return map;
+}
+
 // Recharts' default Tooltip content just echoes the raw dataKey ("value : 17.1") — this
 // replaces it with the actual set (reps x weight) that produced the point, not just the
 // computed 1RM/delta, so tapping a point on mobile is useful without a second dot-click.
@@ -77,6 +103,36 @@ const OneRepMaxTooltip = (bodyweightOptional: boolean) => ({ active, payload }: 
       </div>
       <div style={{ color: 'hsl(322 100% 70%)', fontWeight: 600 }}>{formatWeightDisplayFor(p.weight, bodyweightOptional)} × {p.reps}</div>
       <div style={{ color: 'hsl(240 12% 72%)' }}>1RM {p.value} kg</div>
+    </div>
+  );
+};
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// Multi-series tooltip for CombinedVariantChart. Each <Line> below has its OWN sparse
+// `data` array on a shared numeric x-axis, so recharts finds the nearest point on EACH
+// line to the cursor independently — even if that point is actually months away (e.g.
+// barbell logged since January, haltères only since July: hovering near a June barbell
+// point would still surface some July haltères point, falsely implying both were logged
+// around the same date). Filter to only the entries actually close in time to what's
+// under the cursor.
+const CombinedTooltip = (bodyweightOptional: boolean) => ({ active, payload }: {
+  active?: boolean;
+  payload?: { payload: DotProps['payload']; name?: string; color?: string }[];
+}) => {
+  if (!active || !payload || payload.length === 0) return null;
+  const anchor = payload[0].payload.date;
+  const visible = payload.filter(p => Math.abs(p.payload.date - anchor) < DAY_MS);
+  return (
+    <div style={{ ...tooltipStyle, padding: '8px 10px' }}>
+      <div style={{ color: 'hsl(0 0% 95%)', marginBottom: 2 }}>
+        {new Date(anchor).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })}
+      </div>
+      {visible.map(p => (
+        <div key={p.name} style={{ color: p.color }}>
+          <span style={{ fontWeight: 600 }}>{p.name}</span> — {formatWeightDisplayFor(p.payload.weight, bodyweightOptional)} × {p.payload.reps} (1RM {p.payload.value} kg)
+        </div>
+      ))}
     </div>
   );
 };
@@ -140,8 +196,10 @@ const ExerciseHistory = ({ exerciseName, data, onUpdateData, onClose }: Exercise
 
   // The headline "Record" number alone doesn't say what weight×reps produced it — she has
   // to go dig through the list below to find it. Keep the actual best set alongside it.
+  // Warm-up sets are excluded from the record itself (a ramp-up rep shouldn't out-PR a
+  // genuine top set) even though they still show up, badged, in the raw list below.
   const overallPRSet = useMemo(() => {
-    const all = variantGroups.flatMap(g => g.history);
+    const all = variantGroups.flatMap(g => g.history).filter(h => !h.isWarmup);
     return all.length > 0 ? all.reduce((best, h) => (h.e1rm > best.e1rm ? h : best), all[0]) : null;
   }, [variantGroups]);
   const overallPR = overallPRSet?.e1rm ?? 0;
@@ -164,7 +222,7 @@ const ExerciseHistory = ({ exerciseName, data, onUpdateData, onClose }: Exercise
     [variantGroups]
   );
   const defaultVariantPR = useMemo(() => {
-    const history = defaultVariantGroups.flatMap(g => g.history);
+    const history = defaultVariantGroups.flatMap(g => g.history).filter(h => !h.isWarmup);
     if (history.length === 0) return 0;
     return Math.max(...history.map(h => h.e1rm));
   }, [defaultVariantGroups]);
@@ -303,6 +361,10 @@ const ExerciseHistory = ({ exerciseName, data, onUpdateData, onClose }: Exercise
         </div>
       )}
 
+      {showSubGroups && (
+        <CombinedVariantChart groups={variantGroups} bodyweightOptional={bodyweightOptional} />
+      )}
+
       {variantGroups.length === 0 ? (
         <div className="glass-card p-8 text-center">
           <p className="text-muted-foreground">Pas encore d'historique pour cet exercice.</p>
@@ -383,6 +445,106 @@ const ExerciseHistory = ({ exerciseName, data, onUpdateData, onClose }: Exercise
   );
 };
 
+interface CombinedVariantChartProps {
+  groups: VariantGroup[]; // full variantGroups (>1 guaranteed by the showSubGroups check at the call site)
+  bodyweightOptional: boolean;
+}
+
+// Overlays every equipment variant's e1RM progression on ONE chart (one line per
+// variant) so it's possible to see at a glance whether e.g. barbell strength and
+// dumbbell strength move together — the per-variant VariantSection charts below stay
+// exactly as they are (PR, RPE, retroactive editor), this is purely an additional
+// overview. Never renormalizes/converts kg between variants — raw values on a shared
+// axis, even if that makes a lighter variant look visually "flat" near the bottom;
+// that's expected, not a bug (see CLAUDE.md: equipment loads are never comparable).
+const CombinedVariantChart = ({ groups, bodyweightOptional }: CombinedVariantChartProps) => {
+  const [range, setRange] = useState<RangeFilter>('3m');
+  const colorMap = useMemo(() => assignVariantColors(groups.map(g => g.label)), [groups]);
+
+  // Each <Line> below gets its own `data` array (recharts supports per-Line data,
+  // overriding the parent <LineChart>'s) rather than merging every variant's dates onto
+  // one shared array — avoids interpolating/guessing values for dates a given variant
+  // was never actually logged on.
+  const series = useMemo(() => {
+    const cutoff = rangeCutoffDate(range);
+    return groups
+      .map(g => {
+        const key = g.label ?? 'Sans précision';
+        const byDate: Record<string, HistoryEntry> = {};
+        g.history.forEach(h => {
+          if (cutoff && new Date(h.date + 'T00:00:00') < cutoff) return;
+          if (!byDate[h.date] || h.e1rm > byDate[h.date].e1rm) byDate[h.date] = h;
+        });
+        const data = Object.values(byDate)
+          .map(h => ({ date: new Date(h.date + 'T00:00:00').getTime(), value: h.e1rm, weight: h.weight, reps: h.reps }))
+          .sort((a, b) => a.date - b.date);
+        return { key, data, color: colorMap.get(key) ?? VARIANT_PALETTE[0] };
+      })
+      .filter(s => s.data.length > 0); // drop variants the range filter emptied out, from both chart and legend
+  }, [groups, range, colorMap]);
+
+  return (
+    <div className="glass-card p-4 mb-4">
+      <div className="flex items-center justify-between mb-2">
+        <h4 className="text-xs font-semibold text-muted-foreground">
+          Comparatif toutes variantes{bodyweightOptional ? ' (relatif au poids de corps)' : ''}
+        </h4>
+        <RangeButtons value={range} onChange={setRange} />
+      </div>
+
+      {series.length > 0 && (
+        <div className="flex items-center gap-3 flex-wrap mb-3">
+          {series.map(s => (
+            <div key={s.key} className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full shrink-0" style={{ background: s.color, boxShadow: `0 0 6px ${s.color}` }} />
+              <span className="text-[10px] text-muted-foreground">{s.key}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {series.length > 0 ? (
+        <ResponsiveContainer width="100%" height={140}>
+          <LineChart>
+            <CartesianGrid strokeDasharray="3 3" stroke="hsl(240 12% 20%)" />
+            <XAxis
+              dataKey="date"
+              type="number"
+              domain={['dataMin', 'dataMax']}
+              scale="time"
+              tickFormatter={(ts: number) => new Date(ts).toLocaleDateString('fr-FR', { month: 'short', day: 'numeric' })}
+              tick={chartStyle} axisLine={false} tickLine={false}
+            />
+            <YAxis
+              domain={bodyweightOptional ? [(min: number) => Math.min(0, min), (max: number) => Math.max(0, max)] : undefined}
+              tick={chartStyle} axisLine={false} tickLine={false} width={40}
+            />
+            <Tooltip content={CombinedTooltip(bodyweightOptional)} />
+            {bodyweightOptional && (
+              <ReferenceLine y={0} stroke="hsl(240 12% 45%)" strokeDasharray="4 4" strokeWidth={1}
+                label={{ value: 'Poids de corps', position: 'insideBottomLeft', fill: 'hsl(240 12% 60%)', fontSize: 9 }} />
+            )}
+            {series.map(s => (
+              <Line
+                key={s.key}
+                type="monotone"
+                data={s.data}
+                dataKey="value"
+                name={s.key}
+                stroke={s.color}
+                strokeWidth={2}
+                dot={{ r: 2.5, fill: s.color, strokeWidth: 0 }}
+              />
+            ))}
+          </LineChart>
+        </ResponsiveContainer>
+      ) : (
+        <p className="text-xs text-muted-foreground text-center py-6">Pas assez de données sur cette période</p>
+      )}
+    </div>
+  );
+};
+
 interface VariantSectionProps {
   group: VariantGroup;
   showHeader: boolean;
@@ -401,6 +563,7 @@ const VariantSection = ({ group, showHeader, bodyweightOptional, onUpdateSetVari
     const cutoff = rangeCutoffDate(range);
     const byDate: Record<string, HistoryEntry> = {};
     group.history.forEach(h => {
+      if (h.isWarmup) return;
       if (cutoff && new Date(h.date + 'T00:00:00') < cutoff) return;
       if (!byDate[h.date] || h.e1rm > byDate[h.date].e1rm) byDate[h.date] = h;
     });
@@ -435,8 +598,9 @@ const VariantSection = ({ group, showHeader, bodyweightOptional, onUpdateSetVari
     return Object.entries(map).sort(([a], [b]) => b.localeCompare(a));
   }, [group.history]);
 
-  const prSet = group.history.length > 0
-    ? group.history.reduce((best, h) => (h.e1rm > best.e1rm ? h : best), group.history[0])
+  const nonWarmupHistory = useMemo(() => group.history.filter(h => !h.isWarmup), [group.history]);
+  const prSet = nonWarmupHistory.length > 0
+    ? nonWarmupHistory.reduce((best, h) => (h.e1rm > best.e1rm ? h : best), nonWarmupHistory[0])
     : null;
   const pr = prSet?.e1rm ?? 0;
 

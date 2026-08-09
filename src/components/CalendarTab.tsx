@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
-import { AppData, SessionLog, CardioSession, PlannedSession, resolveProgramName } from '@/lib/types';
+import { AppData, SessionLog, CardioSession, CardioActivityType, PlannedSession, resolveProgramName } from '@/lib/types';
 import { ChevronLeft, ChevronRight, Plus, Trash2, X, Activity } from 'lucide-react';
 import { formatCardioDuration, calculatePaceMinPerKm, formatPace, formatCardioDistance } from '@/lib/cardio';
 import SessionDetailView from './SessionDetailView';
@@ -12,15 +12,70 @@ interface CalendarTabProps {
   onUpdateSession: (updated: SessionLog) => void;
   onDeleteSession?: (sessionId: string) => void;
   onDeleteCardioSession?: (cardioSessionId: string) => void;
+  onUpdateCardioSession?: (updated: CardioSession) => void;
   onUpdateData: (partial: Partial<AppData>) => void;
 }
 
-const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession, onDeleteCardioSession, onUpdateData }: CalendarTabProps) => {
+// Draft shape mirrors WorkoutTab's cardio logging form fields (min/sec split, distance in
+// the activity's display unit rather than the stored km) so editing reuses the exact same
+// parsing/display conventions as logging.
+interface CardioEditDraft {
+  activityType: CardioActivityType;
+  customLabel: string;
+  durationMin: string;
+  durationSec: string;
+  distance: string;
+  difficulty: number;
+  date: string;
+  notes: string;
+}
+
+const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession, onDeleteCardioSession, onUpdateCardioSession, onUpdateData }: CalendarTabProps) => {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [viewingSession, setViewingSession] = useState<SessionLog | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [confirmDeleteCardioId, setConfirmDeleteCardioId] = useState<string | null>(null);
+  const [editingCardio, setEditingCardio] = useState<CardioSession | null>(null);
+  const [cardioDraft, setCardioDraft] = useState<CardioEditDraft | null>(null);
+
+  const openCardioEdit = (cardio: CardioSession) => {
+    const totalSeconds = Math.round(cardio.durationMinutes * 60);
+    const distanceDisplay = cardio.distanceKm === undefined
+      ? ''
+      : String(cardio.activityType === 'Natation' ? Math.round(cardio.distanceKm * 1000) : cardio.distanceKm);
+    setEditingCardio(cardio);
+    setCardioDraft({
+      activityType: cardio.activityType,
+      customLabel: cardio.customActivityLabel || '',
+      durationMin: String(Math.floor(totalSeconds / 60)),
+      durationSec: String(totalSeconds % 60),
+      distance: distanceDisplay,
+      difficulty: cardio.difficulty ?? 5,
+      date: cardio.date,
+      notes: cardio.notes || '',
+    });
+  };
+
+  const saveCardioEdit = () => {
+    if (!editingCardio || !cardioDraft) return;
+    const durationMinutes = (parseInt(cardioDraft.durationMin, 10) || 0) + (parseInt(cardioDraft.durationSec, 10) || 0) / 60;
+    if (durationMinutes <= 0) return;
+    const distanceRaw = cardioDraft.distance.trim() === '' ? undefined : parseFloat(cardioDraft.distance) || undefined;
+    const distanceKm = distanceRaw === undefined ? undefined : cardioDraft.activityType === 'Natation' ? distanceRaw / 1000 : distanceRaw;
+    onUpdateCardioSession?.({
+      ...editingCardio,
+      activityType: cardioDraft.activityType,
+      customActivityLabel: cardioDraft.activityType === 'Autre' ? cardioDraft.customLabel.trim() || undefined : undefined,
+      durationMinutes,
+      distanceKm,
+      difficulty: cardioDraft.difficulty,
+      date: cardioDraft.date,
+      notes: cardioDraft.notes.trim() || undefined,
+    });
+    setEditingCardio(null);
+    setCardioDraft(null);
+  };
   const cancelDeleteRef = useRef<HTMLButtonElement>(null);
   // Swipe-to-close on the day view — same left-edge-swipe-right gesture as Réglages→Séance
   // (see useSwipeToClose). No dirty-state concern here, so no canClose/onBlocked needed.
@@ -257,6 +312,129 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession, onDe
           </div>
         )}
 
+        {editingCardio && cardioDraft && (
+          <div
+            className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-6 animate-fade-in"
+            onClick={() => { setEditingCardio(null); setCardioDraft(null); }}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="edit-cardio-title"
+              className="glass-card p-5 max-w-sm w-full max-h-[85vh] overflow-y-auto"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 id="edit-cardio-title" className="text-lg font-bold text-foreground">Modifier l'activité</h3>
+                <button
+                  onClick={() => { setEditingCardio(null); setCardioDraft(null); }}
+                  aria-label="Fermer"
+                  className="text-muted-foreground p-1"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <label className="text-xs text-muted-foreground mb-1.5 block">Type d'activité</label>
+              <select
+                value={cardioDraft.activityType}
+                onChange={e => setCardioDraft({ ...cardioDraft, activityType: e.target.value as CardioActivityType })}
+                className="w-full bg-secondary text-foreground rounded-lg px-3 py-2 text-sm outline-none mb-3"
+              >
+                {CARDIO_ACTIVITY_TYPES.map(({ type }) => (
+                  <option key={type} value={type}>{type}</option>
+                ))}
+              </select>
+              {cardioDraft.activityType === 'Autre' && (
+                <input
+                  value={cardioDraft.customLabel}
+                  onChange={e => setCardioDraft({ ...cardioDraft, customLabel: e.target.value })}
+                  placeholder="Quel type d'activité ?"
+                  className="w-full bg-secondary text-foreground rounded-lg px-3 py-2 text-sm outline-none mb-3"
+                />
+              )}
+
+              <label className="text-xs text-muted-foreground mb-1.5 block">Date</label>
+              <input
+                type="date"
+                value={cardioDraft.date}
+                onChange={e => setCardioDraft({ ...cardioDraft, date: e.target.value })}
+                className="w-full bg-secondary text-foreground rounded-lg px-3 py-2 text-sm outline-none mb-3"
+              />
+
+              <label className="text-xs text-muted-foreground mb-1.5 block">Durée</label>
+              <div className="flex items-center gap-1.5 mb-3">
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  value={cardioDraft.durationMin}
+                  onChange={e => setCardioDraft({ ...cardioDraft, durationMin: e.target.value })}
+                  className="w-full bg-secondary text-foreground rounded-lg px-3 py-2 text-sm outline-none font-mono text-center"
+                  aria-label="Minutes"
+                />
+                <span className="text-muted-foreground text-xs shrink-0">min</span>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  value={cardioDraft.durationSec}
+                  onChange={e => setCardioDraft({ ...cardioDraft, durationSec: e.target.value })}
+                  className="w-full bg-secondary text-foreground rounded-lg px-3 py-2 text-sm outline-none font-mono text-center"
+                  aria-label="Secondes"
+                />
+                <span className="text-muted-foreground text-xs shrink-0">sec</span>
+              </div>
+
+              <label className="text-xs text-muted-foreground mb-1.5 block">
+                Distance ({cardioDraft.activityType === 'Natation' ? 'm' : 'km'}) — facultatif
+              </label>
+              <input
+                type="number"
+                inputMode="decimal"
+                value={cardioDraft.distance}
+                onChange={e => setCardioDraft({ ...cardioDraft, distance: e.target.value })}
+                className="w-full bg-secondary text-foreground rounded-lg px-3 py-2 text-sm outline-none font-mono text-center mb-3"
+              />
+
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs text-muted-foreground">Comment tu t'es sentie ?</label>
+                <span className="text-sm font-bold text-foreground">{cardioDraft.difficulty}/10</span>
+              </div>
+              <input
+                type="range"
+                min={1}
+                max={10}
+                value={cardioDraft.difficulty}
+                onChange={e => setCardioDraft({ ...cardioDraft, difficulty: parseInt(e.target.value) })}
+                className="w-full accent-accent-blue h-2 mb-3"
+              />
+
+              <label className="text-xs text-muted-foreground mb-1.5 block">Notes</label>
+              <textarea
+                value={cardioDraft.notes}
+                onChange={e => setCardioDraft({ ...cardioDraft, notes: e.target.value })}
+                rows={2}
+                className="w-full bg-secondary text-foreground rounded-lg px-3 py-2 text-sm outline-none mb-4 resize-none"
+              />
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => { setEditingCardio(null); setCardioDraft(null); }}
+                  className="flex-1 bg-secondary text-secondary-foreground font-medium py-2.5 rounded-xl text-sm"
+                >
+                  Annuler
+                </button>
+                <button
+                  onClick={saveCardioEdit}
+                  disabled={(parseInt(cardioDraft.durationMin, 10) || 0) + (parseInt(cardioDraft.durationSec, 10) || 0) <= 0}
+                  className="flex-1 btn-neon font-medium py-2.5 rounded-xl text-sm disabled:opacity-40"
+                >
+                  Enregistrer
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
             <button onClick={() => setSelectedDate(null)} aria-label="Retour au calendrier" className="text-muted-foreground touch-target p-1">
@@ -277,7 +455,7 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession, onDe
             {dayCardioSessions.map(cardio => (
               <div key={cardio.id} className="glass-card p-4 flex items-center gap-3 border-accent-blue/30">
                 <Activity size={16} className="text-accent-blue shrink-0" />
-                <div className="flex-1">
+                <button onClick={() => openCardioEdit(cardio)} className="flex-1 text-left">
                   <span className="text-foreground font-semibold text-sm">
                     {cardio.activityType === 'Autre' ? (cardio.customActivityLabel || 'Autre') : cardio.activityType}
                   </span>
@@ -290,7 +468,7 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession, onDe
                     })()}
                     {cardio.difficulty && <span>RPE {cardio.difficulty}/10</span>}
                   </div>
-                </div>
+                </button>
                 <button
                   onClick={() => setConfirmDeleteCardioId(cardio.id)}
                   aria-label={`Supprimer l'activité ${cardio.activityType}`}

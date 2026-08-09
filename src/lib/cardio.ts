@@ -16,7 +16,9 @@ export function formatCardioDistance(distanceKm: number, activityType: CardioAct
   if (activityType === 'Natation') {
     return `${Math.round(distanceKm * 1000)} m`;
   }
-  return `${distanceKm} km`;
+  // Rounded to 2 decimals — matters for an averaged value (raw division), harmless for a
+  // directly-logged one (already clean to begin with).
+  return `${Math.round(distanceKm * 100) / 100} km`;
 }
 
 function toMinutesAndSeconds(totalMinutes: number): { m: number; s: number } {

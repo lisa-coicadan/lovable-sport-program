@@ -6,7 +6,7 @@ import { getEmomConfig, getEmomWeight } from '@/lib/emom';
 import { buildExerciseBlocks } from '@/lib/superset';
 import { isBodyweightOptionalExercise, splitEquipmentVariant } from '@/lib/exerciseNormalize';
 import { getDropSetConfig, getDropSetStage } from '@/lib/dropset';
-import { compareCardioSession, formatCardioDuration, formatPace } from '@/lib/cardio';
+import { compareCardioSession, formatCardioDuration, formatCardioDistance, formatPace } from '@/lib/cardio';
 import { isForceFocusExercise } from '@/lib/strengthStandards';
 import { computeEffectiveLoadAtOneRep, resolveBodyWeightAtDate, computeBodyweightAdjustedE1RM } from '@/lib/tonnage';
 import { estimateTrainingMax } from '@/lib/trainingMax';
@@ -154,6 +154,29 @@ const MethodPickerRow = ({ active, onSelect }: { active: 'cluster' | 'emom' | 'n
   </div>
 );
 
+// Isolated component so its once-a-second tick only re-renders this badge, not the
+// whole (very dense — see CLAUDE.md) WorkoutTab tree it used to live in via a `nowTick`
+// state on the parent. That drove a full re-render of the entire recap screen every
+// second for the whole session, stacking with RestTimer's own independent 1s interval
+// (unsynchronized) and occasionally stalling the main thread long enough for RestTimer's
+// wall-clock tick to skip straight from displaying "2" to auto-reset without ever
+// showing "1"/"0".
+const SessionElapsedBadge = ({ startTime }: { startTime: number }) => {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const elapsed = Math.max(0, Math.floor((now - startTime) / 1000));
+  const mm = String(Math.floor(elapsed / 60)).padStart(2, '0');
+  const ss = String(elapsed % 60).padStart(2, '0');
+  return (
+    <span className="ml-auto text-sm font-mono font-semibold text-primary tabular-nums bg-primary/10 px-2.5 py-1 rounded-lg">
+      {mm}:{ss}
+    </span>
+  );
+};
+
 const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSelectedDate, onProgressChange }: WorkoutTabProps) => {
   const [mode, setMode] = useState<Mode>('select');
   const [selectedType, setSelectedType] = useState<WorkoutType | null>(null);
@@ -164,7 +187,6 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
   const [pendingSession, setPendingSession] = useState<SessionLog | null>(null);
   const [historyExercise, setHistoryExercise] = useState<string | null>(null);
   const [restDuration, setRestDuration] = useState(data.restDuration || 90);
-  const [nowTick, setNowTick] = useState(Date.now());
   const [previewOpen, setPreviewOpen] = useState(true);
   const [clusterAutoTimer, setClusterAutoTimer] = useState(false);
   const [methodOverrides, setMethodOverrides] = useState<Record<string, MethodOverride>>({});
@@ -231,7 +253,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
   const [cardioDurationMin, setCardioDurationMin] = useState('');
   const [cardioDurationSec, setCardioDurationSec] = useState('');
   const [cardioDistance, setCardioDistance] = useState('');
-  const [cardioDifficulty, setCardioDifficulty] = useState(5);
+  const [cardioDifficulty, setCardioDifficulty] = useState(3);
   const [cardioRecapOpen, setCardioRecapOpen] = useState(false);
 
   const resetCardioForm = () => {
@@ -330,12 +352,6 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
   useEffect(() => {
     if (selectedDate && !selectedType) setMode('select');
   }, [selectedDate, selectedType]);
-
-  useEffect(() => {
-    if (mode !== 'recap') return;
-    const id = setInterval(() => setNowTick(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, [mode]);
 
   useEffect(() => {
     if (!onProgressChange) return;
@@ -655,6 +671,18 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     setSets(updated);
   };
 
+  // Weight defaults to 0 whenever nothing meaningful has been entered yet, so an
+  // untouched-looking field actually displays "0" until she taps it — selecting that "0"
+  // (the old behavior, select-all) still meant noticing and deleting it before typing,
+  // mid-set, one-handed. Clearing it outright when it's still 0 makes the field genuinely
+  // empty and ready to type into; a real (non-zero) value still gets select()'d as before,
+  // which is what updateSet's sign-preservation above expects (it reads the edit as a bare
+  // digit string with no sign of its own).
+  const onWeightFocus = (e, index: number) => {
+    if (sets[index].weight === 0) e.target.value = '';
+    else e.target.select();
+  };
+
   // Add extra set to an exercise
   const addSetToExercise = (exerciseId: string, exerciseName: string) => {
     const existingSets = sets.filter(s => s.exerciseId === exerciseId);
@@ -733,6 +761,53 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
   // Remove a set
   const removeSet = (index: number) => {
     setSets(prev => prev.filter((_, i) => i !== index));
+  };
+
+  // Superset-aware counterparts to addSetToExercise/removeSet above — a "round" is one
+  // A+B pair (plus each side's own drop-set cascade, if any). Both sides must move
+  // together: the render code's aAnchors[i]/bAnchors[i] pairing is positional, so adding
+  // or removing only one side would desync every round after it.
+  const addSupersetRound = (block: SupersetBlock) => {
+    const lastSerie = block.series[block.series.length - 1];
+    const aLast = lastSerie ? sets[lastSerie.aIdx] : undefined;
+    const bLast = lastSerie ? sets[lastSerie.bIdx] : undefined;
+    const aTemplate = selectedType?.exercises.find(e => e.id === block.aId);
+    const bTemplate = selectedType?.exercises.find(e => e.id === block.bId);
+    const aTags = aTemplate ? getEffectiveTags(aTemplate) : { equipment: aLast?.equipment, unilateral: aLast?.unilateral };
+    const bTags = bTemplate ? getEffectiveTags(bTemplate) : { equipment: bLast?.equipment, unilateral: bLast?.unilateral };
+    const newA: SetLog = {
+      exerciseId: block.aId, exerciseName: block.aName,
+      setNumber: sets.filter(s => s.exerciseId === block.aId).length + 1,
+      reps: aLast?.amrap ? 0 : (aLast?.reps || 10),
+      weight: aLast?.weight || 0,
+      completed: false,
+      amrap: aLast?.amrap || undefined,
+      supersetGroupId: block.groupId, supersetRole: 'A',
+      equipment: aTags.equipment, unilateral: aTags.unilateral,
+    };
+    const newB: SetLog = {
+      exerciseId: block.bId, exerciseName: block.bName,
+      setNumber: sets.filter(s => s.exerciseId === block.bId).length + 1,
+      reps: bLast?.amrap ? 0 : (bLast?.reps || 10),
+      weight: bLast?.weight || 0,
+      completed: false,
+      amrap: bLast?.amrap || undefined,
+      supersetGroupId: block.groupId, supersetRole: 'B',
+      equipment: bTags.equipment, unilateral: bTags.unilateral,
+    };
+    // Appended right after the group's last existing entry (whichever side that is) —
+    // nothing follows either new anchor, so dropsAfter's forward scan naturally finds no
+    // drops for them yet, regardless of how the two sides happen to be interleaved above.
+    const groupIdxs = sets.map((_, i) => i).filter(i => sets[i].supersetGroupId === block.groupId);
+    const insertAt = groupIdxs.length > 0 ? Math.max(...groupIdxs) + 1 : sets.length;
+    const updated = [...sets];
+    updated.splice(insertAt, 0, newA, newB);
+    setSets(updated);
+  };
+
+  const removeSupersetRound = (serie: SupersetBlock['series'][number]) => {
+    const idxs = new Set([serie.aIdx, ...serie.aDropIdxs, serie.bIdx, ...serie.bDropIdxs]);
+    setSets(prev => prev.filter((_, i) => !idxs.has(i)));
   };
 
   // Renames an exercise for this session only — used both for temp exercises (freely
@@ -1075,7 +1150,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
               type="number"
               value={sets[s.globalIdx].weight}
               onChange={e => updateSet(s.globalIdx, 'weight', e.target.value)}
-              onFocus={e => e.target.select()}
+              onFocus={e => onWeightFocus(e, s.globalIdx)}
               onBlur={e => finalizeSimpleWeightOnBlur(s.globalIdx, e.target.value)}
               className="w-14 bg-transparent text-foreground text-sm text-center outline-none font-mono"
               placeholder="kg"
@@ -1188,7 +1263,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                     type="number"
                     value={set.weight}
                     onChange={e => updateSet(globalIdx, 'weight', e.target.value)}
-                    onFocus={e => e.target.select()}
+                    onFocus={e => onWeightFocus(e, globalIdx)}
                     onBlur={e => finalizeSimpleWeightOnBlur(globalIdx, e.target.value)}
                     className="w-14 bg-transparent text-foreground text-sm text-center outline-none font-mono"
                     placeholder="kg"
@@ -1907,7 +1982,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-muted-foreground">Distance</span>
                   <span className="flex items-center gap-1.5">
-                    <span className="text-sm font-bold text-foreground">{comparison.distance.current} km</span>
+                    <span className="text-sm font-bold text-foreground">{formatCardioDistance(comparison.distance.current, cardioActivityType)}</span>
                     {comparison.distance.changePercent !== null && (
                       <span className={`text-[10px] font-semibold ${comparison.distance.changePercent >= 0 ? 'text-success' : 'text-warning'}`}>
                         {comparison.distance.changePercent >= 0 ? '▲' : '▼'} {Math.abs(Math.round(comparison.distance.changePercent))}%
@@ -1916,9 +1991,9 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                   </span>
                 </div>
                 <p className="text-[10px] text-muted-foreground">
-                  {comparison.distance.last !== null && `Dernière : ${comparison.distance.last} km`}
+                  {comparison.distance.last !== null && `Dernière : ${formatCardioDistance(comparison.distance.last, cardioActivityType)}`}
                   {comparison.distance.last !== null && comparison.distance.average !== null && ' · '}
-                  {comparison.distance.average !== null && `Moyenne : ${Math.round(comparison.distance.average * 100) / 100} km`}
+                  {comparison.distance.average !== null && `Moyenne : ${formatCardioDistance(comparison.distance.average, cardioActivityType)}`}
                 </p>
               </div>
             )}
@@ -2167,16 +2242,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
           <ArrowLeft size={20} />
         </button>
         <h1 className="text-xl font-bold text-foreground">{selectedType?.name}</h1>
-        {(() => {
-          const elapsed = Math.max(0, Math.floor((nowTick - startTime) / 1000));
-          const mm = String(Math.floor(elapsed / 60)).padStart(2, '0');
-          const ss = String(elapsed % 60).padStart(2, '0');
-          return (
-            <span className="ml-auto text-sm font-mono font-semibold text-primary tabular-nums bg-primary/10 px-2.5 py-1 rounded-lg">
-              {mm}:{ss}
-            </span>
-          );
-        })()}
+        <SessionElapsedBadge startTime={startTime} />
       </div>
 
       {/* Session preview (collapsible accordion) */}
@@ -2324,7 +2390,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                           type="number"
                           value={sets[globalIdx].weight}
                           onChange={e => updateSet(globalIdx, 'weight', e.target.value)}
-                          onFocus={e => e.target.select()}
+                          onFocus={e => onWeightFocus(e, globalIdx)}
                           onBlur={e => finalizeSimpleWeightOnBlur(globalIdx, e.target.value)}
                           className="w-14 bg-transparent text-foreground text-sm text-center outline-none font-mono"
                           placeholder="kg"
@@ -2643,16 +2709,25 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                       >
                         <div className="flex items-center justify-between mb-1.5">
                           <span className="text-[11px] font-semibold text-muted-foreground">Série {localIdx + 1}</span>
-                          <button
-                            onClick={() => toggleSeries(serie)}
-                            className={`touch-target rounded-lg p-1.5 transition-colors ${
-                              allDone ? 'text-success glow-success' : 'text-muted-foreground active:text-success'
-                            }`}
-                            aria-label={allDone ? `Série ${localIdx + 1} validée` : `Valider la série ${localIdx + 1}`}
-                            aria-pressed={allDone}
-                          >
-                            <Check size={18} />
-                          </button>
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => removeSupersetRound(serie)}
+                              className="touch-target inline-flex items-center justify-center text-muted-foreground active:text-destructive"
+                              aria-label={`Supprimer la série ${localIdx + 1} (${block.aName} + ${block.bName})`}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                            <button
+                              onClick={() => toggleSeries(serie)}
+                              className={`touch-target rounded-lg p-1.5 transition-colors ${
+                                allDone ? 'text-success glow-success' : 'text-muted-foreground active:text-success'
+                              }`}
+                              aria-label={allDone ? `Série ${localIdx + 1} validée` : `Valider la série ${localIdx + 1}`}
+                              aria-pressed={allDone}
+                            >
+                              <Check size={18} />
+                            </button>
+                          </div>
                         </div>
                         {[
                           { role: 'A' as const, name: block.aName, idx: serie.aIdx, dropIdxs: serie.aDropIdxs, templateEx: templateAEx },
@@ -2686,7 +2761,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                                 type="number"
                                 value={sets[row.idx].weight}
                                 onChange={e => updateSet(row.idx, 'weight', e.target.value)}
-                                onFocus={e => e.target.select()}
+                                onFocus={e => onWeightFocus(e, row.idx)}
                                 onBlur={e => finalizeWeightOnBlur(row.idx, e.target.value)}
                                 className="w-14 bg-background/60 rounded-md text-foreground text-sm text-center outline-none font-mono py-1"
                                 placeholder="kg"
@@ -2715,7 +2790,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                                   type="number"
                                   value={sets[dropIdx].weight}
                                   onChange={e => updateSet(dropIdx, 'weight', e.target.value)}
-                                  onFocus={e => e.target.select()}
+                                  onFocus={e => onWeightFocus(e, dropIdx)}
                                   onBlur={e => finalizeSimpleWeightOnBlur(dropIdx, e.target.value)}
                                   className="w-14 bg-background/60 rounded-md text-foreground text-sm text-center outline-none font-mono py-1"
                                   placeholder="kg"
@@ -2751,6 +2826,12 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                     );
                   })}
                 </div>
+                <button
+                  onClick={() => addSupersetRound(block)}
+                  className="w-full min-h-11 flex items-center justify-center gap-1 text-primary text-xs font-medium mt-3"
+                >
+                  <Plus size={12} /> Ajouter une série
+                </button>
               </div>
             );
           }
@@ -2952,7 +3033,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                           type="number"
                           value={sets[globalIdx].weight}
                           onChange={e => updateSet(globalIdx, 'weight', e.target.value)}
-                          onFocus={e => e.target.select()}
+                          onFocus={e => onWeightFocus(e, globalIdx)}
                           onBlur={e => finalizeWeightOnBlur(globalIdx, e.target.value)}
                           className="w-16 bg-transparent text-foreground text-sm text-center outline-none font-mono"
                           placeholder="kg"

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { AppData, SessionLog, WORKOUT_COLORS, CardioActivityType, resolveProgramName } from '@/lib/types';
-import { normalizeExerciseName, splitEquipmentVariant, isBodyweightOptionalExercise, foldAccents, formatWeightDisplay } from '@/lib/exerciseNormalize';
+import { resolveSetVariantName, splitEquipmentVariant, isBodyweightOptionalExercise, foldAccents, formatWeightDisplay } from '@/lib/exerciseNormalize';
 import { computeSetTonnage, resolveBodyWeightAtDate, computeEffectiveLoadAtOneRep, computeBodyweightAdjustedE1RM } from '@/lib/tonnage';
 import { FORCE_ELIGIBLE_MOVEMENTS, ForceEligibleMovement } from '@/lib/strengthStandards';
 import { calculatePaceMinPerKm, formatCardioDuration, formatPace, formatCardioDistance } from '@/lib/cardio';
@@ -102,11 +102,17 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession, onUpdateData }: Stat
   const [viewingSession, setViewingSession] = useState<SessionLog | null>(null);
   const [previewSessionId, setPreviewSessionId] = useState<{ chart: 'volume' | 'difficulty'; id: string; cx: number; cy: number } | null>(null);
 
-  // Every distinct exercise name ever logged, regardless of weight (so bodyweight-only
+  // Every distinct PARENT movement ever logged, regardless of weight (so bodyweight-only
   // tractions/dips are searchable too) — the candidate list for "rechercher un exercice".
+  // Deliberately the equipment-agnostic base name (splitEquipmentVariant(...).base), not
+  // resolveSetVariantName's per-variant label — searching/browsing should surface one
+  // entry per movement ("Développé couché"), not a separate entry per equipment variant
+  // ("Développé couché Haltères", "... Machine"...); ExerciseHistory already groups every
+  // variant under whichever name it's given (see its own `base` derivation), so passing
+  // the parent name in still lands on the full breakdown.
   const allLoggedExerciseNames = useMemo(() => {
     const set = new Set<string>();
-    data.sessions.forEach(session => session.sets.forEach(s => set.add(normalizeExerciseName(s.exerciseName))));
+    data.sessions.forEach(session => session.sets.forEach(s => set.add(splitEquipmentVariant(s.exerciseName).base)));
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [data.sessions]);
 
@@ -130,9 +136,9 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession, onUpdateData }: Stat
     data.sessions.forEach(session => {
       const bw = resolveBodyWeightAtDate(data.bodyWeightLogs, session.date);
       session.sets
-        .filter(s => s.completed && !s.failed && s.reps > 0 && (s.weight > 0 || isBodyweightOptionalExercise(s.exerciseName)))
+        .filter(s => s.completed && !s.failed && !s.isWarmup && s.reps > 0 && (s.weight > 0 || isBodyweightOptionalExercise(s.exerciseName)))
         .forEach(s => {
-          const name = normalizeExerciseName(s.exerciseName);
+          const name = resolveSetVariantName(s);
           const e1rm = computeBodyweightAdjustedE1RM(s, bw);
           if (!map[name] || e1rm > map[name].e1rm) {
             map[name] = { name, e1rm, weight: s.weight, reps: s.reps, date: session.date };
@@ -144,10 +150,13 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession, onUpdateData }: Stat
 
   // Exercises with an active training method (5/3/1, Cluster, EMOM) get their own
   // isolated PR card up top, same treatment the Squat card used to get alone.
+  // Same resolveSetVariantName as everywhere else in this file — must stay the exact same
+  // resolution as methodE1rmEvolution's own `canon` below, since its `.has(canon)` check
+  // only works when both sides key sets/exercises identically.
   const methodExerciseNames = useMemo(() => {
     const names = new Set<string>();
     data.workoutTypes.forEach(t => t.exercises.forEach(e => {
-      if (e.method) names.add(normalizeExerciseName(e.name));
+      if (e.method) names.add(resolveSetVariantName({ exerciseName: e.name, equipment: e.equipment, unilateral: e.unilateral }));
     }));
     return names;
   }, [data.workoutTypes]);
@@ -183,9 +192,9 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession, onUpdateData }: Stat
       const bw = resolveBodyWeightAtDate(data.bodyWeightLogs, session.date);
       const bestByName: Record<string, { e1rm: number; weight: number; reps: number }> = {};
       session.sets.forEach(s => {
-        if (!s.completed || s.failed || s.reps <= 0) return;
+        if (!s.completed || s.failed || s.isWarmup || s.reps <= 0) return;
         if (s.weight <= 0 && !isBodyweightOptionalExercise(s.exerciseName)) return;
-        const canon = normalizeExerciseName(s.exerciseName);
+        const canon = resolveSetVariantName(s);
         if (!methodExerciseNames.has(canon)) return;
         const e1 = computeBodyweightAdjustedE1RM(s, bw);
         if (!bestByName[canon] || e1 > bestByName[canon].e1rm) bestByName[canon] = { e1rm: e1, weight: s.weight, reps: s.reps };

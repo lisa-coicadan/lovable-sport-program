@@ -20,6 +20,12 @@ const EmomTimer = ({ totalMinutes, onMinuteComplete }: EmomTimerProps) => {
   const [isRunning, setIsRunning] = useState(false);
   const endAtRef = useRef<number | null>(null);
   const scheduledBeepsRef = useRef<OscillatorNode[]>([]);
+  // Same fix as RestTimer's suspectedMissRef: WebKit can idle-auto-suspend the shared
+  // AudioContext mid-EMOM (long stretches between minute beeps are silent, same trigger
+  // condition) or drop it during a brief interruption, without ever firing
+  // `visibilitychange`. Flagged by the per-tick poll in syncFromWallClock, consumed by
+  // both the per-minute effect and the final-beep branch below.
+  const suspectedMissRef = useRef(false);
   // Keeps the effect below decoupled from onMinuteComplete's identity (a new function
   // every WorkoutTab render), so it never re-triggers the countdown bookkeeping.
   const onMinuteCompleteRef = useRef(onMinuteComplete);
@@ -37,6 +43,13 @@ const EmomTimer = ({ totalMinutes, onMinuteComplete }: EmomTimerProps) => {
   // screen locks, so a plain decrementing counter drifts or freezes.
   const syncFromWallClock = useCallback(() => {
     if (endAtRef.current === null) return;
+    // Cheap every-tick poll + active retry (getSharedAudioContext() nudges resume() as a
+    // side effect) — catches suspension regardless of *why* it happened, not just on the
+    // visibilitychange edge below.
+    const liveCheck = getSharedAudioContext();
+    if (liveCheck && liveCheck.state !== 'running' && document.visibilityState === 'visible') {
+      suspectedMissRef.current = true;
+    }
     const remaining = Math.max(0, Math.ceil((endAtRef.current - Date.now()) / 1000));
     if (remaining <= 0) {
       stopAndCancel();
@@ -44,6 +57,11 @@ const EmomTimer = ({ totalMinutes, onMinuteComplete }: EmomTimerProps) => {
       setSeconds(totalSeconds); // ready for another round
       onMinuteCompleteRef.current?.(totalMinutes);
       lastFiredMinuteRef.current = 0;
+      if (suspectedMissRef.current) {
+        const ctx = getSharedAudioContext();
+        if (ctx) scheduleFinalBeep(ctx.currentTime);
+      }
+      suspectedMissRef.current = false;
       try {
         if ('vibrate' in navigator) navigator.vibrate([200, 100, 200]);
       } catch { /* vibration unsupported/blocked */ }
@@ -57,6 +75,7 @@ const EmomTimer = ({ totalMinutes, onMinuteComplete }: EmomTimerProps) => {
     setSeconds(totalSeconds);
     setIsRunning(false);
     lastFiredMinuteRef.current = 0;
+    suspectedMissRef.current = false;
   }, [totalSeconds, stopAndCancel]);
 
   useEffect(() => () => cancelBeep(scheduledBeepsRef.current), []);
@@ -104,6 +123,7 @@ const EmomTimer = ({ totalMinutes, onMinuteComplete }: EmomTimerProps) => {
     const ctx = getSharedAudioContext();
     const elapsed = totalSeconds - remaining;
     endAtRef.current = Date.now() + remaining * 1000;
+    suspectedMissRef.current = false;
     cancelBeep(scheduledBeepsRef.current);
     scheduledBeepsRef.current = [];
     if (ctx) {
@@ -149,6 +169,17 @@ const EmomTimer = ({ totalMinutes, onMinuteComplete }: EmomTimerProps) => {
         if (m < totalMinutes) onMinuteCompleteRef.current?.(m);
       }
       lastFiredMinuteRef.current = completed;
+      // A boundary was just crossed on the wall clock (reliable) — if the per-tick poll
+      // in syncFromWallClock flagged the context as suspended since the last boundary,
+      // the pre-scheduled beep(s) for whatever was crossed in between may never have
+      // sounded. One fresh replay from a guaranteed-live context stands in for the whole
+      // burst (matches the existing "big jump after backgrounding" behavior) rather than
+      // firing once per skipped minute.
+      if (suspectedMissRef.current) {
+        const ctx = getSharedAudioContext();
+        if (ctx) scheduleBeep(ctx.currentTime);
+        suspectedMissRef.current = false;
+      }
     }
   }, [currentMinute, isRunning, totalMinutes]);
 

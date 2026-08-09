@@ -34,13 +34,12 @@ export function computeSetTonnage(
   return effectiveWeight * set.reps;
 }
 
-// Estimated 1RM for the exercise-history chart, expressed as a DELTA from bodyweight
-// (0 = a strict bodyweight rep) so it reads on the same axis she already thinks in —
-// added weight positive, assistance negative — rather than an absolute kg figure.
-// Deliberately NOT the same number as HistoryEntry.e1rm / the France-record "niveau"
-// ratio (src/lib/strengthStandards.ts), which keep using calculate1RM on the raw logged
-// `weight` — those thresholds were calibrated against that raw-delta number, and
-// recalibrating them is a separate task. This is for the chart line only.
+// Estimated 1RM, expressed as a DELTA from bodyweight (0 = a strict bodyweight rep) so
+// it reads on the same axis she already thinks in — added weight positive, assistance
+// negative — rather than an absolute kg figure. This IS the same number used by
+// HistoryEntry.e1rm and the France-record "niveau" ratio (src/lib/strengthStandards.ts,
+// via ExerciseHistory.tsx/SessionSummary.tsx) — both consume this function directly, not
+// a separate raw-calculate1RM path.
 //
 // Epley's rep-scaling is applied to the TRUE total effective load (bodyweight*fraction +
 // weight), then the bodyweight contribution is subtracted back out for display — applying

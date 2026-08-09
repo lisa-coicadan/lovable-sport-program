@@ -5,7 +5,7 @@ import { parseSessionNotes, parseMultiSessionNotes, NOTES_SYNTAX_HELP, NOTES_SYN
 import { getEmomConfig, getEmomWeight, getDefaultEmomPercentage } from '@/lib/emom';
 import { getClusterConfig, getMiniSeriesWeight, CLUSTER_PRESETS } from '@/lib/cluster';
 import { estimateOneRepMax, estimateTrainingMax } from '@/lib/trainingMax';
-import { splitEquipmentVariant } from '@/lib/exerciseNormalize';
+import { splitEquipmentVariant, withNameDetectedTags, detectEquipmentFromName, detectUnilateralFromName } from '@/lib/exerciseNormalize';
 import { FORCE_ELIGIBLE_MOVEMENTS, ForceEligibleMovement, isForceFocusExercise } from '@/lib/strengthStandards';
 import { ArrowLeft, Plus, Trash2, EyeOff, Eye, Scale, Link2, Link2Off, Download, Upload, Database, AlertTriangle, FileText, Zap, Timer, Clock, Layers, Check, Calculator, TrendingDown, User, Infinity as InfinityIcon, Pencil, X, RefreshCw, Dumbbell, ChevronDown, Repeat } from 'lucide-react';
 import { SortableList, DragHandle } from './SortableBlock';
@@ -246,7 +246,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
         });
         return;
       }
-      const parsedExercises: Exercise[] = result.exercises.map((e, i) => ({
+      const parsedExercises: Exercise[] = result.exercises.map((e, i) => withNameDetectedTags({
         id: `e${Date.now()}-${i}`,
         name: e.name,
         sets: e.sets,
@@ -293,7 +293,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
         id: `wt${Date.now()}_${i}`,
         name: r.sessionName || 'Nouvelle séance',
         color: WORKOUT_COLORS[(baseIndex + i) % WORKOUT_COLORS.length],
-        exercises: r.exercises.map((e, ei) => ({
+        exercises: r.exercises.map((e, ei) => withNameDetectedTags({
           id: `e${Date.now()}-${i}-${ei}`,
           name: e.name,
           sets: e.sets,
@@ -511,6 +511,14 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
       updated[typeIndex].exercises = updated[typeIndex].exercises.map(e =>
         e.supersetGroupId === ex.supersetGroupId ? { ...e, sets: ex.sets } : e
       );
+    }
+    // Pre-fill equipment/unilatéral from keywords in the new name ("Curl haltères",
+    // "Row uni"...) — only for whichever of the two is still untouched (`??`), so a
+    // choice already made manually via the dropdown/checkbox (Options avancées below)
+    // is never overwritten by a later rename.
+    if (field === 'name') {
+      ex.equipment = ex.equipment ?? detectEquipmentFromName(ex.name);
+      ex.unilateral = ex.unilateral ?? (detectUnilateralFromName(ex.name) || undefined);
     }
     setWorkoutTypes(updated);
   };

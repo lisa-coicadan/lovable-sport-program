@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { calculatePaceMinPerKm, formatCardioDuration, formatPace, compareCardioSession } from './cardio';
+import { calculatePaceMinPerKm, formatCardioDuration, formatCardioDistance, formatPace, compareCardioSession } from './cardio';
 
 describe('calculatePaceMinPerKm', () => {
   it('computes minutes per km from duration and distance', () => {
@@ -14,6 +14,22 @@ describe('calculatePaceMinPerKm', () => {
 
   it('returns null when duration is zero', () => {
     expect(calculatePaceMinPerKm(0, 5)).toBeNull();
+  });
+});
+
+describe('formatCardioDistance', () => {
+  it('shows meters (rounded) for swimming, never km', () => {
+    expect(formatCardioDistance(0.4, 'Natation')).toBe('400 m');
+    expect(formatCardioDistance(1.2, 'Natation')).toBe('1200 m');
+  });
+
+  it('shows km for every other activity type', () => {
+    expect(formatCardioDistance(5, 'Course à pied')).toBe('5 km');
+    expect(formatCardioDistance(21.1, 'Vélo')).toBe('21.1 km');
+  });
+
+  it('rounds a km value to 2 decimals (e.g. an averaged distance)', () => {
+    expect(formatCardioDistance(5.333333333333, 'Course à pied')).toBe('5.33 km');
   });
 });
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, forwardRef, useImperativeHandle, CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
+import { useState, useEffect, useCallback, useRef, forwardRef, useImperativeHandle, memo, CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { Pause, Play, RotateCcw, X, Timer, Plus, Check } from 'lucide-react';
 import { getSharedAudioContext, scheduleBeep, cancelBeep } from '@/lib/beep';
@@ -58,7 +58,11 @@ export interface RestTimerHandle {
   startWithDuration: (seconds: number) => void;
 }
 
-const RestTimer = forwardRef<RestTimerHandle, RestTimerProps>(({ defaultSeconds = 90 }, ref) => {
+// memo: WorkoutTab re-renders very frequently during a session (every keystroke in a
+// reps/weight field, every drag reorder...) — without this, each of those re-renders
+// this too, on top of its own internal 1s tick, doubling up main-thread work at
+// unpredictable moments and making the countdown more likely to stall/skip a step.
+const RestTimer = memo(forwardRef<RestTimerHandle, RestTimerProps>(({ defaultSeconds = 90 }, ref) => {
   const [seconds, setSeconds] = useState(defaultSeconds);
   const [isRunning, setIsRunning] = useState(false);
   const [total, setTotal] = useState(defaultSeconds);
@@ -70,6 +74,14 @@ const RestTimer = forwardRef<RestTimerHandle, RestTimerProps>(({ defaultSeconds 
   const [dragOffset, setDragOffset] = useState<{ x: number; y: number } | null>(null);
   const endAtRef = useRef<number | null>(null);
   const scheduledBeepRef = useRef<OscillatorNode[]>([]);
+  // Flips true the moment any tick notices the shared AudioContext isn't 'running' while
+  // the page is fully visible — WebKit can idle-auto-suspend it mid-countdown for power
+  // saving (a rest period is mostly silence until the very end) or drop it during a brief
+  // audio-session interruption (call, Siri, a notification sound, a Bluetooth route
+  // change), none of which fire `visibilitychange`. Once flagged, we no longer trust the
+  // beep scheduled at countdown-start and replay a fresh one from a guaranteed-live
+  // context when the countdown ends — see syncFromWallClock below.
+  const suspectedMissRef = useRef(false);
   // Not state: read synchronously in the pointerup/click handlers to distinguish a tap
   // (open the panel) from a drag (reposition) without waiting for a re-render.
   const dragStateRef = useRef<{ startX: number; startY: number; dragging: boolean } | null>(null);
@@ -89,6 +101,13 @@ const RestTimer = forwardRef<RestTimerHandle, RestTimerProps>(({ defaultSeconds 
   // double up when the original scheduled beep already played on time.
   const syncFromWallClock = useCallback((opts?: { resumed?: boolean }) => {
     if (endAtRef.current === null) return;
+    // Cheap every-tick poll: getSharedAudioContext() also nudges resume() as a side
+    // effect, so this both detects AND actively retries recovery, once a second, for as
+    // long as the countdown runs — not just on the visibilitychange edge below.
+    const liveCheck = getSharedAudioContext();
+    if (liveCheck && liveCheck.state !== 'running' && document.visibilityState === 'visible') {
+      suspectedMissRef.current = true;
+    }
     const remaining = Math.max(0, Math.ceil((endAtRef.current - Date.now()) / 1000));
     if (remaining <= 0) {
       endAtRef.current = null;
@@ -96,10 +115,11 @@ const RestTimer = forwardRef<RestTimerHandle, RestTimerProps>(({ defaultSeconds 
       scheduledBeepRef.current = [];
       setIsRunning(false);
       setSeconds(total); // auto-reset, ready for the next rest period
-      if (opts?.resumed) {
+      if (opts?.resumed || suspectedMissRef.current) {
         const ctx = getSharedAudioContext();
         if (ctx) scheduleBeep(ctx.currentTime);
       }
+      suspectedMissRef.current = false;
       try {
         if ('vibrate' in navigator) navigator.vibrate([200, 100, 200]);
       } catch { /* vibration unsupported/blocked */ }
@@ -118,6 +138,9 @@ const RestTimer = forwardRef<RestTimerHandle, RestTimerProps>(({ defaultSeconds 
     stopAndCancel();
     setTotal(defaultSeconds);
     setSeconds(defaultSeconds);
+    setIsRunning(false); // stopAndCancel only clears the beep/endAt — without this a
+    // countdown in progress when defaultSeconds changes would stay "running" forever
+    // with nothing left to drive it.
   }, [defaultSeconds, stopAndCancel]);
 
   // Cancel any pending scheduled beep if the timer unmounts mid-countdown.
@@ -185,6 +208,7 @@ const RestTimer = forwardRef<RestTimerHandle, RestTimerProps>(({ defaultSeconds 
   const beginCountdown = useCallback((duration: number) => {
     const ctx = getSharedAudioContext();
     endAtRef.current = Date.now() + duration * 1000;
+    suspectedMissRef.current = false;
     cancelBeep(scheduledBeepRef.current);
     scheduledBeepRef.current = ctx ? scheduleBeep(ctx.currentTime + duration) : [];
     setIsRunning(true);
@@ -410,7 +434,7 @@ const RestTimer = forwardRef<RestTimerHandle, RestTimerProps>(({ defaultSeconds 
     </div>,
     document.body
   );
-});
+}));
 
 RestTimer.displayName = 'RestTimer';
 
