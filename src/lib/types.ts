@@ -140,9 +140,11 @@ export interface SetLog {
   isTestMax?: boolean;
   // A warm-up ramp-up set (see "+ Échauffement" in WorkoutTab, only offered for 531/Cluster/
   // EMOM exercises) — pre-filled from a % of the exercise's working weight, displayed above
-  // the working sets in a muted style, but otherwise a normal completed set: it counts in
-  // tonnage/history like any other, and is excluded only from each method's own structural
-  // set-slicing/indexing (liveSets filters in WorkoutTab), not from tonnage or e1RM.
+  // the working sets in a muted style. Excluded from each method's own structural
+  // set-slicing/indexing (liveSets filters in WorkoutTab) AND from tonnage/e1RM/PR/graph
+  // computations everywhere they're derived (ExerciseHistory, StatsTab, SessionDetailView,
+  // SessionSummary, deload.ts) — a ramp-up rep isn't real training volume and shouldn't
+  // out-PR a genuine top set. Still shown (badged) in the raw per-set history list.
   isWarmup?: boolean;
   // Snapshot of Exercise.equipment/unilateral AT THE TIME this set was logged (stamped from
   // the template when the set is created in WorkoutTab) — the source of truth for variant

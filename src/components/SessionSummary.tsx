@@ -42,7 +42,9 @@ const SessionSummary = ({ session, previousSessions = [], workoutTypes = [], gen
     () => resolveBodyWeightAtDate(bodyWeightLogs, session.date),
     [bodyWeightLogs, session.date]
   );
-  const totalVolume = completedSets.reduce((acc, s) => acc + computeSetTonnage(s, sessionBodyWeight), 0);
+  // Warm-up sets stay in completedSets (grouped/displayed like any other) but don't
+  // count toward tonnage — a warm-up ramp isn't real training volume.
+  const totalVolume = completedSets.filter(s => !s.isWarmup).reduce((acc, s) => acc + computeSetTonnage(s, sessionBodyWeight), 0);
 
   // 1RM is only a meaningful headline number for exercises actively following a
   // structured method (5/3/1, Cluster, EMOM) — for everything else, volume (already
@@ -109,7 +111,7 @@ const SessionSummary = ({ session, previousSessions = [], workoutTypes = [], gen
     if (!lastSameTypeSession) return 0;
     const bw = resolveBodyWeightAtDate(bodyWeightLogs, lastSameTypeSession.date);
     return lastSameTypeSession.sets
-      .filter(s => s.completed)
+      .filter(s => s.completed && !s.isWarmup)
       .reduce((acc, s) => acc + computeSetTonnage(s, bw), 0);
   }, [lastSameTypeSession, bodyWeightLogs]);
 
@@ -125,7 +127,7 @@ const SessionSummary = ({ session, previousSessions = [], workoutTypes = [], gen
     if (past.length === 0) return { avgTonnage: 0, avgSampleSize: 0, avgPct: null as number | null };
     const total = past.reduce((acc, s) => {
       const bw = resolveBodyWeightAtDate(bodyWeightLogs, s.date);
-      return acc + s.sets.filter(x => x.completed).reduce((a, x) => a + computeSetTonnage(x, bw), 0);
+      return acc + s.sets.filter(x => x.completed && !x.isWarmup).reduce((a, x) => a + computeSetTonnage(x, bw), 0);
     }, 0);
     const avg = total / past.length;
     return {

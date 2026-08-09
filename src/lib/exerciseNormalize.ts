@@ -285,12 +285,19 @@ export function isPrTracked(name: string): boolean {
 export const PR_TRACKED_EXERCISES = PR_TRACKED_CANONICAL;
 
 // French sub-group label for each equipment variant, for grouping in the history view
-// (e.g. "Développé couché" as a group, with "à la barre" / "aux haltères" / ... as
+// (e.g. "Développé couché" as a group, with "Barre" / "aux haltères" / ... as
 // sub-exercises). Distinct from the PR-tracking convention above, where the barbell
 // variant has no suffix — here every detected variant, barbell included, gets an
 // explicit label so they can be shown as siblings without merging their loads.
+// IMPORTANT: barre must stay IDENTICAL to EQUIPMENT_LABELS.barre ('Barre'), not a
+// separate French phrasing ("à la barre") — resolveSetVariant falls back to this table
+// for sets logged before the structured `equipment` field existed, and it must produce
+// the exact same label a structured `equipment: 'barre'` set would, or legacy barbell
+// sets silently split into a second group and drop out of every "must be barbell"
+// comparison (France-record panel, niveau-up detection) that tests equality against
+// EQUIPMENT_LABELS.barre.
 const EQUIPMENT_VARIANT_LABEL: Record<EquipmentDetection['key'], string> = {
-  barre: 'à la barre',
+  barre: EQUIPMENT_LABELS.barre,
   haltere: 'aux haltères',
   smith: 'à la Smith',
   machine: 'à la machine',

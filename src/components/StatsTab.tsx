@@ -130,7 +130,7 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession, onUpdateData }: Stat
     data.sessions.forEach(session => {
       const bw = resolveBodyWeightAtDate(data.bodyWeightLogs, session.date);
       session.sets
-        .filter(s => s.completed && !s.failed && s.reps > 0 && (s.weight > 0 || isBodyweightOptionalExercise(s.exerciseName)))
+        .filter(s => s.completed && !s.failed && !s.isWarmup && s.reps > 0 && (s.weight > 0 || isBodyweightOptionalExercise(s.exerciseName)))
         .forEach(s => {
           const name = normalizeExerciseName(s.exerciseName);
           const e1rm = computeBodyweightAdjustedE1RM(s, bw);
@@ -183,7 +183,7 @@ const StatsTab = ({ data, onUpdateSession, onDeleteSession, onUpdateData }: Stat
       const bw = resolveBodyWeightAtDate(data.bodyWeightLogs, session.date);
       const bestByName: Record<string, { e1rm: number; weight: number; reps: number }> = {};
       session.sets.forEach(s => {
-        if (!s.completed || s.failed || s.reps <= 0) return;
+        if (!s.completed || s.failed || s.isWarmup || s.reps <= 0) return;
         if (s.weight <= 0 && !isBodyweightOptionalExercise(s.exerciseName)) return;
         const canon = normalizeExerciseName(s.exerciseName);
         if (!methodExerciseNames.has(canon)) return;

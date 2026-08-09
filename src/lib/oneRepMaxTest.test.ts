@@ -29,7 +29,8 @@ describe('generateRampPlan', () => {
 describe('generateBonusStage', () => {
   it('targets 102% of the 1RM for 1 rep, rounded smart like every other stage', () => {
     const bonus = generateBonusStage(100);
-    expect(bonus.weight).toBe(102.5); // roundWeightSmart snaps to the nearest 2.5kg above 40kg
+    // 100 * 1.02 = 102 -> roundWeightSmart's 100kg+ tier snaps to the nearest 5kg
+    expect(bonus.weight).toBe(100);
     expect(bonus.reps).toBe(1);
   });
 });

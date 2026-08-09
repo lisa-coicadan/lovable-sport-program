@@ -2,9 +2,14 @@ import { describe, it, expect } from 'vitest';
 import { roundWeightSmart } from './weightRounding';
 
 describe('roundWeightSmart', () => {
-  it('rounds heavy loads (>=40kg) to the nearest 2.5kg', () => {
+  it('rounds heavy loads (40-100kg) to the nearest 2.5kg', () => {
     expect(roundWeightSmart(81)).toBe(80);
     expect(roundWeightSmart(82.8)).toBe(82.5);
+  });
+
+  it('rounds very heavy loads (>=100kg) to the nearest 5kg', () => {
+    expect(roundWeightSmart(101)).toBe(100);
+    expect(roundWeightSmart(133)).toBe(135);
   });
 
   it('rounds mid loads (15-40kg) to the nearest 1kg', () => {

@@ -33,6 +33,20 @@ describe('getWeekSets', () => {
     expect(sets[0].weight).toBe(67.5);
   });
 
+  it('rounds to the nearest 5kg once the load reaches 100kg (heavy-lifter tier)', () => {
+    const sets = getWeekSets(205, 4);
+    // 205*0.40=82 (<100 -> nearest 2.5kg: 82.5), 205*0.50=102.5 and 205*0.60=123
+    // (both >=100 -> nearest 5kg: 102.5 -> 105, 123 -> 125 — a flat 2.5kg rounding
+    // would have given 102.5 and 122.5 for those last two instead).
+    expect(sets.map(s => s.weight)).toEqual([82.5, 105, 125]);
+  });
+
+  it('rounds finer (0.5/1kg) for a low Training Max, e.g. a bodyweight-assisted 531 exercise', () => {
+    const sets = getWeekSets(10, 1);
+    // 10 * 0.65 = 6.5 (<15 -> nearest 0.5), 10 * 0.75 = 7.5, 10 * 0.85 = 8.5
+    expect(sets.map(s => s.weight)).toEqual([6.5, 7.5, 8.5]);
+  });
+
   it('falls back to week 1 scheme for an out-of-range week', () => {
     expect(getWeekSets(100, 5)).toEqual(getWeekSets(100, 1));
     expect(getWeekSets(100, 0)).toEqual(getWeekSets(100, 1));

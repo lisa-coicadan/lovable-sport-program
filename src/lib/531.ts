@@ -1,3 +1,5 @@
+import { roundWeightSmart } from './weightRounding';
+
 export interface FiveThreeOneSet {
   percentage: number;
   reps: string;
@@ -35,7 +37,7 @@ export function getWeekSets(trainingMax: number, week: number): FiveThreeOneSet[
   const scheme = WEEK_SCHEMES[week - 1] || WEEK_SCHEMES[0];
   return scheme.map(s => ({
     ...s,
-    weight: roundToNearest(trainingMax * s.percentage, 2.5),
+    weight: roundWeightSmart(trainingMax * s.percentage),
   }));
 }
 
@@ -83,6 +85,3 @@ export function computeNextFiveThreeOneWeekState(m: FiveThreeOneWeekState): Five
   return { currentWeek: 1, currentCycle: m.currentCycle + 1, cycleAdvanced: true };
 }
 
-function roundToNearest(value: number, nearest: number): number {
-  return Math.round(value / nearest) * nearest;
-}

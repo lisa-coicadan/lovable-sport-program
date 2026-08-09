@@ -90,7 +90,9 @@ export function getFatigueCriterion(sessions: SessionLog[], now: Date): FatigueC
 function totalTonnage(sessions: SessionLog[], bodyWeightLogs: AppData['bodyWeightLogs']): number {
   return sessions.reduce((sum, s) => {
     const bw = resolveBodyWeightAtDate(bodyWeightLogs, s.date);
-    return sum + s.sets.reduce((setSum, set) => setSum + computeSetTonnage(set, bw), 0);
+    // Warm-up sets aren't real training volume — a session that's mostly warm-up
+    // shouldn't read as "stagnant progression" just because its working tonnage was low.
+    return sum + s.sets.filter(set => !set.isWarmup).reduce((setSum, set) => setSum + computeSetTonnage(set, bw), 0);
   }, 0);
 }
 

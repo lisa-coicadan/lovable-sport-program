@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { AppData, SessionLog } from '@/lib/types';
+import { AppData, SessionLog, CardioSession } from '@/lib/types';
 import { loadData, saveData } from '@/lib/storage';
 import SetupWizard from '@/components/SetupWizard';
 import BottomTabBar from '@/components/BottomTabBar';
@@ -85,6 +85,13 @@ const Index = () => {
     }));
   }, []);
 
+  const handleUpdateCardioSession = useCallback((updated: CardioSession) => {
+    setData(prev => ({
+      ...prev,
+      cardioSessions: (prev.cardioSessions || []).map(s => s.id === updated.id ? updated : s),
+    }));
+  }, []);
+
   const handleUpdateData = useCallback((partial: Partial<AppData>) => {
     setData(prev => ({ ...prev, ...partial }));
   }, []);
@@ -96,7 +103,7 @@ const Index = () => {
   return (
     <div className="min-h-screen bg-background max-w-lg mx-auto relative overflow-x-hidden">
       {activeTab === 0 && (
-        <CalendarTab data={data} onDaySelect={handleDaySelect} onUpdateSession={handleUpdateSession} onDeleteSession={handleDeleteSession} onDeleteCardioSession={handleDeleteCardioSession} onUpdateData={handleUpdateData} />
+        <CalendarTab data={data} onDaySelect={handleDaySelect} onUpdateSession={handleUpdateSession} onDeleteSession={handleDeleteSession} onDeleteCardioSession={handleDeleteCardioSession} onUpdateCardioSession={handleUpdateCardioSession} onUpdateData={handleUpdateData} />
       )}
       {/* WorkoutTab always mounted to preserve session state (timer, entered sets) across tab navigation */}
       <div style={{ display: activeTab === 1 ? 'block' : 'none' }}>

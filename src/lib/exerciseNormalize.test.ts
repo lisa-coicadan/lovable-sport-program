@@ -133,8 +133,11 @@ describe('splitEquipmentVariant', () => {
     expect(splitEquipmentVariant('Développé couché haltères')).toEqual({
       base: 'Développé couché', variantLabel: 'aux haltères',
     });
+    // Must equal EQUIPMENT_LABELS.barre exactly (not a separate "à la barre" phrasing) —
+    // resolveSetVariant relies on this to unify legacy name-inferred barbell sets with
+    // sets tagged via the structured `equipment: 'barre'` field into the same group.
     expect(splitEquipmentVariant('Développé couché barre')).toEqual({
-      base: 'Développé couché', variantLabel: 'à la barre',
+      base: 'Développé couché', variantLabel: 'Barre',
     });
     expect(splitEquipmentVariant('Développé couché machine')).toEqual({
       base: 'Développé couché', variantLabel: 'à la machine',

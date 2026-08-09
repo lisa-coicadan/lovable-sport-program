@@ -38,9 +38,9 @@ interface HistoryEntry {
   equipment?: ExerciseEquipment;
   unilateral?: boolean;
   // Badges so a warm-up rep, a drop-set stage, a method-driven set or a superset partner
-  // don't read as an indistinguishable "normal" working set in this list — they still
-  // count toward the same Record/graph/PR as before (that inclusion is intentional, see
-  // types.ts), only the display gained a marker.
+  // don't read as an indistinguishable "normal" working set in this list. Warm-up sets
+  // are still shown here (badged) but excluded from the Record/graph/PR computations
+  // below — see the `.filter(h => !h.isWarmup)` call sites.
   isWarmup?: boolean;
   dropSetStage?: number;
   methodType?: '531' | 'cluster' | 'emom';
@@ -140,8 +140,10 @@ const ExerciseHistory = ({ exerciseName, data, onUpdateData, onClose }: Exercise
 
   // The headline "Record" number alone doesn't say what weight×reps produced it — she has
   // to go dig through the list below to find it. Keep the actual best set alongside it.
+  // Warm-up sets are excluded from the record itself (a ramp-up rep shouldn't out-PR a
+  // genuine top set) even though they still show up, badged, in the raw list below.
   const overallPRSet = useMemo(() => {
-    const all = variantGroups.flatMap(g => g.history);
+    const all = variantGroups.flatMap(g => g.history).filter(h => !h.isWarmup);
     return all.length > 0 ? all.reduce((best, h) => (h.e1rm > best.e1rm ? h : best), all[0]) : null;
   }, [variantGroups]);
   const overallPR = overallPRSet?.e1rm ?? 0;
@@ -164,7 +166,7 @@ const ExerciseHistory = ({ exerciseName, data, onUpdateData, onClose }: Exercise
     [variantGroups]
   );
   const defaultVariantPR = useMemo(() => {
-    const history = defaultVariantGroups.flatMap(g => g.history);
+    const history = defaultVariantGroups.flatMap(g => g.history).filter(h => !h.isWarmup);
     if (history.length === 0) return 0;
     return Math.max(...history.map(h => h.e1rm));
   }, [defaultVariantGroups]);
@@ -401,6 +403,7 @@ const VariantSection = ({ group, showHeader, bodyweightOptional, onUpdateSetVari
     const cutoff = rangeCutoffDate(range);
     const byDate: Record<string, HistoryEntry> = {};
     group.history.forEach(h => {
+      if (h.isWarmup) return;
       if (cutoff && new Date(h.date + 'T00:00:00') < cutoff) return;
       if (!byDate[h.date] || h.e1rm > byDate[h.date].e1rm) byDate[h.date] = h;
     });
@@ -435,8 +438,9 @@ const VariantSection = ({ group, showHeader, bodyweightOptional, onUpdateSetVari
     return Object.entries(map).sort(([a], [b]) => b.localeCompare(a));
   }, [group.history]);
 
-  const prSet = group.history.length > 0
-    ? group.history.reduce((best, h) => (h.e1rm > best.e1rm ? h : best), group.history[0])
+  const nonWarmupHistory = useMemo(() => group.history.filter(h => !h.isWarmup), [group.history]);
+  const prSet = nonWarmupHistory.length > 0
+    ? nonWarmupHistory.reduce((best, h) => (h.e1rm > best.e1rm ? h : best), nonWarmupHistory[0])
     : null;
   const pr = prSet?.e1rm ?? 0;
 

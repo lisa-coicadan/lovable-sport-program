@@ -6,7 +6,7 @@ import { getEmomConfig, getEmomWeight } from '@/lib/emom';
 import { buildExerciseBlocks } from '@/lib/superset';
 import { isBodyweightOptionalExercise, splitEquipmentVariant } from '@/lib/exerciseNormalize';
 import { getDropSetConfig, getDropSetStage } from '@/lib/dropset';
-import { compareCardioSession, formatCardioDuration, formatPace } from '@/lib/cardio';
+import { compareCardioSession, formatCardioDuration, formatCardioDistance, formatPace } from '@/lib/cardio';
 import { isForceFocusExercise } from '@/lib/strengthStandards';
 import { computeEffectiveLoadAtOneRep, resolveBodyWeightAtDate, computeBodyweightAdjustedE1RM } from '@/lib/tonnage';
 import { estimateTrainingMax } from '@/lib/trainingMax';
@@ -231,7 +231,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
   const [cardioDurationMin, setCardioDurationMin] = useState('');
   const [cardioDurationSec, setCardioDurationSec] = useState('');
   const [cardioDistance, setCardioDistance] = useState('');
-  const [cardioDifficulty, setCardioDifficulty] = useState(5);
+  const [cardioDifficulty, setCardioDifficulty] = useState(3);
   const [cardioRecapOpen, setCardioRecapOpen] = useState(false);
 
   const resetCardioForm = () => {
@@ -1907,7 +1907,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-muted-foreground">Distance</span>
                   <span className="flex items-center gap-1.5">
-                    <span className="text-sm font-bold text-foreground">{comparison.distance.current} km</span>
+                    <span className="text-sm font-bold text-foreground">{formatCardioDistance(comparison.distance.current, cardioActivityType)}</span>
                     {comparison.distance.changePercent !== null && (
                       <span className={`text-[10px] font-semibold ${comparison.distance.changePercent >= 0 ? 'text-success' : 'text-warning'}`}>
                         {comparison.distance.changePercent >= 0 ? '▲' : '▼'} {Math.abs(Math.round(comparison.distance.changePercent))}%
@@ -1916,9 +1916,9 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                   </span>
                 </div>
                 <p className="text-[10px] text-muted-foreground">
-                  {comparison.distance.last !== null && `Dernière : ${comparison.distance.last} km`}
+                  {comparison.distance.last !== null && `Dernière : ${formatCardioDistance(comparison.distance.last, cardioActivityType)}`}
                   {comparison.distance.last !== null && comparison.distance.average !== null && ' · '}
-                  {comparison.distance.average !== null && `Moyenne : ${Math.round(comparison.distance.average * 100) / 100} km`}
+                  {comparison.distance.average !== null && `Moyenne : ${formatCardioDistance(comparison.distance.average, cardioActivityType)}`}
                 </p>
               </div>
             )}
