@@ -216,37 +216,50 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
     ));
   };
 
-  const renameActiveProgram = () => {
-    const current = programs.find(p => p.id === activeProgramId);
+  // Rename/delete now live as a pencil/trash icon on each row of the program list, not
+  // just on whichever program happens to be active — so both take an explicit programId
+  // instead of always acting on activeProgramId.
+  const renameProgram = (programId: string) => {
+    const current = programs.find(p => p.id === programId);
     if (!current) return;
     setNamePromptValue(current.name);
     setNamePrompt({
       title: 'Renommer le programme',
       onSubmit: name => {
-        setPrograms(prev => prev.map(p => p.id === activeProgramId ? { ...p, name } : p));
+        setPrograms(prev => prev.map(p => p.id === programId ? { ...p, name } : p));
       },
     });
   };
 
-  const deleteActiveProgram = () => {
-    if (!activeProgramId || programs.length <= 1) {
+  const deleteProgram = (programId: string) => {
+    if (programs.length <= 1) {
       toast({ title: 'Impossible', description: 'Garde au moins un programme.', variant: 'destructive' });
       return;
     }
-    const current = programs.find(p => p.id === activeProgramId);
-    const owned = workoutTypes.filter(t => t.programId === activeProgramId && !t.hidden).length;
+    const current = programs.find(p => p.id === programId);
+    const owned = workoutTypes.filter(t => t.programId === programId && !t.hidden).length;
     setConfirmDialog({
       title: 'Supprimer ce programme ?',
       message: `Supprimer "${current?.name}" ? Ses ${owned} séance(s) seront masquées (non supprimées, tu retrouveras leur historique dans Calendrier/Stats).`,
       confirmLabel: 'Supprimer',
       danger: true,
       onConfirm: () => {
-        setPrograms(prev => prev.filter(p => p.id !== activeProgramId));
+        const remaining = programs.filter(p => p.id !== programId);
+        setPrograms(remaining);
         // Hide owned workoutTypes rather than deleting them — history/stats keep referencing
         // them by id unaffected, they just stop being offered anywhere as selectable.
-        const fallback = programs.find(p => p.id !== activeProgramId)!;
-        setWorkoutTypes(prev => prev.map(t => t.programId === activeProgramId ? { ...t, hidden: true } : t));
-        setActiveProgramId(fallback.id);
+        if (activeProgramId === programId) {
+          // Falls back to the next program AND makes its own sessions visible in the same
+          // pass — same resync switchActiveProgram does, otherwise she'd land on a fallback
+          // program whose sessions are still hidden from whenever it was last inactive.
+          const fallback = remaining[0];
+          setActiveProgramId(fallback?.id ?? null);
+          setWorkoutTypes(prev => prev.map(t =>
+            t.programId ? { ...t, hidden: fallback ? t.programId !== fallback.id : true } : t
+          ));
+        } else {
+          setWorkoutTypes(prev => prev.map(t => t.programId === programId ? { ...t, hidden: true } : t));
+        }
       },
     });
   };
@@ -713,41 +726,54 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
             <Layers size={16} className="text-primary" />
             <h3 className="text-sm font-bold text-foreground">Programme actif</h3>
           </div>
-          <div className="flex flex-wrap gap-1.5 mb-3">
-            {programs.map(p => (
-              <button
-                key={p.id}
-                onClick={() => switchActiveProgram(p.id)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                  activeProgramId === p.id ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
-                }`}
-              >
-                {p.name}
-              </button>
-            ))}
+          {/* Liste verticale, un programme par ligne : point + nom pour activer (tape
+              n'importe où sur la ligne), crayon/poubelle séparés à droite pour
+              renommer/supprimer sans dépendre de "lequel est actif". */}
+          <div className="space-y-2 mb-3">
+            {programs.map(p => {
+              const isActive = activeProgramId === p.id;
+              return (
+                <div
+                  key={p.id}
+                  className={`flex items-center gap-1 rounded-xl pl-3 pr-1 border transition-colors ${
+                    isActive ? 'bg-primary/15 border-primary/40' : 'bg-secondary/50 border-transparent'
+                  }`}
+                >
+                  <button
+                    onClick={() => switchActiveProgram(p.id)}
+                    className="flex items-center gap-2.5 flex-1 min-w-0 py-2.5 text-left"
+                    aria-pressed={isActive}
+                  >
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${isActive ? 'bg-primary' : 'bg-muted-foreground/40'}`} />
+                    <span className={`text-sm truncate ${isActive ? 'text-foreground font-semibold' : 'text-muted-foreground'}`}>
+                      {p.name}
+                    </span>
+                  </button>
+                  <button
+                    onClick={() => renameProgram(p.id)}
+                    className="text-muted-foreground p-1.5 touch-target shrink-0"
+                    aria-label={`Renommer ${p.name}`}
+                  >
+                    <Pencil size={14} />
+                  </button>
+                  <button
+                    onClick={() => deleteProgram(p.id)}
+                    disabled={programs.length <= 1}
+                    className="text-destructive p-1.5 touch-target shrink-0 disabled:opacity-30"
+                    aria-label={`Supprimer ${p.name}`}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              );
+            })}
           </div>
-          <div className="grid grid-cols-3 gap-2">
-            <button
-              onClick={createProgram}
-              className="flex items-center justify-center gap-1 bg-secondary text-foreground rounded-lg py-2 text-[11px] font-medium active:scale-95 transition-transform"
-            >
-              <Plus size={12} /> Nouveau
-            </button>
-            <button
-              onClick={renameActiveProgram}
-              disabled={!activeProgramId}
-              className="bg-secondary text-foreground rounded-lg py-2 text-[11px] font-medium active:scale-95 transition-transform disabled:opacity-40"
-            >
-              Renommer
-            </button>
-            <button
-              onClick={deleteActiveProgram}
-              disabled={!activeProgramId || programs.length <= 1}
-              className="bg-secondary text-destructive rounded-lg py-2 text-[11px] font-medium active:scale-95 transition-transform disabled:opacity-40"
-            >
-              Supprimer
-            </button>
-          </div>
+          <button
+            onClick={createProgram}
+            className="w-full flex items-center justify-center gap-1 bg-secondary text-foreground rounded-lg py-2 text-[11px] font-medium active:scale-95 transition-transform"
+          >
+            <Plus size={12} /> Nouveau programme
+          </button>
           <p className="text-[10px] text-muted-foreground mt-2">
             Seules les séances du programme actif sont affichées dans l'onglet Séance. L'historique reste intact.
           </p>
@@ -1057,23 +1083,39 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                   </div>
                                 </div>
                                 <div>
-                                  {/* Décalé du header au-dessus (mb-3 sur le header + pas de
-                                      -mb-1 ici) : ce bouton flottait auparavant à 2px du
-                                      champ "Séries" et du bouton Dissocier juste au-dessus,
-                                      au point de sembler se superposer avec eux. */}
-                                  <div className="flex justify-end mb-0.5">{renderDeleteButton(a)}</div>
+                                  {/* La poubelle vivait seule dans sa propre ligne, flottant
+                                      au-dessus de la rangée A — trop proche du champ "Séries"/
+                                      bouton Dissocier du header pour se lire comme lui
+                                      appartenant, et trop loin de la rangée A elle-même pour
+                                      qu'on comprenne ce qu'elle supprime. Rattachée directement
+                                      à la fin de sa propre rangée à la place (pas de -m-1 comme
+                                      renderDeleteButton : ici elle a un vrai gap de rangée à
+                                      respecter des deux côtés, pas juste sa propre ligne). */}
                                   <div className="flex items-center gap-1.5">
                                     <span className="text-[10px] font-bold text-primary w-4">A</span>
                                     {renderRow(a, { hideSets: true })}
+                                    <button
+                                      onClick={() => removeExercise(ti, aIdx)}
+                                      className="text-muted-foreground p-1 shrink-0"
+                                      aria-label={`Supprimer ${a.name || 'cet exercice'}`}
+                                    >
+                                      <Trash2 size={12} />
+                                    </button>
                                   </div>
                                   {renderSubExerciseOptions(a, aIdx)}
                                 </div>
                                 {b && (
                                   <div>
-                                    <div className="flex justify-end -mb-1">{renderDeleteButton(b)}</div>
                                     <div className="flex items-center gap-1.5">
                                       <span className="text-[10px] font-bold text-primary w-4">B</span>
                                       {renderRow(b, { hideSets: true })}
+                                      <button
+                                        onClick={() => removeExercise(ti, bIdx)}
+                                        className="text-muted-foreground p-1 shrink-0"
+                                        aria-label={`Supprimer ${b.name || 'cet exercice'}`}
+                                      >
+                                        <Trash2 size={12} />
+                                      </button>
                                     </div>
                                     {renderSubExerciseOptions(b, bIdx)}
                                   </div>
