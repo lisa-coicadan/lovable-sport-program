@@ -140,6 +140,10 @@ export interface DeloadCriteria {
   fatigueAvgValue: number | null;
   fatigueConsecutive: boolean;
   stagnation: boolean;
+  // Raw tonnage window A-vs-B change (see getTonnageStagnationCriterion), exposed regardless
+  // of the `stagnation` flag — lets a caller show "progression is healthy/up" reassurance
+  // when nothing is actually wrong, not just the warning case.
+  progressionPctChange: number | null;
   anyTrue: boolean;
   reasons: string[];
 }
@@ -190,6 +194,7 @@ export function evaluateDeloadCriteria(data: AppData, now: Date = new Date()): D
     fatigueAvg: fatigue.avgTrue, fatigueAvgValue: fatigue.avgValue,
     fatigueConsecutive: fatigue.consecutiveTrue,
     stagnation: stagnation.stagnant,
+    progressionPctChange: stagnation.pctChange,
     anyTrue: time || fatigue.avgTrue || fatigue.consecutiveTrue || stagnation.stagnant,
     reasons,
   };

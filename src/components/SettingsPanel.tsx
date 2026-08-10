@@ -7,13 +7,14 @@ import { getClusterConfig, getMiniSeriesWeight, CLUSTER_PRESETS } from '@/lib/cl
 import { estimateOneRepMax, estimateTrainingMax } from '@/lib/trainingMax';
 import { splitEquipmentVariant, withNameDetectedTags, detectEquipmentFromName, detectUnilateralFromName } from '@/lib/exerciseNormalize';
 import { FORCE_ELIGIBLE_MOVEMENTS, ForceEligibleMovement, isForceFocusExercise } from '@/lib/strengthStandards';
-import { ArrowLeft, Plus, Trash2, EyeOff, Eye, Scale, Link2, Link2Off, Download, Upload, Database, AlertTriangle, FileText, Zap, Timer, Clock, Layers, Check, Calculator, TrendingDown, User, Infinity as InfinityIcon, Pencil, X, RefreshCw, Dumbbell, ChevronDown, Repeat, Target } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, EyeOff, Eye, Scale, Link2, Link2Off, Download, Upload, Database, AlertTriangle, FileText, Zap, Timer, Clock, Layers, Check, Calculator, TrendingDown, TrendingUp, User, Infinity as InfinityIcon, Pencil, X, RefreshCw, Dumbbell, ChevronDown, Repeat, Target } from 'lucide-react';
 import { SortableList, DragHandle } from './SortableBlock';
 import { loadData, saveData } from '@/lib/storage';
 import { parseBackupFile } from '@/lib/backupFile';
 import { toast } from '@/hooks/use-toast';
 import { useSwipeToClose } from '@/hooks/useSwipeToClose';
 import { getActiveDeload, buildManualDeloadPatch, buildDeloadDeactivatePatch, evaluateDeloadCriteria, buildDeloadAcceptPatch, buildDeloadDismissPatch } from '@/lib/deload';
+import { formatDaysSince } from '@/lib/bodyweightReminder';
 
 
 
@@ -101,6 +102,13 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
   const [programs, setPrograms] = useState<Program[]>(data.programs && data.programs.length > 0 ? [...data.programs] : []);
   const [activeProgramId, setActiveProgramId] = useState<string | null>(data.activeProgramId ?? (programs[0]?.id ?? null));
   const [bodyWeight, setBodyWeight] = useState('');
+  // Shown as the field's placeholder (not pre-filled as its value — typing nothing and
+  // saving must stay a no-op, not silently re-log today's date with an old number) and in
+  // the "Dernier : X kg" caption below it.
+  const lastBodyWeightLog = useMemo(() => {
+    const logs = data.bodyWeightLogs || [];
+    return logs.length > 0 ? [...logs].sort((a, b) => b.date.localeCompare(a.date))[0] : undefined;
+  }, [data.bodyWeightLogs]);
   const [gender, setGender] = useState<Gender | undefined>(data.gender);
   const [weeklyGoal, setWeeklyGoal] = useState(data.weeklyGoal);
   const [cardioWeeklyGoal, setCardioWeeklyGoal] = useState(data.cardioWeeklyGoal ?? 2);
@@ -664,14 +672,14 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
             value={bodyWeight}
             onChange={e => setBodyWeight(e.target.value)}
             className="flex-1 bg-secondary text-foreground rounded-xl px-3 py-2.5 text-sm outline-none font-mono text-center"
-            placeholder="ex. 75"
+            placeholder={lastBodyWeightLog ? String(lastBodyWeightLog.weight) : 'ex. 75'}
             aria-label="Bodyweight (kg)"
           />
           <span className="text-sm text-muted-foreground w-8">kg</span>
         </div>
-        {(data.bodyWeightLogs || []).length > 0 && (
+        {lastBodyWeightLog && (
           <p className="text-[10px] text-muted-foreground mt-2">
-            Dernier : {data.bodyWeightLogs.sort((a, b) => b.date.localeCompare(a.date))[0].weight} kg
+            Dernier : {lastBodyWeightLog.weight} kg — {formatDaysSince(lastBodyWeightLog.date)}
           </p>
         )}
       </div>
@@ -1784,7 +1792,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
               </>
             ) : (
               <>
-                {recCriteria.anyTrue && (
+                {recCriteria.anyTrue ? (
                   <div className="bg-warning/10 border border-warning/30 rounded-xl p-3 mb-3">
                     <p className="text-sm font-semibold text-warning mb-2">
                       💪 Semaine de récupération recommandée
@@ -1817,6 +1825,35 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                         Accepter
                       </button>
                     </div>
+                  </div>
+                ) : (
+                  // Inverse of the warning above — same criteria, reassuring framing, so
+                  // Réglages isn't silent about deload status when everything's actually fine.
+                  <div className="bg-success/10 border border-success/25 rounded-xl p-3 mb-3">
+                    <p className="text-sm font-semibold text-success mb-2">
+                      ✅ Pas besoin de deload pour l'instant
+                    </p>
+                    <ul className="space-y-1">
+                      {recCriteria.timeWeeks > 0 && (
+                        <li className="text-xs text-foreground/90 flex items-start gap-1.5">
+                          <Check size={12} className="text-success shrink-0 mt-0.5" />
+                          {recCriteria.timeWeeks} semaine{recCriteria.timeWeeks > 1 ? 's' : ''}
+                          {data.deload?.lastDeloadCompletedAt ? ' depuis ton dernier deload' : ' d\'entraînement'}
+                        </li>
+                      )}
+                      {recCriteria.fatigueAvgValue !== null && (
+                        <li className="text-xs text-foreground/90 flex items-start gap-1.5">
+                          <Check size={12} className="text-success shrink-0 mt-0.5" />
+                          RPE moyen (14j) : {recCriteria.fatigueAvgValue.toFixed(1).replace('.', ',')}/10
+                        </li>
+                      )}
+                      {recCriteria.progressionPctChange !== null && recCriteria.progressionPctChange > 0 && (
+                        <li className="text-xs text-foreground/90 flex items-start gap-1.5">
+                          <TrendingUp size={12} className="text-success shrink-0 mt-0.5" />
+                          Progression en hausse : +{recCriteria.progressionPctChange.toFixed(1).replace('.', ',')}% de tonnage sur 2 semaines
+                        </li>
+                      )}
+                    </ul>
                   </div>
                 )}
                 <p className="text-[11px] text-muted-foreground mb-3">

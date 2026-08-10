@@ -1,6 +1,6 @@
 import { AppData } from './types';
 
-const REMINDER_INTERVAL_DAYS = 30;
+const REMINDER_INTERVAL_DAYS = 21;
 const SNOOZE_DAYS = 7;
 
 function toISODate(d: Date): string {
@@ -30,4 +30,18 @@ export function buildBodyweightReminderSnoozePatch(now = new Date()): Pick<AppDa
   const snoozeDate = new Date(now);
   snoozeDate.setDate(snoozeDate.getDate() + SNOOZE_DAYS);
   return { bodyweightReminderSnoozedUntil: toISODate(snoozeDate) };
+}
+
+// "Dernier : X kg" caption in Réglages — precise enough to be useful (days under a week,
+// weeks+days up to a month) without turning into visual noise once it's been a while (past
+// ~4 weeks, day-level precision stops being meaningful and just clutters the label).
+export function formatDaysSince(dateISO: string, now = new Date()): string {
+  const days = daysBetween(dateISO, now);
+  if (days <= 0) return 'aujourd\'hui';
+  if (days === 1) return 'hier';
+  if (days < 7) return `il y a ${days} jours`;
+  const weeks = Math.floor(days / 7);
+  const remDays = days % 7;
+  if (remDays === 0 || weeks >= 4) return `il y a ${weeks} sem`;
+  return `il y a ${weeks} sem, ${remDays} jours`;
 }
