@@ -13,6 +13,7 @@ import {
   buildDeloadDismissPatch,
   buildDeloadSkipPatch,
   consumeDeloadOnSessionSave,
+  reconcileExpiredDeload,
   getDeloadTargetWorkoutTypes,
   buildManualDeloadPatch,
   buildDeloadDeactivatePatch,
@@ -182,6 +183,57 @@ describe('evaluateDeloadCriteria reasons', () => {
     ];
     const { reasons } = evaluateDeloadCriteria(data({ sessions }), now);
     expect(reasons.some(r => r.includes('%') && r.includes('Progression ralentie'))).toBe(true);
+  });
+
+  it('frames the time criterion relative to the last deload once one has happened', () => {
+    const now = new Date('2026-07-20T12:00:00');
+    const sessions = [
+      session({ date: '2026-06-23' }), session({ date: '2026-06-30' }),
+      session({ date: '2026-07-07' }), session({ date: '2026-07-14' }),
+    ];
+    const withoutDeload = evaluateDeloadCriteria(data({ sessions }), now);
+    expect(withoutDeload.reasons).toContain('4 semaines d\'entraînement consécutives');
+
+    const withDeload = evaluateDeloadCriteria(data({ sessions, deload: { lastDeloadCompletedAt: '2026-06-01' } }), now);
+    expect(withDeload.reasons).toContain('4 semaines depuis ton dernier deload');
+  });
+
+  it('falls back to an expired manual deload\'s expiresAt when it was never consumed by a matching session, resetting the count', () => {
+    // A manual deload ran 2026-06-01..2026-06-07 but she never logged a session for its
+    // pending workout type before it lapsed — consumeDeloadOnSessionSave's expiry branch
+    // never actually ran, so lastDeloadCompletedAt was never stamped in storage.
+    const d = data({
+      sessions: [
+        session({ date: '2026-05-01' }), // before the deload — must NOT count
+        session({ date: '2026-06-15' }), session({ date: '2026-06-22' }),
+      ],
+      deload: { active: { type: 'both', intensity: 'medium', pendingWorkoutTypeIds: ['t1'], acceptedAt: '2026-06-01', expiresAt: '2026-06-07' } },
+    });
+    const { timeWeeks } = evaluateDeloadCriteria(d, new Date('2026-06-25T12:00:00'));
+    expect(timeWeeks).toBe(2);
+  });
+});
+
+describe('reconcileExpiredDeload', () => {
+  it('closes out and stamps lastDeloadCompletedAt for a manual deload past its expiresAt', () => {
+    const d = data({ deload: { active: { type: 'both', intensity: 'medium', pendingWorkoutTypeIds: ['t1'], acceptedAt: '2026-06-01', expiresAt: '2026-06-07' } } });
+    const result = reconcileExpiredDeload(d, new Date('2026-06-10'));
+    expect(result?.active).toBeUndefined();
+    expect(result?.lastDeloadCompletedAt).toBe('2026-06-10');
+  });
+
+  it('is a no-op while the manual deload is still within its window', () => {
+    const d = data({ deload: { active: { type: 'both', intensity: 'medium', pendingWorkoutTypeIds: ['t1'], acceptedAt: '2026-06-01', expiresAt: '2026-06-07' } } });
+    expect(reconcileExpiredDeload(d, new Date('2026-06-05'))).toBeUndefined();
+  });
+
+  it('is a no-op for a recommendation-accept deload (no expiresAt) — consumed type-by-type instead', () => {
+    const d = data({ deload: { active: { type: 'both', intensity: 'medium', pendingWorkoutTypeIds: ['t1'], acceptedAt: '2026-06-01' } } });
+    expect(reconcileExpiredDeload(d, new Date('2026-07-01'))).toBeUndefined();
+  });
+
+  it('is a no-op with no active deload at all', () => {
+    expect(reconcileExpiredDeload(data({}), new Date('2026-06-10'))).toBeUndefined();
   });
 });
 

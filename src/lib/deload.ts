@@ -144,15 +144,38 @@ export interface DeloadCriteria {
   reasons: string[];
 }
 
+// lastDeloadCompletedAt is only ever WRITTEN when consumeDeloadOnSessionSave actually runs
+// (see WorkoutTab's handleSummaryComplete), which is gated on the session's own workout type
+// still being in pendingWorkoutTypeIds at that exact moment — a manual (expiresAt-bound)
+// deload she never logs a session for (any of its pending types) before it lapses never hits
+// that gate at all, so lastDeloadCompletedAt silently never gets stamped and the consecutive-
+// weeks count keeps counting from before the deload ever happened. Falls back here to the
+// expired deload's own expiresAt so the criterion reads correctly immediately — the
+// reconciliation in WorkoutTab still persists lastDeloadCompletedAt for good on the next
+// session, this is just what keeps `evaluateDeloadCriteria` correct in the meantime.
+function getDeloadSinceDate(data: AppData, now: Date): string | undefined {
+  const lastCompleted = data.deload?.lastDeloadCompletedAt;
+  const active = data.deload?.active;
+  const expiredSince = active?.expiresAt && toISODate(now) > active.expiresAt ? active.expiresAt : undefined;
+  if (expiredSince && (!lastCompleted || expiredSince > lastCompleted)) return expiredSince;
+  return lastCompleted;
+}
+
 export function evaluateDeloadCriteria(data: AppData, now: Date = new Date()): DeloadCriteria {
-  const timeWeeks = getConsecutiveTrainingWeeks(data.sessions, data.deload?.lastDeloadCompletedAt);
+  const sinceDate = getDeloadSinceDate(data, now);
+  const timeWeeks = getConsecutiveTrainingWeeks(data.sessions, sinceDate);
   const time = timeWeeks >= 4;
   const fatigue = getFatigueCriterion(data.sessions, now);
   const stagnation = getTonnageStagnationCriterion(data.sessions, data.bodyWeightLogs, now);
   const fatigueWindowWeeks = FATIGUE_WINDOW_DAYS / 7;
 
   const reasons: string[] = [];
-  if (time) reasons.push(`${timeWeeks} semaines d'entraînement consécutives`);
+  // Once a deload has actually happened, the count is explicitly framed as relative to it —
+  // otherwise "X semaines consécutives" alone reads as an absolute/all-time total, which is
+  // what made a correctly-reset count look wrong to her the first time she saw it after one.
+  if (time) {
+    reasons.push(sinceDate ? `${timeWeeks} semaines depuis ton dernier deload` : `${timeWeeks} semaines d'entraînement consécutives`);
+  }
   if (fatigue.avgTrue) {
     reasons.push(`Moyenne RPE des ${fatigueWindowWeeks} dernières semaines : ${fatigue.avgValue!.toFixed(1).replace('.', ',')}`);
   }
@@ -370,4 +393,19 @@ export function consumeDeloadOnSessionSave(
     return { deload: { ...data.deload, active: undefined, lastDeloadCompletedAt: toISODate(now) }, wasDeload: true };
   }
   return { deload: { ...data.deload, active: { ...active, pendingWorkoutTypeIds: remaining } }, wasDeload: true };
+}
+
+// consumeDeloadOnSessionSave above only ever runs for a session whose workout type is still
+// genuinely pending in an active (non-expired) deload — a manual deload she never logs a
+// session for (any of its pending types) before expiresAt lapses never hits that call at all,
+// so its expiry-clearing branch (line ~380) never actually runs in practice, and
+// lastDeloadCompletedAt silently never gets stamped: `active` sits there stale forever and
+// the consecutive-weeks count keeps counting from before the deload ever happened (see
+// getDeloadSinceDate's live fallback above, which only patches the read side). Call this on
+// EVERY session save, regardless of that session's own workout type, so an expired-but-never-
+// consumed manual deload still gets properly closed out for good.
+export function reconcileExpiredDeload(data: AppData, now: Date = new Date()): DeloadState | undefined {
+  const active = data.deload?.active;
+  if (!active?.expiresAt || toISODate(now) <= active.expiresAt) return undefined;
+  return { ...data.deload, active: undefined, lastDeloadCompletedAt: toISODate(now) };
 }

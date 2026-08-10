@@ -16,7 +16,7 @@ import { shouldShowBodyweightReminder, buildBodyweightReminderSnoozePatch } from
 import { getWarmupPercentages } from '@/lib/warmup';
 import {
   shouldShowDeloadRecommendation, DeloadCriteria, buildDeloadAcceptPatch, buildDeloadDismissPatch, buildDeloadSkipPatch,
-  consumeDeloadOnSessionSave, getDeloadTargetWorkoutTypes, applyDeloadToWeight, applyDeloadToTrainingMax,
+  consumeDeloadOnSessionSave, reconcileExpiredDeload, getDeloadTargetWorkoutTypes, applyDeloadToWeight, applyDeloadToTrainingMax,
   getDeloadSetCount, shouldReduceSets, getActiveDeload,
 } from '@/lib/deload';
 import RestTimer, { RestTimerHandle } from './RestTimer';
@@ -1532,6 +1532,13 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     if (wasDeloadPending) {
       const { deload } = consumeDeloadOnSessionSave(data, session.workoutTypeId);
       updatePatch.deload = deload;
+    } else {
+      // Closes out a manual deload that lapsed without ever being consumed (she didn't log
+      // a session for one of its pending workout types before it expired) — otherwise
+      // lastDeloadCompletedAt never gets stamped and the consecutive-weeks count keeps
+      // counting from before that deload ever happened.
+      const reconciled = reconcileExpiredDeload(data);
+      if (reconciled) updatePatch.deload = reconciled;
     }
 
     if (updatePatch.workoutTypes || updatePatch.deload || updatePatch.plannedSessions) {
