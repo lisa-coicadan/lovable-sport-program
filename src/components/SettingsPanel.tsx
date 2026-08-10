@@ -201,6 +201,21 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
     });
   };
 
+  // Switching the active program via its pill used to only move `activeProgramId` —
+  // it never touched `hidden`, so a program made inactive earlier (via createProgram's
+  // auto-hide, or a previous switch) stayed hidden forever and the newly-picked program's
+  // own sessions, if they'd been hidden by an earlier switch away from it, stayed hidden
+  // too. Every session tied to a program (types with no programId are untouched — they're
+  // always shown regardless of active program, same convention as WorkoutTab's filter)
+  // is resynced in one pass: visible if it belongs to the program being switched to,
+  // hidden otherwise.
+  const switchActiveProgram = (programId: string) => {
+    setActiveProgramId(programId);
+    setWorkoutTypes(prev => prev.map(t =>
+      t.programId ? { ...t, hidden: t.programId !== programId } : t
+    ));
+  };
+
   const renameActiveProgram = () => {
     const current = programs.find(p => p.id === activeProgramId);
     if (!current) return;
@@ -702,7 +717,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
             {programs.map(p => (
               <button
                 key={p.id}
-                onClick={() => setActiveProgramId(p.id)}
+                onClick={() => switchActiveProgram(p.id)}
                 className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
                   activeProgramId === p.id ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
                 }`}
