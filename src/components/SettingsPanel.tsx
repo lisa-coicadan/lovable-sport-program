@@ -7,7 +7,7 @@ import { getClusterConfig, getMiniSeriesWeight, CLUSTER_PRESETS } from '@/lib/cl
 import { estimateOneRepMax, estimateTrainingMax } from '@/lib/trainingMax';
 import { splitEquipmentVariant, withNameDetectedTags, detectEquipmentFromName, detectUnilateralFromName } from '@/lib/exerciseNormalize';
 import { FORCE_ELIGIBLE_MOVEMENTS, ForceEligibleMovement, isForceFocusExercise } from '@/lib/strengthStandards';
-import { ArrowLeft, Plus, Trash2, EyeOff, Eye, Scale, Link2, Link2Off, Download, Upload, Database, AlertTriangle, FileText, Zap, Timer, Clock, Layers, Check, Calculator, TrendingDown, User, Infinity as InfinityIcon, Pencil, X, RefreshCw, Dumbbell, ChevronDown, Repeat } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, EyeOff, Eye, Scale, Link2, Link2Off, Download, Upload, Database, AlertTriangle, FileText, Zap, Timer, Clock, Layers, Check, Calculator, TrendingDown, User, Infinity as InfinityIcon, Pencil, X, RefreshCw, Dumbbell, ChevronDown, Repeat, Target } from 'lucide-react';
 import { SortableList, DragHandle } from './SortableBlock';
 import { loadData, saveData } from '@/lib/storage';
 import { parseBackupFile } from '@/lib/backupFile';
@@ -162,6 +162,14 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
   // whether a recommendation exists. Réglages is where she can always find it again even
   // after "Ignorer" snoozed the banner for 7 days.
   const recCriteria = evaluateDeloadCriteria(data);
+  // Deload/Sauvegarde sont repliées par défaut pour ne pas surcharger la page — sauf le
+  // deload, qui doit rester visible d'emblée s'il y a une action à prendre (deload actif
+  // ou recommandé), jamais caché derrière un clic supplémentaire.
+  const [deloadOpen, setDeloadOpen] = useState(() => !!activeDeload || recCriteria.anyTrue);
+  const [backupOpen, setBackupOpen] = useState(false);
+  // Anciens programmes (Séances masquées) : un seul groupe ouvert à la fois, replié par
+  // défaut, pour ne pas empiler tout l'historique de programmes précédents à l'écran.
+  const [openHiddenProgramId, setOpenHiddenProgramId] = useState<string | null>(null);
 
   // Program management ----------------------------------------------------------
   const createProgram = () => {
@@ -594,6 +602,93 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
         <h1 className="text-xl font-bold text-foreground">Réglages</h1>
       </div>
 
+      {/* Sexe : utilisé uniquement pour la comparaison "Record de France" / niveau-percentile
+          dans l'historique d'exercice (src/lib/strengthStandards.ts). Purement local,
+          jamais envoyé nulle part. */}
+      <div className="glass-card p-4 mb-6">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <User size={16} className="text-primary" />
+            <h3 className="text-sm font-bold text-foreground">Profil</h3>
+          </div>
+          <div className="flex items-center gap-1.5">
+            {(['F', 'H'] as const).map(g => (
+              <button
+                key={g}
+                onClick={() => setGender(gender === g ? undefined : g)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                  gender === g ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
+                }`}
+                aria-pressed={gender === g}
+              >
+                {g === 'F' ? 'Femme' : 'Homme'}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="flex items-center gap-2 mb-2">
+          <Scale size={14} className="text-primary" />
+          <span className="text-xs font-medium text-foreground">Bodyweight</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <input
+            type="number"
+            value={bodyWeight}
+            onChange={e => setBodyWeight(e.target.value)}
+            className="flex-1 bg-secondary text-foreground rounded-xl px-3 py-2.5 text-sm outline-none font-mono text-center"
+            placeholder="ex. 75"
+            aria-label="Bodyweight (kg)"
+          />
+          <span className="text-sm text-muted-foreground w-8">kg</span>
+        </div>
+        {(data.bodyWeightLogs || []).length > 0 && (
+          <p className="text-[10px] text-muted-foreground mt-2">
+            Dernier : {data.bodyWeightLogs.sort((a, b) => b.date.localeCompare(a.date))[0].weight} kg
+          </p>
+        )}
+      </div>
+
+      {/* Objectifs — muscu + cardio empilés dans une seule carte plutôt que deux cartes
+          quasi identiques l'une sous l'autre. */}
+      <div className="glass-card p-4 mb-6">
+        <div className="flex items-center gap-2 mb-3">
+          <Target size={16} className="text-primary" />
+          <h3 className="text-sm font-bold text-foreground">Objectifs</h3>
+        </div>
+        <div className="mb-4">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium text-foreground">Séances hebdo</span>
+            <span className="text-sm font-bold text-primary">{weeklyGoal} séances</span>
+          </div>
+          <input
+            type="range"
+            aria-label="Objectif hebdomadaire de séances"
+            min={1}
+            max={7}
+            value={weeklyGoal}
+            onChange={e => setWeeklyGoal(parseInt(e.target.value))}
+            className="w-full accent-primary h-2"
+          />
+        </div>
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium text-foreground">Cardio hebdo</span>
+            <span className="text-sm font-bold text-accent-blue">{cardioWeeklyGoal} activité{cardioWeeklyGoal > 1 ? 's' : ''}</span>
+          </div>
+          <input
+            type="range"
+            aria-label="Objectif hebdomadaire d'activités cardio"
+            min={0}
+            max={7}
+            value={cardioWeeklyGoal}
+            onChange={e => setCardioWeeklyGoal(parseInt(e.target.value))}
+            className="w-full accent-accent-blue h-2"
+          />
+        </div>
+      </div>
+
+      <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-2 px-1">Séances</p>
+
       {/* Programme actif — multi-program grouping. Sessions history is never filtered
           by program (it stays intact across switches); only the list of active
           workoutTypes shown below and in the Workout tab is filtered. */}
@@ -643,87 +738,6 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
           </p>
         </div>
       )}
-      {/* Sexe : utilisé uniquement pour la comparaison "Record de France" / niveau-percentile
-          dans l'historique d'exercice (src/lib/strengthStandards.ts). Purement local,
-          jamais envoyé nulle part. */}
-      <div className="glass-card p-4 mb-6">
-        <div className="flex items-center gap-2 mb-3">
-          <User size={16} className="text-primary" />
-          <h3 className="text-sm font-bold text-foreground">Profil</h3>
-        </div>
-        <div className="flex items-center gap-1.5 mb-3">
-          {(['F', 'H'] as const).map(g => (
-            <button
-              key={g}
-              onClick={() => setGender(gender === g ? undefined : g)}
-              className={`flex-1 py-2 rounded-lg text-xs font-medium transition-all ${
-                gender === g ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
-              }`}
-              aria-pressed={gender === g}
-            >
-              {g === 'F' ? 'Femme' : 'Homme'}
-            </button>
-          ))}
-        </div>
-        <p className="text-[10px] text-muted-foreground mb-3">
-          Utilisé pour comparer tes performances au record de France et à ton niveau (percentile), dans l'historique d'un exercice.
-        </p>
-        <div className="flex items-center gap-2 mb-2">
-          <Scale size={14} className="text-primary" />
-          <span className="text-xs font-medium text-foreground">Bodyweight</span>
-        </div>
-        <div className="flex items-center gap-3">
-          <input
-            type="number"
-            value={bodyWeight}
-            onChange={e => setBodyWeight(e.target.value)}
-            className="flex-1 bg-secondary text-foreground rounded-xl px-3 py-2.5 text-sm outline-none font-mono text-center"
-            placeholder="ex. 75"
-            aria-label="Bodyweight (kg)"
-          />
-          <span className="text-sm text-muted-foreground w-8">kg</span>
-        </div>
-        {(data.bodyWeightLogs || []).length > 0 && (
-          <p className="text-[10px] text-muted-foreground mt-2">
-            Dernier : {data.bodyWeightLogs.sort((a, b) => b.date.localeCompare(a.date))[0].weight} kg
-          </p>
-        )}
-      </div>
-
-      {/* Weekly Goal */}
-      <div className="glass-card p-4 mb-6">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-sm font-medium text-foreground">Objectif hebdo</span>
-          <span className="text-sm font-bold text-primary">{weeklyGoal} séances</span>
-        </div>
-        <input
-          type="range"
-          aria-label="Objectif hebdomadaire de séances"
-          min={1}
-          max={7}
-          value={weeklyGoal}
-          onChange={e => setWeeklyGoal(parseInt(e.target.value))}
-          className="w-full accent-primary h-2"
-        />
-      </div>
-
-      {/* Cardio Weekly Goal — separate from strength, own counter/color everywhere else */}
-      <div className="glass-card p-4 mb-6">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-sm font-medium text-foreground">Objectif hebdo cardio</span>
-          <span className="text-sm font-bold text-accent-blue">{cardioWeeklyGoal} activité{cardioWeeklyGoal > 1 ? 's' : ''}</span>
-        </div>
-        <input
-          type="range"
-          aria-label="Objectif hebdomadaire d'activités cardio"
-          min={0}
-          max={7}
-          value={cardioWeeklyGoal}
-          onChange={e => setCardioWeeklyGoal(parseInt(e.target.value))}
-          className="w-full accent-accent-blue h-2"
-        />
-      </div>
-
 
       {/* Active Sessions */}
       <div className="mb-4">
@@ -999,7 +1013,7 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                             );
                             return (
                               <div className="border border-primary/40 bg-primary/5 rounded-xl p-2.5 space-y-1.5 mb-1.5">
-                                <div className="flex items-center justify-between mb-1">
+                                <div className="flex items-center justify-between mb-3">
                                   <div className="flex items-center gap-1">
                                     <DragHandle />
                                     <span className="text-[10px] font-bold text-primary tracking-wider">SUPERSET</span>
@@ -1028,7 +1042,11 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                   </div>
                                 </div>
                                 <div>
-                                  <div className="flex justify-end -mb-1">{renderDeleteButton(a)}</div>
+                                  {/* Décalé du header au-dessus (mb-3 sur le header + pas de
+                                      -mb-1 ici) : ce bouton flottait auparavant à 2px du
+                                      champ "Séries" et du bouton Dissocier juste au-dessus,
+                                      au point de sembler se superposer avec eux. */}
+                                  <div className="flex justify-end mb-0.5">{renderDeleteButton(a)}</div>
                                   <div className="flex items-center gap-1.5">
                                     <span className="text-[10px] font-bold text-primary w-4">A</span>
                                     {renderRow(a, { hideSets: true })}
@@ -1556,34 +1574,75 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
         </div>
       </div>
 
-      {/* Hidden Sessions */}
-      {hiddenTypes.length > 0 && (
-        <div className="mb-4">
-          <h3 className="text-sm font-semibold text-muted-foreground mb-3">Séances masquées</h3>
-          <div className="space-y-2">
-            {hiddenTypes.map(type => {
-              const ti = workoutTypes.findIndex(t => t.id === type.id);
-              return (
-                <div key={type.id} className="glass-card p-3 opacity-60 flex items-center gap-3">
-                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: `hsl(${type.color})` }} />
-                  <span className="text-foreground text-sm flex-1">{type.name || 'Sans nom'}</span>
-                  {programs.length > 1 && (
-                    <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-secondary/80 text-muted-foreground shrink-0">
-                      {programs.find(p => p.id === type.programId)?.name ?? '—'}
-                    </span>
-                  )}
-                  <button onClick={() => toggleHide(ti)} className="text-primary p-1 touch-target" title="Restaurer" aria-label={`Restaurer ${type.name || 'cette séance'}`}>
-                    <Eye size={16} />
-                  </button>
-                  <button onClick={() => deleteType(ti)} className="text-destructive p-1 touch-target" title="Supprimer définitivement" aria-label={`Supprimer définitivement ${type.name || 'cette séance'}`}>
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-              );
-            })}
+      {/* Hidden Sessions — flat list for a single program; grouped by (old) program and
+          collapsed by default once several programs exist, so switching programs
+          repeatedly doesn't pile every past program's sessions into one long list. */}
+      {hiddenTypes.length > 0 && (() => {
+        const renderHiddenRow = (type: WorkoutType) => {
+          const ti = workoutTypes.findIndex(t => t.id === type.id);
+          return (
+            <div key={type.id} className="glass-card p-3 opacity-60 flex items-center gap-3">
+              <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: `hsl(${type.color})` }} />
+              <span className="text-foreground text-sm flex-1">{type.name || 'Sans nom'}</span>
+              <button onClick={() => toggleHide(ti)} className="text-primary p-1 touch-target" title="Restaurer" aria-label={`Restaurer ${type.name || 'cette séance'}`}>
+                <Eye size={16} />
+              </button>
+              <button onClick={() => deleteType(ti)} className="text-destructive p-1 touch-target" title="Supprimer définitivement" aria-label={`Supprimer définitivement ${type.name || 'cette séance'}`}>
+                <Trash2 size={16} />
+              </button>
+            </div>
+          );
+        };
+
+        if (programs.length <= 1) {
+          return (
+            <div className="mb-4">
+              <h3 className="text-sm font-semibold text-muted-foreground mb-3">Séances masquées</h3>
+              <div className="space-y-2">{hiddenTypes.map(renderHiddenRow)}</div>
+            </div>
+          );
+        }
+
+        // Groups by the program that owned each hidden session; anything with no known
+        // program (manually hidden without ever switching programs, or an old program
+        // since deleted) falls into its own "Sans programme" bucket instead of being lost.
+        const groups = programs
+          .map(p => ({ program: p, types: hiddenTypes.filter(t => t.programId === p.id) }))
+          .filter(g => g.types.length > 0);
+        const orphaned = hiddenTypes.filter(t => !t.programId || !programs.some(p => p.id === t.programId));
+
+        return (
+          <div className="mb-4">
+            <h3 className="text-sm font-semibold text-muted-foreground mb-3">Séances masquées</h3>
+            <div className="space-y-2">
+              {groups.map(({ program, types }) => {
+                const isOpen = openHiddenProgramId === program.id;
+                return (
+                  <div key={program.id} className="glass-card overflow-hidden">
+                    <button
+                      onClick={() => setOpenHiddenProgramId(isOpen ? null : program.id)}
+                      className="w-full flex items-center justify-between p-3"
+                      aria-expanded={isOpen}
+                    >
+                      <span className="text-sm text-foreground font-medium">{program.name}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-muted-foreground">{types.length} séance{types.length > 1 ? 's' : ''}</span>
+                        <ChevronDown size={14} className={`text-muted-foreground transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+                      </div>
+                    </button>
+                    {isOpen && (
+                      <div className="px-3 pb-3 space-y-2">{types.map(renderHiddenRow)}</div>
+                    )}
+                  </div>
+                );
+              })}
+              {orphaned.length > 0 && (
+                <div className="space-y-2">{orphaned.map(renderHiddenRow)}</div>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       <button
         onClick={addWorkoutType}
@@ -1630,134 +1689,168 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
         )}
       </div>
 
+      <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-2 px-1">Avancé</p>
+
       {/* Deload manuel — voir src/lib/deload.ts pour la logique (indépendant de la
-          recommandation automatique de WorkoutTab) */}
-      <div className="glass-card p-4 mb-6">
-        <div className="flex items-center gap-2 mb-1">
-          <TrendingDown size={16} className="text-warning" />
-          <h3 className="text-sm font-bold text-foreground">Semaine de deload</h3>
-        </div>
-        {activeDeload ? (
-          <>
-            <p className="text-[11px] text-muted-foreground mb-3">
-              Deload actif ({DELOAD_TYPE_LABELS[activeDeload.type]} · {DELOAD_INTENSITY_LABELS[activeDeload.intensity]})
-              {activeDeload.expiresAt && ` jusqu'au ${new Date(activeDeload.expiresAt + 'T00:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}`}.
-            </p>
-            <button
-              onClick={() => onUpdateData({ deload: buildDeloadDeactivatePatch(data) })}
-              className="w-full flex items-center justify-center gap-1.5 bg-secondary text-foreground rounded-xl py-2.5 text-sm font-medium active:scale-95 transition-transform"
-            >
-              Désactiver le deload
-            </button>
-          </>
-        ) : (
-          <>
-            {recCriteria.anyTrue && (
-              <div className="bg-warning/10 border border-warning/30 rounded-xl p-3 mb-3">
-                <p className="text-sm font-semibold text-warning mb-2">
-                  💪 Semaine de récupération recommandée
-                </p>
-                <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold mb-1.5">Pourquoi ?</p>
-                <ul className="space-y-1 mb-3">
-                  {recCriteria.reasons.map((reason, i) => (
-                    <li key={i} className="text-xs text-foreground/90 flex items-start gap-1.5">
-                      <Check size={12} className="text-warning shrink-0 mt-0.5" /> {reason}
-                    </li>
-                  ))}
-                </ul>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => onUpdateData({ deload: buildDeloadDismissPatch(data) })}
-                    className="flex-1 bg-secondary text-secondary-foreground font-medium py-2 rounded-lg text-xs touch-target"
-                  >
-                    Ignorer
-                  </button>
-                  <button
-                    onClick={() => {
-                      setManualDeloadSource('recommendation');
-                      setManualDeloadType('both');
-                      setManualDeloadIntensity('medium');
-                      setManualDeloadOpen(true);
-                    }}
-                    className="flex-1 btn-neon font-medium py-2 rounded-lg text-xs touch-target"
-                  >
-                    Accepter
-                  </button>
-                </div>
-              </div>
+          recommandation automatique de WorkoutTab). Repliable, mais ouvert par défaut dès
+          qu'il y a une action à prendre (deload actif ou recommandé) — jamais caché
+          derrière un clic quand ça compte ; le badge "Actif" reste visible même repliée. */}
+      <div className="glass-card mb-6 overflow-hidden">
+        <button
+          onClick={() => setDeloadOpen(o => !o)}
+          className="w-full flex items-center justify-between p-4"
+          aria-expanded={deloadOpen}
+        >
+          <div className="flex items-center gap-2">
+            <TrendingDown size={16} className="text-warning" />
+            <h3 className="text-sm font-bold text-foreground">Semaine de deload</h3>
+            {activeDeload && (
+              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-warning/15 text-warning">Actif</span>
             )}
-            <p className="text-[11px] text-muted-foreground mb-3">
-              {recCriteria.anyTrue
-                ? 'Ou choisis une durée précise, sans attendre que ce soit fait automatiquement pour chaque séance.'
-                : 'Active une semaine de récupération manuellement, sans attendre la recommandation automatique. Toutes les séances faites pendant la période choisie seront en deload.'}
-            </p>
-            <button
-              onClick={() => { setManualDeloadSource('manual'); setManualDeloadType('both'); setManualDeloadIntensity('medium'); setManualDeloadDays(7); setManualDeloadOpen(true); }}
-              className="w-full flex items-center justify-center gap-1.5 bg-warning/15 text-warning rounded-xl py-2.5 text-sm font-medium active:scale-95 transition-transform"
-            >
-              <TrendingDown size={14} /> Activer un deload
-            </button>
-          </>
+          </div>
+          <ChevronDown size={16} className={`text-muted-foreground transition-transform ${deloadOpen ? 'rotate-180' : ''}`} />
+        </button>
+        {deloadOpen && (
+          <div className="px-4 pb-4">
+            {activeDeload ? (
+              <>
+                <p className="text-[11px] text-muted-foreground mb-3">
+                  Deload actif ({DELOAD_TYPE_LABELS[activeDeload.type]} · {DELOAD_INTENSITY_LABELS[activeDeload.intensity]})
+                  {activeDeload.expiresAt && ` jusqu'au ${new Date(activeDeload.expiresAt + 'T00:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}`}.
+                </p>
+                <button
+                  onClick={() => onUpdateData({ deload: buildDeloadDeactivatePatch(data) })}
+                  className="w-full flex items-center justify-center gap-1.5 bg-secondary text-foreground rounded-xl py-2.5 text-sm font-medium active:scale-95 transition-transform"
+                >
+                  Désactiver le deload
+                </button>
+              </>
+            ) : (
+              <>
+                {recCriteria.anyTrue && (
+                  <div className="bg-warning/10 border border-warning/30 rounded-xl p-3 mb-3">
+                    <p className="text-sm font-semibold text-warning mb-2">
+                      💪 Semaine de récupération recommandée
+                    </p>
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold mb-1.5">Pourquoi ?</p>
+                    <ul className="space-y-1 mb-3">
+                      {recCriteria.reasons.map((reason, i) => (
+                        <li key={i} className="text-xs text-foreground/90 flex items-start gap-1.5">
+                          <Check size={12} className="text-warning shrink-0 mt-0.5" /> {reason}
+                        </li>
+                      ))}
+                    </ul>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => onUpdateData({ deload: buildDeloadDismissPatch(data) })}
+                        className="flex-1 bg-secondary text-secondary-foreground font-medium py-2 rounded-lg text-xs touch-target"
+                      >
+                        Ignorer
+                      </button>
+                      <button
+                        onClick={() => {
+                          setManualDeloadSource('recommendation');
+                          setManualDeloadType('both');
+                          setManualDeloadIntensity('medium');
+                          setManualDeloadOpen(true);
+                        }}
+                        className="flex-1 btn-neon font-medium py-2 rounded-lg text-xs touch-target"
+                      >
+                        Accepter
+                      </button>
+                    </div>
+                  </div>
+                )}
+                <p className="text-[11px] text-muted-foreground mb-3">
+                  {recCriteria.anyTrue
+                    ? 'Ou choisis une durée précise, sans attendre que ce soit fait automatiquement pour chaque séance.'
+                    : 'Active une semaine de récupération manuellement, sans attendre la recommandation automatique. Toutes les séances faites pendant la période choisie seront en deload.'}
+                </p>
+                <button
+                  onClick={() => { setManualDeloadSource('manual'); setManualDeloadType('both'); setManualDeloadIntensity('medium'); setManualDeloadDays(7); setManualDeloadOpen(true); }}
+                  className="w-full flex items-center justify-center gap-1.5 bg-warning/15 text-warning rounded-xl py-2.5 text-sm font-medium active:scale-95 transition-transform"
+                >
+                  <TrendingDown size={14} /> Activer un deload
+                </button>
+              </>
+            )}
+          </div>
         )}
       </div>
 
-      {/* Backup / Restore */}
-      <div className="glass-card p-4 mb-6">
-        <div className="flex items-center gap-2 mb-1">
-          <Database size={16} className="text-primary" />
-          <h3 className="text-sm font-bold text-foreground">Sauvegarde</h3>
-        </div>
-        <p className="text-[11px] text-muted-foreground mb-3">
-          Vos données sont stockées uniquement sur cet appareil. Exportez un fichier pour ne rien perdre.
-        </p>
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            onClick={handleExport}
-            className="flex items-center justify-center gap-1.5 bg-secondary text-foreground rounded-xl py-2.5 text-sm font-medium active:scale-95 transition-transform"
-          >
-            <Download size={14} /> Exporter
-          </button>
-          <button
-            onClick={handleImportClick}
-            className="flex items-center justify-center gap-1.5 bg-secondary text-foreground rounded-xl py-2.5 text-sm font-medium active:scale-95 transition-transform"
-          >
-            <Upload size={14} /> Importer
-          </button>
-        </div>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="application/json,.json"
-          onChange={handleImportFile}
-          className="hidden"
-        />
-        <p className="text-[10px] text-muted-foreground mt-2">
-          {(data.sessions?.length || 0)} séances enregistrées sur cet appareil.
-        </p>
-
-        <div className="h-px bg-border my-3" />
-
+      {/* Backup / Restore — repliée par défaut, ses trois actions n'étant consultées
+          qu'occasionnellement (contrairement au deload, rien ici ne réclame d'attention
+          immédiate au chargement). */}
+      <div className="glass-card mb-6 overflow-hidden">
         <button
-          onClick={handleForceUpdate}
-          className="w-full flex items-center justify-center gap-1.5 bg-secondary text-foreground rounded-xl py-2.5 text-sm font-medium active:scale-95 transition-transform"
+          onClick={() => setBackupOpen(o => !o)}
+          className="w-full flex items-center justify-between p-4"
+          aria-expanded={backupOpen}
         >
-          <RefreshCw size={14} /> Forcer la mise à jour
+          <div className="flex items-center gap-2">
+            <Database size={16} className="text-primary" />
+            <h3 className="text-sm font-bold text-foreground">Sauvegarde et mise à jour</h3>
+          </div>
+          <ChevronDown size={16} className={`text-muted-foreground transition-transform ${backupOpen ? 'rotate-180' : ''}`} />
         </button>
-        <p className="text-[10px] text-muted-foreground mt-2">
-          Si l'app semble bloquée sur une ancienne version. Ne touche pas aux séances enregistrées.
-        </p>
+        {backupOpen && (
+          <div className="px-4 pb-4">
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70 font-semibold mb-1.5">Export / import</p>
+            <p className="text-[11px] text-muted-foreground mb-3">
+              Vos données sont stockées uniquement sur cet appareil. Exportez un fichier pour ne rien perdre.
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={handleExport}
+                className="flex items-center justify-center gap-1.5 bg-secondary text-foreground rounded-xl py-2.5 text-sm font-medium active:scale-95 transition-transform"
+              >
+                <Download size={14} /> Exporter
+              </button>
+              <button
+                onClick={handleImportClick}
+                className="flex items-center justify-center gap-1.5 bg-secondary text-foreground rounded-xl py-2.5 text-sm font-medium active:scale-95 transition-transform"
+              >
+                <Upload size={14} /> Importer
+              </button>
+            </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="application/json,.json"
+              onChange={handleImportFile}
+              className="hidden"
+            />
+            <p className="text-[10px] text-muted-foreground mt-2">
+              {(data.sessions?.length || 0)} séances enregistrées sur cet appareil.
+            </p>
 
-        <div className="h-px bg-border my-3" />
+            <div className="h-px bg-border my-3" />
 
-        <button
-          onClick={handleReset}
-          className="w-full flex items-center justify-center gap-1.5 bg-destructive/10 text-destructive rounded-xl py-2.5 text-sm font-medium active:scale-95 transition-transform"
-        >
-          <AlertTriangle size={14} /> Réinitialiser l'app
-        </button>
-        <p className="text-[10px] text-muted-foreground mt-2">
-          Supprime toutes les données locales et relance l'initialisation. Pense à exporter une sauvegarde avant.
-        </p>
+            <p className="text-[10px] uppercase tracking-wider text-muted-foreground/70 font-semibold mb-1.5">Mise à jour</p>
+            <button
+              onClick={handleForceUpdate}
+              className="w-full flex items-center justify-center gap-1.5 bg-secondary text-foreground rounded-xl py-2.5 text-sm font-medium active:scale-95 transition-transform"
+            >
+              <RefreshCw size={14} /> Forcer la mise à jour
+            </button>
+            <p className="text-[10px] text-muted-foreground mt-2">
+              Si l'app semble bloquée sur une ancienne version. Ne touche pas aux séances enregistrées.
+            </p>
+
+            <div className="h-px bg-border my-3" />
+
+            <p className="text-[10px] uppercase tracking-wider text-destructive/70 font-semibold mb-1.5">Réinitialiser</p>
+            <button
+              onClick={handleReset}
+              className="w-full flex items-center justify-center gap-1.5 bg-destructive/10 text-destructive rounded-xl py-2.5 text-sm font-medium active:scale-95 transition-transform"
+            >
+              <AlertTriangle size={14} /> Réinitialiser l'app
+            </button>
+            <p className="text-[10px] text-muted-foreground mt-2">
+              Supprime toutes les données locales et relance l'initialisation. Pense à exporter une sauvegarde avant.
+            </p>
+          </div>
+        )}
       </div>
 
 
