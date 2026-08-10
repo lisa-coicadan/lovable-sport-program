@@ -1801,8 +1801,9 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                       <button
                         onClick={() => onUpdateData({ deload: buildDeloadDismissPatch(data) })}
                         className="flex-1 bg-secondary text-secondary-foreground font-medium py-2 rounded-lg text-xs touch-target"
+                        title="On te reproposera un deload la semaine prochaine"
                       >
-                        Ignorer
+                        Plus tard
                       </button>
                       <button
                         onClick={() => {
