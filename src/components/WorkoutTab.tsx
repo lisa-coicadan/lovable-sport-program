@@ -1703,15 +1703,16 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
               <button
                 onClick={() => onUpdateData({ deload: buildDeloadDismissPatch(data) })}
                 className="flex-1 bg-secondary text-secondary-foreground font-medium py-2 rounded-lg text-xs touch-target"
+                title="On te reproposera un deload la semaine prochaine"
               >
-                Ignorer
+                Plus tard
               </button>
               <button
                 onClick={() => onUpdateData({ deload: buildDeloadSkipPatch(data) })}
                 className="flex-1 bg-secondary text-secondary-foreground font-medium py-2 rounded-lg text-xs touch-target"
-                title="Continuer normalement — relance le compteur sans réduire charges/séries"
+                title="Tu continues normalement, sans réduire charges/séries"
               >
-                Sans deload
+                Pas besoin
               </button>
               <button
                 onClick={() => { setDeloadTypeDraft('both'); setDeloadIntensityDraft('medium'); setDeloadPopupOpen(true); }}
