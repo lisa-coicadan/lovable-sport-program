@@ -825,7 +825,8 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
                         <div className="flex items-center gap-2">
                           <span className="text-xs text-muted-foreground w-8">S{localIdx + 1}</span>
                           <input
-                            type="number"
+                            type="text"
+                            inputMode="decimal"
                             value={s.weight}
                             onChange={e => updateEditSet(gi, 'weight', e.target.value)}
                             onFocus={e => e.target.select()}

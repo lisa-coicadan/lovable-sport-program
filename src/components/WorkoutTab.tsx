@@ -1147,7 +1147,8 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
           >
             <span className="text-xs text-muted-foreground w-16 shrink-0">Éch. {i + 1}</span>
             <input
-              type="number"
+              type="text"
+              inputMode="decimal"
               value={sets[s.globalIdx].weight}
               onChange={e => updateSet(s.globalIdx, 'weight', e.target.value)}
               onFocus={e => onWeightFocus(e, s.globalIdx)}
@@ -1260,7 +1261,8 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                 <div className="flex items-center gap-2 mb-2.5">
                   <span className="text-[10px] text-muted-foreground w-16 shrink-0">{label}</span>
                   <input
-                    type="number"
+                    type="text"
+                    inputMode="decimal"
                     value={set.weight}
                     onChange={e => updateSet(globalIdx, 'weight', e.target.value)}
                     onFocus={e => onWeightFocus(e, globalIdx)}
@@ -2395,7 +2397,8 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                       >
                         <span className="text-xs text-muted-foreground w-6">S{localIdx + 1}</span>
                         <input
-                          type="number"
+                          type="text"
+                          inputMode="decimal"
                           value={sets[globalIdx].weight}
                           onChange={e => updateSet(globalIdx, 'weight', e.target.value)}
                           onFocus={e => onWeightFocus(e, globalIdx)}
@@ -2766,7 +2769,8 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                                 </>
                               )}
                               <input
-                                type="number"
+                                type="text"
+                                inputMode="decimal"
                                 value={sets[row.idx].weight}
                                 onChange={e => updateSet(row.idx, 'weight', e.target.value)}
                                 onFocus={e => onWeightFocus(e, row.idx)}
@@ -2795,7 +2799,8 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                                 <span className="text-[10px] font-bold text-warning w-4">Δ</span>
                                 <span className="flex-1 min-w-0 text-[11px] text-warning font-medium truncate">Drop {dropI + 1}</span>
                                 <input
-                                  type="number"
+                                  type="text"
+                                  inputMode="decimal"
                                   value={sets[dropIdx].weight}
                                   onChange={e => updateSet(dropIdx, 'weight', e.target.value)}
                                   onFocus={e => onWeightFocus(e, dropIdx)}
@@ -3038,7 +3043,8 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                           </>
                         )}
                         <input
-                          type="number"
+                          type="text"
+                          inputMode="decimal"
                           value={sets[globalIdx].weight}
                           onChange={e => updateSet(globalIdx, 'weight', e.target.value)}
                           onFocus={e => onWeightFocus(e, globalIdx)}
