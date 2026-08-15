@@ -191,6 +191,11 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
   // decimal separator before she can type the digits after it. Cleared on blur so the
   // field falls back to displaying the canonical committed number once she's done.
   const [weightDraft, setWeightDraft] = useState<Record<number, string>>({});
+  // Same pattern as weightDraft, for reps fields — without it, backspacing a reps digit
+  // down to empty gets silently reverted back to the last committed number on the very
+  // next re-render (the session timer alone re-renders every second), which read as
+  // "I have to select-all instead of just deleting" since a plain backspace never stuck.
+  const [repsDraft, setRepsDraft] = useState<Record<number, string>>({});
   const [pendingSession, setPendingSession] = useState<SessionLog | null>(null);
   const [historyExercise, setHistoryExercise] = useState<string | null>(null);
   const [restDuration, setRestDuration] = useState(data.restDuration || 90);
@@ -359,6 +364,14 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
   useEffect(() => {
     if (selectedDate && !selectedType) setMode('select');
   }, [selectedDate, selectedType]);
+
+  // Opening an exercise's history from deep in a scrolled-down session card must not
+  // inherit that scroll position — WorkoutTab's screens swap in place (not real routes),
+  // so without this the page stayed wherever it was and the history view opened looking
+  // like it landed at the bottom instead of showing its own top content first.
+  useEffect(() => {
+    if (mode === 'history') window.scrollTo(0, 0);
+  }, [mode, historyExercise]);
 
   useEffect(() => {
     if (!onProgressChange) return;
@@ -606,6 +619,8 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
       // Cleared on blur (finalizeWeightOnBlur/finalizeSimpleWeightOnBlur) so the field falls
       // back to showing the canonical committed number once she's done.
       setWeightDraft(prev => ({ ...prev, [index]: value }));
+    } else {
+      setRepsDraft(prev => ({ ...prev, [index]: value }));
     }
     if (value === '') return;
     const updated = [...sets];
@@ -694,6 +709,12 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
   // transiently-empty value) leaves a truly-abandoned edit uncommitted, so it's finalized to 0
   // here on blur instead.
   const finalizeRepsOnBlur = (index: number, rawValue: string) => {
+    setRepsDraft(prev => {
+      if (!(index in prev)) return prev;
+      const next = { ...prev };
+      delete next[index];
+      return next;
+    });
     if (rawValue.trim() !== '') return;
     const updated = [...sets];
     updated[index] = { ...updated[index], reps: 0 };
@@ -1196,8 +1217,9 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
             <span className="text-muted-foreground text-xs">kg ×</span>
             <input
               type="number"
-              value={sets[s.globalIdx].reps || ''}
+              value={repsDraft[s.globalIdx] ?? (sets[s.globalIdx].reps || '')}
               onChange={e => updateSet(s.globalIdx, 'reps', e.target.value)}
+              onFocus={e => e.target.select()}
               onBlur={e => finalizeRepsOnBlur(s.globalIdx, e.target.value)}
               className="w-10 bg-transparent text-foreground text-sm text-center outline-none font-mono"
               aria-label={`Répétitions échauffement ${i + 1}, ${ex.name}`}
@@ -1310,8 +1332,9 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                   <span className="text-muted-foreground text-xs">×</span>
                   <input
                     type="number"
-                    value={set.reps || ''}
+                    value={repsDraft[globalIdx] ?? (set.reps || '')}
                     onChange={e => updateSet(globalIdx, 'reps', e.target.value)}
+                    onFocus={e => e.target.select()}
                     onBlur={e => finalizeRepsOnBlur(globalIdx, e.target.value)}
                     className="w-10 bg-transparent text-foreground text-sm text-center outline-none font-mono"
                     aria-label={`Répétitions ${label}, ${ex.name}`}
@@ -2448,15 +2471,23 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                           <div className="flex items-center gap-1">
                             <input
                               type="number"
-                              value={amrapReps[globalIdx] !== undefined ? (amrapReps[globalIdx] || '') : (sets[globalIdx].reps || '')}
+                              value={repsDraft[globalIdx] ?? (amrapReps[globalIdx] !== undefined ? (amrapReps[globalIdx] || '') : (sets[globalIdx].reps || ''))}
                               onChange={e => {
-                                // Same guard as updateSet: a French decimal comma briefly makes
-                                // <input type="number"> report an empty value mid-keystroke —
-                                // ignore that instead of wiping to 0 right away.
+                                // Same repsDraft pattern as updateSet: without it, a plain
+                                // backspace-to-empty gets reverted on the next re-render
+                                // (the guard below skips committing an empty value).
+                                setRepsDraft(prev => ({ ...prev, [globalIdx]: e.target.value }));
                                 if (e.target.value === '') return;
                                 setAmrapReps(prev => ({ ...prev, [globalIdx]: parseInt(e.target.value, 10) || 0 }));
                               }}
+                              onFocus={e => e.target.select()}
                               onBlur={e => {
+                                setRepsDraft(prev => {
+                                  if (!(globalIdx in prev)) return prev;
+                                  const next = { ...prev };
+                                  delete next[globalIdx];
+                                  return next;
+                                });
                                 if (e.target.value.trim() !== '') return;
                                 setAmrapReps(prev => ({ ...prev, [globalIdx]: 0 }));
                               }}
@@ -2818,8 +2849,9 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                               <span className="text-muted-foreground text-xs">×</span>
                               <input
                                 type="number"
-                                value={sets[row.idx].reps || ''}
+                                value={repsDraft[row.idx] ?? (sets[row.idx].reps || '')}
                                 onChange={e => updateSet(row.idx, 'reps', e.target.value)}
+                                onFocus={e => e.target.select()}
                                 onBlur={e => finalizeRepsOnBlur(row.idx, e.target.value)}
                                 className={`w-12 bg-background/60 rounded-md text-sm text-center outline-none font-mono py-1 ${
                                   sets[row.idx].amrap ? 'text-accent-purple placeholder:text-accent-purple/70' : 'text-foreground'
@@ -2848,8 +2880,9 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                                 <span className="text-muted-foreground text-xs">×</span>
                                 <input
                                   type="number"
-                                  value={sets[dropIdx].reps || ''}
+                                  value={repsDraft[dropIdx] ?? (sets[dropIdx].reps || '')}
                                   onChange={e => updateSet(dropIdx, 'reps', e.target.value)}
+                                  onFocus={e => e.target.select()}
                                   onBlur={e => finalizeRepsOnBlur(dropIdx, e.target.value)}
                                   className="w-12 bg-background/60 rounded-md text-sm text-center outline-none font-mono py-1 text-foreground"
                                   aria-label={`Répétitions Drop ${dropI + 1} ${row.role}, ${row.name}`}
@@ -3002,17 +3035,23 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                   <TrendingDown size={14} /> Drop set
                 </button>
                 <div className="flex items-center gap-1.5 ml-auto">
-                  {templateEx && renderTagsButton(templateEx)}
+                  {/* Équipement/unilatéral and échauffement are session-local state keyed
+                      by exerciseId (tagOverrides/sets), same as RPE above — no template
+                      needed, so a temp exercise gets them too via the rpeEx stand-in.
+                      Note stays template-only: its whole point is resurfacing next time
+                      this exercise is trained, which a temp (this-session-only) exercise
+                      has no "next time" for. */}
+                  {renderTagsButton(rpeEx)}
                   {templateEx && renderReminderNoteButton(templateEx)}
                   {renderDifficultyButton(rpeEx)}
                 </div>
               </div>
 
-              {templateEx && renderTagsPanel(templateEx)}
+              {renderTagsPanel(rpeEx)}
 
               {templateEx && renderReminderNoteBanner(templateEx)}
               {templateEx && renderLowRpeBanner(templateEx)}
-              {templateEx && !isTestMaxActive && renderWarmupSection(templateEx)}
+              {!isTestMaxActive && renderWarmupSection(rpeEx)}
               {templateEx && renderTestMaxTrigger(templateEx, isTestMaxActive)}
 
               {!isTestMaxActive && methodEx && <MethodPickerRow active="none" onSelect={opt => applyMethodOverride(methodEx, opt)} />}
@@ -3092,8 +3131,9 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                         <span className="text-muted-foreground text-xs shrink-0 whitespace-nowrap">kg ×</span>
                         <input
                           type="number"
-                          value={sets[globalIdx].reps || ''}
+                          value={repsDraft[globalIdx] ?? (sets[globalIdx].reps || '')}
                           onChange={e => updateSet(globalIdx, 'reps', e.target.value)}
+                          onFocus={e => e.target.select()}
                           onBlur={e => finalizeRepsOnBlur(globalIdx, e.target.value)}
                           className={`w-12 bg-transparent text-sm text-center outline-none font-mono ${
                             sets[globalIdx].amrap ? 'text-accent-purple placeholder:text-accent-purple/70' : 'text-foreground'
@@ -3343,7 +3383,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
           />
           <div className="flex justify-between text-[10px] text-muted-foreground mb-4">
             <span>Facile</span>
-            <span>Difficile</span>
+            <span>Échec</span>
           </div>
           <div className="flex gap-3">
             <button

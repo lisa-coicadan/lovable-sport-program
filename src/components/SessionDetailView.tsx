@@ -107,6 +107,10 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
   // number on every keystroke, silently deleting a decimal separator she just typed before
   // the digits after it land. Cleared on blur (finalizeEditWeightOnBlur).
   const [editWeightDraft, setEditWeightDraft] = useState<Record<number, string>>({});
+  // Same pattern as editWeightDraft, for reps — a plain backspace-to-empty otherwise
+  // gets reverted on the next re-render since updateEditSet's empty-value guard skips
+  // committing it, forcing a full select-all to overwrite instead of just deleting.
+  const [editRepsDraft, setEditRepsDraft] = useState<Record<number, string>>({});
   const [editDuration, setEditDuration] = useState(0);
   const [editDifficulty, setEditDifficulty] = useState(5);
   const [editNotes, setEditNotes] = useState('');
@@ -270,6 +274,8 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
       // number on every keystroke: "90," parses fine to 90 and immediately re-renders as
       // "90", deleting the decimal separator before she can type the digits after it.
       setEditWeightDraft(prev => ({ ...prev, [index]: value }));
+    } else {
+      setEditRepsDraft(prev => ({ ...prev, [index]: value }));
     }
     if (value === '') return;
     const updated = [...editSets];
@@ -293,6 +299,12 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
   };
 
   const finalizeEditRepsOnBlur = (index: number, rawValue: string) => {
+    setEditRepsDraft(prev => {
+      if (!(index in prev)) return prev;
+      const next = { ...prev };
+      delete next[index];
+      return next;
+    });
     if (rawValue.trim() !== '') return;
     const updated = [...editSets];
     updated[index] = { ...updated[index], reps: 0 };
@@ -855,8 +867,9 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
                           <span className="text-muted-foreground text-xs">kg ×</span>
                           <input
                             type="number"
-                            value={s.reps || ''}
+                            value={editRepsDraft[gi] ?? (s.reps || '')}
                             onChange={e => updateEditSet(gi, 'reps', e.target.value)}
+                            onFocus={e => e.target.select()}
                             onBlur={e => finalizeEditRepsOnBlur(gi, e.target.value)}
                             className="w-12 bg-transparent text-foreground text-sm text-center outline-none font-mono"
                             placeholder="reps"

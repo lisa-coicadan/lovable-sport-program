@@ -33,6 +33,10 @@ const EQUIPMENT: EquipmentDetection[] = [
 // an entry here, they're already handled by EQUIPMENT above.
 const WORD_CANONICAL: Record<string, string> = {
   dev: 'développé', dvpe: 'développé', dc: 'développé', developpe: 'développé',
+  // "développer" (infinitive) is a common typo for "développé" (past participle) — same
+  // clean()ed token space, so it needs its own entry rather than falling out of the
+  // "developpe" one above.
+  developper: 'développé',
   mil: 'militaire', milit: 'militaire',
   lat: 'latérale', later: 'latérale', laterale: 'latérale', laterales: 'latérales', lats: 'latérales',
   uni: 'unilatéral', unilat: 'unilatéral', unilateral: 'unilatéral', unilaterale: 'unilatérale',

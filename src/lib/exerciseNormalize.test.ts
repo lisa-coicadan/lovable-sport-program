@@ -51,6 +51,11 @@ describe('normalizeExerciseName', () => {
     expect(normalizeExerciseName('bench press bb')).toBe('Développé couché');
   });
 
+  it('folds the "développer" (infinitive) typo onto "développé" like other abbreviations', () => {
+    expect(normalizeExerciseName('Développer couché')).toBe('Développé couché');
+    expect(normalizeExerciseName('développer militaire')).toBe('Développé militaire');
+  });
+
   it('recognizes bare "Bench" and "Deadlift" (no barre/bb suffix) as the same canonical lift', () => {
     expect(normalizeExerciseName('Bench')).toBe('Développé couché');
     expect(normalizeExerciseName('bench')).toBe('Développé couché');
