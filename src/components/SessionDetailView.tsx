@@ -101,6 +101,12 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
 
   // Edit state
   const [editSets, setEditSets] = useState<SetLog[]>([]);
+  // Same fix as WorkoutTab's weightDraft: raw text of a weight field while she's actively
+  // typing it (keyed by set index), decoupled from the committed editSets[i].weight — a
+  // controlled <input value={s.weight}> would otherwise get reformatted back to a bare
+  // number on every keystroke, silently deleting a decimal separator she just typed before
+  // the digits after it land. Cleared on blur (finalizeEditWeightOnBlur).
+  const [editWeightDraft, setEditWeightDraft] = useState<Record<number, string>>({});
   const [editDuration, setEditDuration] = useState(0);
   const [editDifficulty, setEditDifficulty] = useState(5);
   const [editNotes, setEditNotes] = useState('');
@@ -255,10 +261,16 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
 
   const updateEditSet = (index: number, field: 'reps' | 'weight', value: string) => {
     // Same fix as WorkoutTab's updateSet: don't commit an empty field to 0 immediately while
-    // she's clearing it to type a new number (also covers <input type="number"> briefly
-    // reporting an empty value while she types a French decimal comma) — finalized on blur
-    // instead (finalizeEditWeightOnBlur/finalizeEditRepsOnBlur). 0kg is a legitimate value on
-    // any exercise.
+    // she's clearing it to type a new number — finalized on blur instead
+    // (finalizeEditWeightOnBlur/finalizeEditRepsOnBlur). 0kg is a legitimate value on any
+    // exercise.
+    if (field === 'weight') {
+      // Track exactly what she's typing, independent of the committed number below — a
+      // controlled <input value={s.weight}> would otherwise get reformatted back to a bare
+      // number on every keystroke: "90," parses fine to 90 and immediately re-renders as
+      // "90", deleting the decimal separator before she can type the digits after it.
+      setEditWeightDraft(prev => ({ ...prev, [index]: value }));
+    }
     if (value === '') return;
     const updated = [...editSets];
     updated[index][field] = field === 'weight'
@@ -268,6 +280,12 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
   };
 
   const finalizeEditWeightOnBlur = (index: number, rawValue: string) => {
+    setEditWeightDraft(prev => {
+      if (!(index in prev)) return prev;
+      const next = { ...prev };
+      delete next[index];
+      return next;
+    });
     if (rawValue.trim() !== '') return;
     const updated = [...editSets];
     updated[index] = { ...updated[index], weight: 0 };
@@ -827,7 +845,7 @@ const SessionDetailView = ({ session, data, onClose, onUpdate, onDelete }: Sessi
                           <input
                             type="text"
                             inputMode="decimal"
-                            value={s.weight}
+                            value={editWeightDraft[gi] ?? s.weight}
                             onChange={e => updateEditSet(gi, 'weight', e.target.value)}
                             onFocus={e => e.target.select()}
                             onBlur={e => finalizeEditWeightOnBlur(gi, e.target.value)}

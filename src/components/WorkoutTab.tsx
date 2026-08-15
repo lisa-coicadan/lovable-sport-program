@@ -184,6 +184,13 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
   const [startTime, setStartTime] = useState(Date.now());
   const [selectedWeeks, setSelectedWeeks] = useState<Record<string, number>>({});
   const [amrapReps, setAmrapReps] = useState<Record<number, number>>({});
+  // Raw text of a weight field while she's actively typing it (keyed by set index),
+  // decoupled from the committed numeric sets[i].weight. Without this, a controlled
+  // <input value={sets[i].weight}> gets reformatted back to a bare number on every
+  // keystroke — "90," parses fine to 90 and re-renders as "90", silently deleting the
+  // decimal separator before she can type the digits after it. Cleared on blur so the
+  // field falls back to displaying the canonical committed number once she's done.
+  const [weightDraft, setWeightDraft] = useState<Record<number, string>>({});
   const [pendingSession, setPendingSession] = useState<SessionLog | null>(null);
   const [historyExercise, setHistoryExercise] = useState<string | null>(null);
   const [restDuration, setRestDuration] = useState(data.restDuration || 90);
@@ -587,13 +594,19 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
 
   const updateSet = (index: number, field: 'reps' | 'weight', value: string) => {
     // A field left momentarily empty must NOT commit to 0 right away — that would force the
-    // input back to "0" on every keystroke and fight her typing. This also covers <input
-    // type="number"> briefly reporting an empty value while she types a French decimal comma
-    // (the browser can't parse "62," until the digits after it land) — without this guard,
-    // that intermediate keystroke used to wipe the field to 0 instead of just waiting for the
-    // rest of the number. Left truly empty on blur, it finalizes to 0 instead (see
-    // finalizeWeightOnBlur/finalizeSimpleWeightOnBlur/finalizeRepsOnBlur) — 0kg is a legitimate
-    // value on any exercise, not just bodyweight ones, so it must stay displayed once committed.
+    // input back to "0" on every keystroke and fight her typing. Left truly empty on blur, it
+    // finalizes to 0 instead (see finalizeWeightOnBlur/finalizeSimpleWeightOnBlur/
+    // finalizeRepsOnBlur) — 0kg is a legitimate value on any exercise, not just bodyweight
+    // ones, so it must stay displayed once committed.
+    if (field === 'weight') {
+      // Track exactly what she's typing, independent of the committed number below — a
+      // controlled <input value={sets[i].weight}> would otherwise get reformatted back to a
+      // bare number on every keystroke: "90," parses fine to 90 and immediately re-renders
+      // as "90", deleting the decimal separator before she can type the digits after it.
+      // Cleared on blur (finalizeWeightOnBlur/finalizeSimpleWeightOnBlur) so the field falls
+      // back to showing the canonical committed number once she's done.
+      setWeightDraft(prev => ({ ...prev, [index]: value }));
+    }
     if (value === '') return;
     const updated = [...sets];
     if (field === 'weight') {
@@ -637,24 +650,40 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     const updated = [...sets];
     if (rawValue.trim() === '') updated[index] = { ...updated[index], weight: 0 };
     const currentSet = updated[index];
-    if (!currentSet || currentSet.setNumber !== 1) { setSets(updated); return; }
-    if (currentSet.weight <= 0 && !isBodyweightOptionalExercise(currentSet.exerciseName)) { setSets(updated); return; }
-    for (let i = index + 1; i < updated.length; i++) {
-      // Drop-set rows keep their own computed (discounted) weight — never overwritten by
-      // this. Completed sets are already logged and protected too — only sync forward
-      // into sets she hasn't finished yet. Everything else in between syncs to whatever
-      // she just set on the first set, whether it was empty or already pre-filled with a
-      // different value — editing set 1 is meant to carry through to the rest.
-      if (updated[i].exerciseId === currentSet.exerciseId && !updated[i].dropSetStage && !updated[i].completed) {
-        updated[i] = { ...updated[i], weight: currentSet.weight };
+    const touched = [index];
+    if (currentSet && currentSet.setNumber === 1 && (currentSet.weight > 0 || isBodyweightOptionalExercise(currentSet.exerciseName))) {
+      for (let i = index + 1; i < updated.length; i++) {
+        // Drop-set rows keep their own computed (discounted) weight — never overwritten by
+        // this. Completed sets are already logged and protected too — only sync forward
+        // into sets she hasn't finished yet. Everything else in between syncs to whatever
+        // she just set on the first set, whether it was empty or already pre-filled with a
+        // different value — editing set 1 is meant to carry through to the rest.
+        if (updated[i].exerciseId === currentSet.exerciseId && !updated[i].dropSetStage && !updated[i].completed) {
+          updated[i] = { ...updated[i], weight: currentSet.weight };
+          touched.push(i);
+        }
       }
     }
     setSets(updated);
+    // Drop the raw-typing draft for every index just committed above — otherwise a stale
+    // draft would keep shadowing the fresh numeric value in the display (see updateSet).
+    setWeightDraft(prev => {
+      const next = { ...prev };
+      let changed = false;
+      touched.forEach(i => { if (i in next) { delete next[i]; changed = true; } });
+      return changed ? next : prev;
+    });
   };
 
   // Same "empty finalizes to 0 instead of a stale value" fix, for weight fields that never
   // propagate forward (warm-up rows, the 1RM-test ramp, 5/3/1 rows).
   const finalizeSimpleWeightOnBlur = (index: number, rawValue: string) => {
+    setWeightDraft(prev => {
+      if (!(index in prev)) return prev;
+      const next = { ...prev };
+      delete next[index];
+      return next;
+    });
     if (rawValue.trim() !== '') return;
     const updated = [...sets];
     updated[index] = { ...updated[index], weight: 0 };
@@ -679,8 +708,15 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
   // which is what updateSet's sign-preservation above expects (it reads the edit as a bare
   // digit string with no sign of its own).
   const onWeightFocus = (e, index: number) => {
-    if (sets[index].weight === 0) e.target.value = '';
-    else e.target.select();
+    if (sets[index].weight === 0) {
+      e.target.value = '';
+      // Keeps the field blank across any re-render that happens while she's still
+      // focused but hasn't typed anything yet (the imperative clear above only touches
+      // this one DOM write) — otherwise the controlled value snaps back to "0".
+      setWeightDraft(prev => ({ ...prev, [index]: '' }));
+    } else {
+      e.target.select();
+    }
   };
 
   // Add extra set to an exercise
@@ -1149,7 +1185,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
             <input
               type="text"
               inputMode="decimal"
-              value={sets[s.globalIdx].weight}
+              value={weightDraft[s.globalIdx] ?? sets[s.globalIdx].weight}
               onChange={e => updateSet(s.globalIdx, 'weight', e.target.value)}
               onFocus={e => onWeightFocus(e, s.globalIdx)}
               onBlur={e => finalizeSimpleWeightOnBlur(s.globalIdx, e.target.value)}
@@ -1263,7 +1299,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                   <input
                     type="text"
                     inputMode="decimal"
-                    value={set.weight}
+                    value={weightDraft[globalIdx] ?? set.weight}
                     onChange={e => updateSet(globalIdx, 'weight', e.target.value)}
                     onFocus={e => onWeightFocus(e, globalIdx)}
                     onBlur={e => finalizeSimpleWeightOnBlur(globalIdx, e.target.value)}
@@ -2399,7 +2435,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                         <input
                           type="text"
                           inputMode="decimal"
-                          value={sets[globalIdx].weight}
+                          value={weightDraft[globalIdx] ?? sets[globalIdx].weight}
                           onChange={e => updateSet(globalIdx, 'weight', e.target.value)}
                           onFocus={e => onWeightFocus(e, globalIdx)}
                           onBlur={e => finalizeSimpleWeightOnBlur(globalIdx, e.target.value)}
@@ -2771,7 +2807,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                               <input
                                 type="text"
                                 inputMode="decimal"
-                                value={sets[row.idx].weight}
+                                value={weightDraft[row.idx] ?? sets[row.idx].weight}
                                 onChange={e => updateSet(row.idx, 'weight', e.target.value)}
                                 onFocus={e => onWeightFocus(e, row.idx)}
                                 onBlur={e => finalizeWeightOnBlur(row.idx, e.target.value)}
@@ -2801,7 +2837,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                                 <input
                                   type="text"
                                   inputMode="decimal"
-                                  value={sets[dropIdx].weight}
+                                  value={weightDraft[dropIdx] ?? sets[dropIdx].weight}
                                   onChange={e => updateSet(dropIdx, 'weight', e.target.value)}
                                   onFocus={e => onWeightFocus(e, dropIdx)}
                                   onBlur={e => finalizeSimpleWeightOnBlur(dropIdx, e.target.value)}
@@ -3045,7 +3081,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                         <input
                           type="text"
                           inputMode="decimal"
-                          value={sets[globalIdx].weight}
+                          value={weightDraft[globalIdx] ?? sets[globalIdx].weight}
                           onChange={e => updateSet(globalIdx, 'weight', e.target.value)}
                           onFocus={e => onWeightFocus(e, globalIdx)}
                           onBlur={e => finalizeWeightOnBlur(globalIdx, e.target.value)}
