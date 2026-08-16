@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AppData, ExerciseEquipment, EQUIPMENT_LABELS } from '@/lib/types';
 import { splitEquipmentVariant, isBodyweightOptionalExercise, resolveSetVariant, formatWeightDisplay, formatWeightDisplayFor, bodyweightTonnageFraction } from '@/lib/exerciseNormalize';
-import { STANDARD_MOVEMENTS, StandardMovement, FORCE_ELIGIBLE_MOVEMENTS, ForceEligibleMovement, getFranceRecord, getRecordMessage, getLevel, getLevelMessage } from '@/lib/strengthStandards';
+import { STANDARD_MOVEMENTS, StandardMovement, FORCE_ELIGIBLE_MOVEMENTS, ForceEligibleMovement, getFranceRecord, getRecordMessage, getLevel, getLevelMessage, isForceFocusExercise } from '@/lib/strengthStandards';
 import { computeBodyweightAdjustedE1RM, computeEffectiveLoadAtOneRep, resolveBodyWeightAtDate } from '@/lib/tonnage';
 import { ArrowLeft, Trophy, Dumbbell, Plus, Repeat } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
@@ -216,7 +216,15 @@ const ExerciseHistory = ({ exerciseName, data, onUpdateData, onClose }: Exercise
   // Vrai 1RM tracking is offered more broadly (see FORCE_ELIGIBLE_MOVEMENTS) — Muscle up
   // gets the same testing/PR feature set as the 5 record-tracked lifts, just without the
   // France-record/niveau panel above (isStandardMovement stays strict for that).
-  const isForceEligible = FORCE_ELIGIBLE_MOVEMENTS.includes(base as ForceEligibleMovement);
+  // Also requires the "force" training focus (or a method) on at least one matching
+  // exercise, same gate as the in-session "Tester un 1RM" ramp — previously this only
+  // checked the name, so manual entry was offered even when the ramp button wasn't,
+  // which read as inconsistent (why can I log a 1RM by hand but not test one?).
+  const isForceFocusForBase = useMemo(
+    () => data.workoutTypes.some(t => t.exercises.some(e => splitEquipmentVariant(e.name).base === base && isForceFocusExercise(e))),
+    [data.workoutTypes, base]
+  );
+  const isForceEligible = FORCE_ELIGIBLE_MOVEMENTS.includes(base as ForceEligibleMovement) && isForceFocusForBase;
   const defaultVariantGroups = useMemo(
     () => variantGroups.filter(g => g.label === null || g.label === EQUIPMENT_LABELS.barre),
     [variantGroups]

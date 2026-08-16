@@ -2768,10 +2768,48 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                 {templateAEx && renderReminderNoteBanner(templateAEx)}
                 {templateAEx && renderLowRpeBanner(templateAEx)}
 
-                <div className="flex items-center gap-2 text-xs text-foreground font-semibold mb-3">
-                  <span className="text-primary">A</span><span>{block.aName}</span>
+                <div className="flex items-center gap-1 text-xs text-foreground font-semibold mb-3 flex-wrap">
+                  <span className="text-primary">A</span>
+                  {renamingExerciseId === block.aId ? (
+                    <input
+                      autoFocus
+                      value={renameValue}
+                      onChange={e => setRenameValue(e.target.value)}
+                      onBlur={() => { updateExerciseName(block.aId, renameValue.trim() || block.aName); setRenamingExerciseId(null); }}
+                      onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                      className="bg-transparent text-foreground font-semibold outline-none border-b border-primary/40 min-w-0 flex-1"
+                      placeholder="Nom de l'exercice"
+                    />
+                  ) : (
+                    <button
+                      onClick={() => { setRenamingExerciseId(block.aId); setRenameValue(block.aName); }}
+                      className="min-h-8 truncate active:text-primary transition-colors"
+                      title="Renommer pour cette séance"
+                    >
+                      {block.aName}
+                    </button>
+                  )}
                   <span className="text-muted-foreground">+</span>
-                  <span className="text-primary">B</span><span>{block.bName}</span>
+                  <span className="text-primary">B</span>
+                  {renamingExerciseId === block.bId ? (
+                    <input
+                      autoFocus
+                      value={renameValue}
+                      onChange={e => setRenameValue(e.target.value)}
+                      onBlur={() => { updateExerciseName(block.bId, renameValue.trim() || block.bName); setRenamingExerciseId(null); }}
+                      onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                      className="bg-transparent text-foreground font-semibold outline-none border-b border-primary/40 min-w-0 flex-1"
+                      placeholder="Nom de l'exercice"
+                    />
+                  ) : (
+                    <button
+                      onClick={() => { setRenamingExerciseId(block.bId); setRenameValue(block.bName); }}
+                      className="min-h-8 truncate active:text-primary transition-colors"
+                      title="Renommer pour cette séance"
+                    >
+                      {block.bName}
+                    </button>
+                  )}
                 </div>
 
                 <div className="space-y-3">
@@ -2821,20 +2859,26 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                                 <span className="text-xs text-foreground/80 truncate group-active:text-primary transition-colors">{row.name}</span>
                                 <History size={11} className="text-muted-foreground/70 group-active:text-primary shrink-0" />
                               </button>
-                              {isBodyweightOptionalExercise(row.name) && (
-                                <>
-                                  <span className="text-[9px] text-muted-foreground shrink-0">pdc</span>
-                                  <button
-                                    type="button"
-                                    onClick={() => toggleWeightSign(row.idx)}
-                                    className="w-5 h-5 shrink-0 rounded-md bg-background/60 text-muted-foreground text-[10px] leading-none font-bold"
-                                    aria-label={sets[row.idx].weight < 0 ? 'Assisté (élastique/machine) — repasser en lesté' : 'Lesté — passer en assisté (élastique/machine)'}
-                                    title={sets[row.idx].weight < 0 ? 'Assisté' : 'Lesté'}
-                                  >
-                                    {sets[row.idx].weight < 0 ? '−' : '+'}
-                                  </button>
-                                </>
-                              )}
+                              {/* Fixed-width slot reserved whether or not this row actually shows the
+                                  pdc toggle — A and B rarely share the same exercise, so one being
+                                  bodyweight-optional and the other not used to shift everything after
+                                  it (weight/reps/équipement) out of alignment between the two rows. */}
+                              <div className="w-9 shrink-0 flex items-center gap-1">
+                                {isBodyweightOptionalExercise(row.name) && (
+                                  <>
+                                    <span className="text-[9px] text-muted-foreground shrink-0">pdc</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleWeightSign(row.idx)}
+                                      className="w-5 h-5 shrink-0 rounded-md bg-background/60 text-muted-foreground text-[10px] leading-none font-bold"
+                                      aria-label={sets[row.idx].weight < 0 ? 'Assisté (élastique/machine) — repasser en lesté' : 'Lesté — passer en assisté (élastique/machine)'}
+                                      title={sets[row.idx].weight < 0 ? 'Assisté' : 'Lesté'}
+                                    >
+                                      {sets[row.idx].weight < 0 ? '−' : '+'}
+                                    </button>
+                                  </>
+                                )}
+                              </div>
                               <input
                                 type="text"
                                 inputMode="decimal"
