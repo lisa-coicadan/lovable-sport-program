@@ -3383,16 +3383,11 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                               >
                                 <Trash2 size={14} />
                               </button>
-                              {stage ? (
-                                <span
-                                  className={`touch-target rounded-lg p-2 inline-flex items-center justify-center ${
-                                    groupDone ? 'text-success' : 'text-muted-foreground/30'
-                                  }`}
-                                  aria-hidden="true"
-                                >
-                                  <Check size={18} />
-                                </span>
-                              ) : (
+                              {/* One Check for the whole group (on the anchor row only) — now
+                                  that anchor + drops share a single visual block, a second
+                                  (passive, non-interactive) Check echoed on every drop row
+                                  read as "two checkmarks, only one of them works." */}
+                              {!stage && (
                                 <button
                                   onClick={() => toggleCascade(groupIdxs)}
                                   className={`touch-target rounded-lg p-2 transition-colors ${
