@@ -25,7 +25,10 @@ const HandleCtx = createContext<{ attributes: DraggableAttributes; listeners: Dr
 
 interface SortableListProps<T extends Item> {
   items: T[];
-  onReorder: (newItems: T[]) => void;
+  // `moved` is optional and only used by WorkoutTab (to offer linking two exercises into
+  // a superset when a drag lands one directly next to the other) — existing callers that
+  // only declare the first parameter are unaffected.
+  onReorder: (newItems: T[], moved?: { activeKey: string; overKey: string }) => void;
   children: (item: T, index: number) => ReactNode;
 }
 
@@ -42,7 +45,7 @@ export function SortableList<T extends Item>({ items, onReorder, children }: Sor
     const oldIndex = items.findIndex(i => i.key === active.id);
     const newIndex = items.findIndex(i => i.key === over.id);
     if (oldIndex < 0 || newIndex < 0) return;
-    onReorder(arrayMove(items, oldIndex, newIndex));
+    onReorder(arrayMove(items, oldIndex, newIndex), { activeKey: String(active.id), overKey: String(over.id) });
   };
 
   return (

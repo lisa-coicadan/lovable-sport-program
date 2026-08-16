@@ -181,6 +181,22 @@ export interface SessionLog {
   isDeload?: boolean;
 }
 
+// Snapshot of an in-progress (not yet saved) session, written continuously while she's
+// mid-workout (see WorkoutTab's draft-persistence effect) so nothing is lost if the app
+// is closed before the final "Enregistrer" tap on the end-of-session recap — the whole
+// point being that reaching the recap already means the work is safe, not "safe once she
+// remembers to tap Enregistrer." Cleared the moment the real SessionLog is saved
+// (handleSummaryComplete) or she explicitly abandons the session. Never itself a real
+// session: Calendrier/Stats/history all read AppData.sessions, never this field.
+export interface DraftSession {
+  workoutTypeId: string;
+  sets: SetLog[];
+  startTime: number;
+  selectedDate?: string;
+  selectedWeeks?: Record<string, number>;
+  exerciseDifficulty?: Record<string, number>;
+}
+
 // @deprecated legacy global 5/3/1 config, replaced by Exercise.method. Kept only so
 // storage.ts can migrate old data on load — nothing else reads this anymore.
 export interface FiveThreeOneConfig {
@@ -298,6 +314,8 @@ export interface AppData {
   // ISO date; the reminder stays hidden until this date passes, even if the monthly
   // interval since the last log has already elapsed.
   bodyweightReminderSnoozedUntil?: string;
+  // See DraftSession above — undefined whenever no session is currently in progress.
+  draftSession?: DraftSession;
 }
 
 export const WORKOUT_COLORS = [

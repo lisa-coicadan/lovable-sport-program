@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { AppData, WorkoutType, SetLog, SessionLog, FiveThreeOneMethod, ClusterMethod, EMOMMethod, ExerciseMethod, Exercise, CardioSession, CardioActivityType, DeloadType, DeloadIntensity, PlannedSession, EQUIPMENT_LABELS, ExerciseEquipment } from '@/lib/types';
+import { AppData, WorkoutType, SetLog, SessionLog, FiveThreeOneMethod, ClusterMethod, EMOMMethod, ExerciseMethod, Exercise, CardioSession, CardioActivityType, DeloadType, DeloadIntensity, PlannedSession, EQUIPMENT_LABELS, ExerciseEquipment, DraftSession } from '@/lib/types';
 import { getWeekSets, getWeekLabel, computeNextFiveThreeOneWeekState, FiveThreeOneWeekState } from '@/lib/531';
 import { getClusterConfig, getMiniSeriesWeight } from '@/lib/cluster';
 import { getEmomConfig, getEmomWeight } from '@/lib/emom';
 import { buildExerciseBlocks } from '@/lib/superset';
-import { isBodyweightOptionalExercise, splitEquipmentVariant } from '@/lib/exerciseNormalize';
+import { isBodyweightOptionalExercise, splitEquipmentVariant, detectEquipmentFromName, detectUnilateralFromName } from '@/lib/exerciseNormalize';
 import { getDropSetConfig, getDropSetStage } from '@/lib/dropset';
 import { compareCardioSession, formatCardioDuration, formatCardioDistance, formatPace } from '@/lib/cardio';
 import { isForceFocusExercise } from '@/lib/strengthStandards';
@@ -196,6 +196,11 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
   // next re-render (the session timer alone re-renders every second), which read as
   // "I have to select-all instead of just deleting" since a plain backspace never stuck.
   const [repsDraft, setRepsDraft] = useState<Record<number, string>>({});
+  // Offers to link two exercises into a superset when a drag (the existing reorder
+  // gesture — see reorderBlocks) lands one single exercise directly next to another —
+  // a deliberate confirm step rather than auto-linking on every drag, since two singles
+  // ending up adjacent is also just... normal reordering, most of the time.
+  const [linkCandidate, setLinkCandidate] = useState<{ aId: string; aName: string; bId: string; bName: string } | null>(null);
   const [pendingSession, setPendingSession] = useState<SessionLog | null>(null);
   const [historyExercise, setHistoryExercise] = useState<string | null>(null);
   const [restDuration, setRestDuration] = useState(data.restDuration || 90);
@@ -381,6 +386,24 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     }
     onProgressChange(sets.filter(s => s.completed).length / sets.length);
   }, [mode, sets, onProgressChange]);
+
+  // Keeps AppData.draftSession in sync with the live session so nothing is lost if the
+  // app gets closed mid-workout or right at the recap screen before she's tapped
+  // "Enregistrer" — see DraftSession in types.ts. Covers 'recap' (still logging sets) and
+  // 'summary' (reviewing the recap, not yet committed) alike; cleared explicitly in
+  // handleSummaryComplete (real save) and doAbandon (she gave up on it).
+  useEffect(() => {
+    if ((mode !== 'recap' && mode !== 'summary') || !selectedType || sets.length === 0) return;
+    const draft: DraftSession = {
+      workoutTypeId: selectedType.id,
+      sets,
+      startTime,
+      selectedDate: selectedDate ?? undefined,
+      selectedWeeks,
+      exerciseDifficulty,
+    };
+    onUpdateData({ draftSession: draft });
+  }, [mode, selectedType, sets, startTime, selectedDate, selectedWeeks, exerciseDifficulty, onUpdateData]);
 
   const activeProgramId = data.activeProgramId ?? null;
   const activeTypes = data.workoutTypes.filter(t =>
@@ -597,6 +620,35 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
       }
     });
     setSets(initialSets);
+  };
+
+  // Rehydrates a session AppData.draftSession left behind by a previous visit that never
+  // reached the final "Enregistrer" tap (app closed, tab killed, whatever) — restores the
+  // exact sets she'd already logged and drops her back into the live session (mode
+  // 'recap'), skipping startWorkout's own from-scratch generation (deload/531-week
+  // resolution already happened once when the draft was first created; redoing it here
+  // could double-apply a deload cut or re-derive a different week if the underlying
+  // exercise config changed mid-session).
+  const resumeDraftSession = () => {
+    const draft = data.draftSession;
+    if (!draft) return;
+    const type = data.workoutTypes.find(t => t.id === draft.workoutTypeId);
+    // The workout type itself was deleted since the draft was written — nothing sane to
+    // resume into, so just clear the stale draft instead of silently doing nothing.
+    if (!type) { onUpdateData({ draftSession: undefined }); return; }
+    setSelectedType(type);
+    setSets(draft.sets);
+    setStartTime(draft.startTime);
+    setSelectedWeeks(draft.selectedWeeks || {});
+    setExerciseDifficulty(draft.exerciseDifficulty || {});
+    setAmrapReps({});
+    setMethodOverrides({});
+    setTagOverrides({});
+    setMode('recap');
+  };
+
+  const discardDraftSession = () => {
+    onUpdateData({ draftSession: undefined });
   };
 
   const toggleSet = (index: number) => {
@@ -869,10 +921,26 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
 
   // Renames an exercise for this session only — used both for temp exercises (freely
   // named) and for regular ones (e.g. picking which variant of "Hack squat ou leg press"
-  // she actually did today). The WorkoutType template is never touched; only this live
-  // `sets` array, which is what every card/history lookup below reads its name from.
+  // she actually did today, or swapping to a completely different exercise mid-session).
+  // The WorkoutType template is never touched; only this live `sets` array, which is what
+  // every card/history lookup below reads its name from.
   const updateExerciseName = (exerciseId: string, name: string) => {
-    setSets(prev => prev.map(s => s.exerciseId === exerciseId ? { ...s, exerciseName: name } : s));
+    // Equipment/unilatéral get a fresh guess from the NEW name (same detectEquipmentFromName
+    // used for a Réglages rename) instead of carrying over whatever the OLD exercise had —
+    // renaming "Triceps poulie" to "Pec deck" must not leave "poulie" pre-filled on an
+    // exercise that has nothing to do with a poulie. No keyword match in the new name (as
+    // with "Pec deck") means it comes out genuinely empty, ready for her to set by hand.
+    const detectedEquipment = detectEquipmentFromName(name);
+    const detectedUnilateral = detectUnilateralFromName(name) || undefined;
+    setSets(prev => prev.map(s => s.exerciseId === exerciseId
+      ? { ...s, exerciseName: name, equipment: detectedEquipment, unilateral: detectedUnilateral }
+      : s));
+    // The équipement chip/button she actually sees (renderTagsButton/renderTagsPanel)
+    // reads getEffectiveTags(templateEx) — tagOverrides if set, else the Réglages
+    // template's own default — never the sets[] fields above. Without also replacing
+    // the override here, a real (non-temp) exercise's chip would keep showing the OLD
+    // exercise's Réglages default (e.g. "poulie") no matter what the sets themselves say.
+    setTagOverrides(prev => ({ ...prev, [exerciseId]: { equipment: detectedEquipment, unilateral: detectedUnilateral } }));
   };
 
   // Unlike updateExerciseName above, this persists to the WorkoutType template itself
@@ -1602,9 +1670,9 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
       if (reconciled) updatePatch.deload = reconciled;
     }
 
-    if (updatePatch.workoutTypes || updatePatch.deload || updatePatch.plannedSessions) {
-      onUpdateData(updatePatch);
-    }
+    // Always fires (not gated like the other fields above) — a real session was just
+    // saved, so whatever draft led up to it is done and must be cleared unconditionally.
+    onUpdateData({ ...updatePatch, draftSession: undefined });
 
     setMode('select');
     setSelectedType(null);
@@ -1696,6 +1764,38 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
             <Settings size={20} />
           </button>
         </div>
+
+        {/* Séance en cours never actually saved (app closed before "Enregistrer") — see
+            DraftSession/resumeDraftSession. Shown above everything else on this screen
+            since picking it back up matters more than anything below. */}
+        {data.draftSession && (() => {
+          const draftType = data.workoutTypes.find(t => t.id === data.draftSession!.workoutTypeId);
+          const elapsedMin = Math.max(0, Math.round((Date.now() - data.draftSession.startTime) / 60000));
+          return (
+            <div className="bg-primary/10 border border-primary/30 rounded-xl p-4 mb-4">
+              <p className="text-sm font-semibold text-foreground mb-1">
+                ⏱️ Séance en cours — {draftType?.name ?? 'séance'}
+              </p>
+              <p className="text-xs text-muted-foreground mb-3">
+                Commencée il y a {elapsedMin < 1 ? 'moins d\'1 min' : `${elapsedMin} min`}, jamais enregistrée.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={resumeDraftSession}
+                  className="flex-1 btn-neon font-medium py-2 rounded-lg text-xs touch-target"
+                >
+                  Reprendre
+                </button>
+                <button
+                  onClick={discardDraftSession}
+                  className="bg-secondary text-secondary-foreground font-medium py-2 px-3 rounded-lg text-xs touch-target"
+                >
+                  Abandonner
+                </button>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Logging retroactively from a specific Calendar day — without this banner, this
             screen looks identical to the normal "start a session" picker, so there's no
@@ -2293,6 +2393,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     setRenamingExerciseId(null);
     setDropSetPickerFor(null);
     setExerciseDifficulty({});
+    onUpdateData({ draftSession: undefined });
   };
 
   const abandonSession = () => {
@@ -2716,7 +2817,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
             key: b.kind === 'superset' ? b.groupId : b.exerciseId,
             block: b,
           }));
-          const reorderBlocks = (newOrder: typeof sortableBlocks) => {
+          const reorderBlocks = (newOrder: typeof sortableBlocks, moved?: { activeKey: string; overKey: string }) => {
             const pinnedIdxs = sets.map((_, i) => i).filter(i =>
               fiveThreeOneExerciseIds.has(sets[i].exerciseId) || clusterExerciseIds.has(sets[i].exerciseId) || emomExerciseIds.has(sets[i].exerciseId)
             );
@@ -2731,8 +2832,78 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
             const newRegular = newOrder.flatMap(item => (idxsByKey.get(item.key) || []).map(i => sets[i]));
             const pinnedSets = pinnedIdxs.map(i => sets[i]);
             setSets([...pinnedSets, ...newRegular]);
+
+            // A drag that dropped one single exercise directly onto/next to another single
+            // — offer to link them into a superset instead of silently doing it, since most
+            // drags really are just "move this exercise earlier/later," not a link attempt.
+            setLinkCandidate(null);
+            if (moved) {
+              const activeBlock = blocks.find(b => (b.kind === 'superset' ? b.groupId : b.exerciseId) === moved.activeKey);
+              const overBlock = blocks.find(b => (b.kind === 'superset' ? b.groupId : b.exerciseId) === moved.overKey);
+              if (activeBlock?.kind === 'single' && overBlock?.kind === 'single') {
+                setLinkCandidate({ aId: activeBlock.exerciseId, aName: activeBlock.name, bId: overBlock.exerciseId, bName: overBlock.name });
+              }
+            }
+          };
+          // Merges two currently-standalone exercises into one superset for the rest of
+          // this session — existing sets on each side keep their own logged weight/reps
+          // (just gain a shared supersetGroupId/role), the shorter side is padded up to
+          // match the longer one's round count by repeating its own last round, same
+          // convention addSupersetRound already uses when adding a fresh round.
+          const linkExercisesIntoSuperset = (aId: string, bId: string) => {
+            const groupId = `ss-${Date.now()}`;
+            setSets(prev => {
+              const aAnchors = prev.filter(s => s.exerciseId === aId && !s.dropSetStage);
+              const bAnchors = prev.filter(s => s.exerciseId === bId && !s.dropSetStage);
+              const roundCount = Math.max(aAnchors.length, bAnchors.length);
+              const tagged = prev.map(s => {
+                if (s.exerciseId === aId) return { ...s, supersetGroupId: groupId, supersetRole: 'A' as const };
+                if (s.exerciseId === bId) return { ...s, supersetGroupId: groupId, supersetRole: 'B' as const };
+                return s;
+              });
+              const padded = [...tagged];
+              const addRounds = (exerciseId: string, role: 'A' | 'B', existing: SetLog[]) => {
+                if (existing.length === 0) return;
+                const name = existing[0].exerciseName;
+                for (let i = existing.length; i < roundCount; i++) {
+                  const lastOfThis = [...padded].reverse().find(s => s.exerciseId === exerciseId && !s.dropSetStage);
+                  padded.push({
+                    exerciseId, exerciseName: name, setNumber: i + 1,
+                    reps: lastOfThis?.reps ?? 10, weight: lastOfThis?.weight ?? 0,
+                    completed: false, supersetGroupId: groupId, supersetRole: role,
+                    equipment: lastOfThis?.equipment, unilateral: lastOfThis?.unilateral,
+                  });
+                }
+              };
+              addRounds(aId, 'A', aAnchors);
+              addRounds(bId, 'B', bAnchors);
+              return padded;
+            });
+            setLinkCandidate(null);
           };
           return (
+            <>
+            {linkCandidate && (
+              <div className="flex items-center justify-between gap-2 bg-primary/10 border border-primary/30 rounded-xl px-3 py-2.5 mb-3">
+                <span className="text-xs text-foreground flex-1 min-w-0">
+                  Lier <span className="font-semibold">{linkCandidate.aName}</span> + <span className="font-semibold">{linkCandidate.bName}</span> en superset ?
+                </span>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    onClick={() => linkExercisesIntoSuperset(linkCandidate.aId, linkCandidate.bId)}
+                    className="btn-neon font-medium py-1.5 px-3 rounded-lg text-xs touch-target"
+                  >
+                    Lier
+                  </button>
+                  <button
+                    onClick={() => setLinkCandidate(null)}
+                    className="bg-secondary text-secondary-foreground font-medium py-1.5 px-3 rounded-lg text-xs touch-target"
+                  >
+                    Non
+                  </button>
+                </div>
+              </div>
+            )}
             <SortableList items={sortableBlocks} onReorder={reorderBlocks}>
               {({ block }) => {
 
@@ -3248,6 +3419,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
           );
               }}
             </SortableList>
+            </>
           );
         })()}
 
