@@ -3296,116 +3296,129 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
               })()}
 
               <div className="space-y-2">
-                {exerciseSets.map((s, idx) => {
-                  const globalIdx = s.globalIdx;
-                  const stage = sets[globalIdx].dropSetStage;
-                  const rowLabel = stage ? `Drop ${stage}` : `Série ${seriesNumberByGlobalIdx.get(globalIdx)}`;
-                  const nextEntry = exerciseSets[idx + 1];
-                  const isLastOfCascade = !nextEntry || !sets[nextEntry.globalIdx].dropSetStage;
-                  // A series + its drop(s) validate together (see cascadeGlobalIdxsByAnchor
-                  // above) — only the anchor row gets an interactive Check; a drop row shows
-                  // a passive echo of the same group state instead of its own control.
-                  const anchorIdx = anchorGlobalIdxByGlobalIdx.get(globalIdx) ?? globalIdx;
-                  const groupIdxs = cascadeGlobalIdxsByAnchor.get(anchorIdx) ?? [globalIdx];
-                  const groupDone = groupIdxs.every(i => sets[i].completed);
-                  return (
-                    <div key={globalIdx}>
+                {(() => {
+                  // Groups each anchor series with its own drop-set cascade (if any) into
+                  // one array per group — exerciseSets is already ordered so a drop always
+                  // immediately follows its anchor (same convention as addDropSet). Purely a
+                  // rendering grouping: doesn't touch which rows are individually draggable
+                  // (none are, at the set level — only whole exercises/supersets are, via
+                  // the SortableList a few levels up), so this can't affect reordering.
+                  const cascadeGroups: (typeof exerciseSets)[] = [];
+                  exerciseSets.forEach(s => {
+                    if (!sets[s.globalIdx].dropSetStage) cascadeGroups.push([s]);
+                    else cascadeGroups[cascadeGroups.length - 1]?.push(s);
+                  });
+                  return cascadeGroups.map(group => {
+                    const anchorIdx = group[0].globalIdx;
+                    const groupIdxs = cascadeGlobalIdxsByAnchor.get(anchorIdx) ?? [anchorIdx];
+                    const groupDone = groupIdxs.every(i => sets[i].completed);
+                    return (
                       <div
-                        className={`flex items-center gap-2 rounded-xl px-3 py-2.5 transition-all ${stage ? 'ml-4' : ''} ${
-                          sets[globalIdx].completed ? 'bg-success/10 border border-success/25' : 'bg-secondary/50'
+                        key={anchorIdx}
+                        className={`rounded-xl p-2.5 border transition-all ${
+                          groupDone ? 'bg-success/10 border-success/25' : 'bg-secondary/40 border-transparent'
                         }`}
                       >
-                        <span className={`text-xs w-12 shrink-0 ${stage ? 'text-warning font-medium' : 'text-muted-foreground'}`}>
-                          {rowLabel}
-                        </span>
-                        {isBodyweightOptionalExercise(name) && (
-                          <>
-                            <span className="text-[9px] text-muted-foreground shrink-0">pdc</span>
-                            <button
-                              type="button"
-                              onClick={() => toggleWeightSign(globalIdx)}
-                              className="w-5 h-5 shrink-0 rounded-md bg-secondary text-muted-foreground text-[10px] leading-none font-bold"
-                              aria-label={sets[globalIdx].weight < 0 ? 'Assisté (élastique/machine) — repasser en lesté' : 'Lesté — passer en assisté (élastique/machine)'}
-                              title={sets[globalIdx].weight < 0 ? 'Assisté' : 'Lesté'}
-                            >
-                              {sets[globalIdx].weight < 0 ? '−' : '+'}
-                            </button>
-                          </>
-                        )}
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={weightDraft[globalIdx] ?? sets[globalIdx].weight}
-                          onChange={e => updateSet(globalIdx, 'weight', e.target.value)}
-                          onFocus={e => onWeightFocus(e, globalIdx)}
-                          onBlur={e => finalizeWeightOnBlur(globalIdx, e.target.value)}
-                          className="w-16 bg-transparent text-foreground text-sm text-center outline-none font-mono"
-                          placeholder="kg"
-                          aria-label={`Poids ${rowLabel}, ${name} (kg)`}
-                        />
-                        <span className="text-muted-foreground text-xs shrink-0 whitespace-nowrap">kg ×</span>
-                        <input
-                          type="number"
-                          value={repsDraft[globalIdx] ?? (sets[globalIdx].reps || '')}
-                          onChange={e => updateSet(globalIdx, 'reps', e.target.value)}
-                          onFocus={e => e.target.select()}
-                          onBlur={e => finalizeRepsOnBlur(globalIdx, e.target.value)}
-                          className={`w-12 bg-transparent text-sm text-center outline-none font-mono ${
-                            sets[globalIdx].amrap ? 'text-accent-purple placeholder:text-accent-purple/70' : 'text-foreground'
-                          }`}
-                          placeholder={sets[globalIdx].amrap ? 'Max' : 'reps'}
-                          aria-label={`Répétitions ${rowLabel}, ${name}`}
-                        />
-                        {templateEx && isForceFocusExercise(templateEx) && sets[globalIdx].reps === 1 && (
+                        {group.map((s, gi) => {
+                          const globalIdx = s.globalIdx;
+                          const stage = sets[globalIdx].dropSetStage;
+                          const rowLabel = stage ? `Drop ${stage}` : `Série ${seriesNumberByGlobalIdx.get(globalIdx)}`;
+                          return (
+                            <div key={globalIdx} className={`flex items-center gap-2 py-1 ${stage ? 'ml-4' : ''} ${gi > 0 ? 'mt-1' : ''}`}>
+                              <span className={`text-xs w-12 shrink-0 ${stage ? 'text-warning font-medium' : 'text-muted-foreground'}`}>
+                                {rowLabel}
+                              </span>
+                              {isBodyweightOptionalExercise(name) && (
+                                <>
+                                  <span className="text-[9px] text-muted-foreground shrink-0">pdc</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleWeightSign(globalIdx)}
+                                    className="w-5 h-5 shrink-0 rounded-md bg-background/60 text-muted-foreground text-[10px] leading-none font-bold"
+                                    aria-label={sets[globalIdx].weight < 0 ? 'Assisté (élastique/machine) — repasser en lesté' : 'Lesté — passer en assisté (élastique/machine)'}
+                                    title={sets[globalIdx].weight < 0 ? 'Assisté' : 'Lesté'}
+                                  >
+                                    {sets[globalIdx].weight < 0 ? '−' : '+'}
+                                  </button>
+                                </>
+                              )}
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                value={weightDraft[globalIdx] ?? sets[globalIdx].weight}
+                                onChange={e => updateSet(globalIdx, 'weight', e.target.value)}
+                                onFocus={e => onWeightFocus(e, globalIdx)}
+                                onBlur={e => finalizeWeightOnBlur(globalIdx, e.target.value)}
+                                className="w-16 bg-background/60 rounded-md text-foreground text-sm text-center outline-none font-mono py-1"
+                                placeholder="kg"
+                                aria-label={`Poids ${rowLabel}, ${name} (kg)`}
+                              />
+                              <span className="text-muted-foreground text-xs shrink-0 whitespace-nowrap">kg ×</span>
+                              <input
+                                type="number"
+                                value={repsDraft[globalIdx] ?? (sets[globalIdx].reps || '')}
+                                onChange={e => updateSet(globalIdx, 'reps', e.target.value)}
+                                onFocus={e => e.target.select()}
+                                onBlur={e => finalizeRepsOnBlur(globalIdx, e.target.value)}
+                                className={`w-12 bg-background/60 rounded-md text-sm text-center outline-none font-mono py-1 ${
+                                  sets[globalIdx].amrap ? 'text-accent-purple placeholder:text-accent-purple/70' : 'text-foreground'
+                                }`}
+                                placeholder={sets[globalIdx].amrap ? 'Max' : 'reps'}
+                                aria-label={`Répétitions ${rowLabel}, ${name}`}
+                              />
+                              {templateEx && isForceFocusExercise(templateEx) && sets[globalIdx].reps === 1 && (
+                                <button
+                                  onClick={() => setTrueOneRMConfirm({ exerciseId, name, globalIdx, rpeConfirmed: false })}
+                                  className="touch-target shrink-0 flex items-center gap-0.5 px-1.5 rounded-lg text-[10px] font-medium text-warning bg-warning/10"
+                                  aria-label={`Valider cette série comme vrai 1RM pour ${name}`}
+                                  title="1RM testé ?"
+                                >
+                                  1RM ?
+                                </button>
+                              )}
+                              <button
+                                onClick={() => removeSet(globalIdx)}
+                                className="touch-target inline-flex items-center justify-center text-muted-foreground active:text-destructive"
+                                aria-label={`Supprimer ${rowLabel}`}
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                              {stage ? (
+                                <span
+                                  className={`touch-target rounded-lg p-2 inline-flex items-center justify-center ${
+                                    groupDone ? 'text-success' : 'text-muted-foreground/30'
+                                  }`}
+                                  aria-hidden="true"
+                                >
+                                  <Check size={18} />
+                                </span>
+                              ) : (
+                                <button
+                                  onClick={() => toggleCascade(groupIdxs)}
+                                  className={`touch-target rounded-lg p-2 transition-colors ${
+                                    groupDone ? 'text-success glow-success' : 'text-muted-foreground active:text-success'
+                                  }`}
+                                  aria-label={groupDone ? `${rowLabel}${groupIdxs.length > 1 ? ' et son drop set' : ''} validée` : `Valider ${rowLabel}${groupIdxs.length > 1 ? ' et son drop set' : ''}`}
+                                  aria-pressed={groupDone}
+                                >
+                                  <Check size={18} />
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                        {dropSetPickerFor === exerciseId && (
                           <button
-                            onClick={() => setTrueOneRMConfirm({ exerciseId, name, globalIdx, rpeConfirmed: false })}
-                            className="touch-target shrink-0 flex items-center gap-0.5 px-1.5 rounded-lg text-[10px] font-medium text-warning bg-warning/10"
-                            aria-label={`Valider cette série comme vrai 1RM pour ${name}`}
-                            title="1RM testé ?"
+                            onClick={() => addDropSet(exerciseId, name, anchorIdx)}
+                            className="w-full min-h-9 flex items-center justify-center gap-1 text-warning text-[10px] font-medium mt-1"
                           >
-                            1RM ?
-                          </button>
-                        )}
-                        <button
-                          onClick={() => removeSet(globalIdx)}
-                          className="touch-target inline-flex items-center justify-center text-muted-foreground active:text-destructive"
-                          aria-label={`Supprimer ${rowLabel}`}
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                        {stage ? (
-                          <span
-                            className={`touch-target rounded-lg p-2 inline-flex items-center justify-center ${
-                              groupDone ? 'text-success' : 'text-muted-foreground/30'
-                            }`}
-                            aria-hidden="true"
-                          >
-                            <Check size={18} />
-                          </span>
-                        ) : (
-                          <button
-                            onClick={() => toggleCascade(groupIdxs)}
-                            className={`touch-target rounded-lg p-2 transition-colors ${
-                              groupDone ? 'text-success glow-success' : 'text-muted-foreground active:text-success'
-                            }`}
-                            aria-label={groupDone ? `${rowLabel}${groupIdxs.length > 1 ? ' et son drop set' : ''} validée` : `Valider ${rowLabel}${groupIdxs.length > 1 ? ' et son drop set' : ''}`}
-                            aria-pressed={groupDone}
-                          >
-                            <Check size={18} />
+                            <TrendingDown size={10} /> + Drop set
                           </button>
                         )}
                       </div>
-                      {dropSetPickerFor === exerciseId && isLastOfCascade && (
-                        <button
-                          onClick={() => addDropSet(exerciseId, name, anchorGlobalIdxByGlobalIdx.get(globalIdx) ?? globalIdx)}
-                          className="w-full min-h-9 flex items-center justify-center gap-1 text-warning text-[10px] font-medium mt-1"
-                        >
-                          <TrendingDown size={10} /> + Drop set
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
+                    );
+                  });
+                })()}
               </div>
               <button
                 onClick={() => addSetToExercise(exerciseId, name)}
