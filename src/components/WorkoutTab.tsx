@@ -3324,23 +3324,20 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                           const stage = sets[globalIdx].dropSetStage;
                           const rowLabel = stage ? `Drop ${stage}` : `Série ${seriesNumberByGlobalIdx.get(globalIdx)}`;
                           return (
-                            <div key={globalIdx} className={`flex items-center gap-2 py-1 ${stage ? 'ml-4' : ''} ${gi > 0 ? 'mt-1' : ''}`}>
-                              <span className={`text-xs w-12 shrink-0 ${stage ? 'text-warning font-medium' : 'text-muted-foreground'}`}>
+                            <div key={globalIdx} className={`flex items-center gap-1 py-1 ${stage ? 'ml-4' : ''} ${gi > 0 ? 'mt-1' : ''}`}>
+                              <span className={`text-xs w-10 shrink-0 ${stage ? 'text-warning font-medium' : 'text-muted-foreground'}`}>
                                 {rowLabel}
                               </span>
                               {isBodyweightOptionalExercise(name) && (
-                                <>
-                                  <span className="text-[9px] text-muted-foreground shrink-0">pdc</span>
-                                  <button
-                                    type="button"
-                                    onClick={() => toggleWeightSign(globalIdx)}
-                                    className="w-5 h-5 shrink-0 rounded-md bg-background/60 text-muted-foreground text-[10px] leading-none font-bold"
-                                    aria-label={sets[globalIdx].weight < 0 ? 'Assisté (élastique/machine) — repasser en lesté' : 'Lesté — passer en assisté (élastique/machine)'}
-                                    title={sets[globalIdx].weight < 0 ? 'Assisté' : 'Lesté'}
-                                  >
-                                    {sets[globalIdx].weight < 0 ? '−' : '+'}
-                                  </button>
-                                </>
+                                <button
+                                  type="button"
+                                  onClick={() => toggleWeightSign(globalIdx)}
+                                  className="w-5 h-5 shrink-0 rounded-md bg-background/60 text-muted-foreground text-[10px] leading-none font-bold"
+                                  aria-label={sets[globalIdx].weight < 0 ? 'Poids du corps, assisté (élastique/machine) — repasser en lesté' : 'Poids du corps, lesté — passer en assisté (élastique/machine)'}
+                                  title={sets[globalIdx].weight < 0 ? 'Assisté' : 'Lesté'}
+                                >
+                                  {sets[globalIdx].weight < 0 ? '−' : '+'}
+                                </button>
                               )}
                               <input
                                 type="text"
@@ -3349,18 +3346,18 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                                 onChange={e => updateSet(globalIdx, 'weight', e.target.value)}
                                 onFocus={e => onWeightFocus(e, globalIdx)}
                                 onBlur={e => finalizeWeightOnBlur(globalIdx, e.target.value)}
-                                className="w-16 bg-background/60 rounded-md text-foreground text-sm text-center outline-none font-mono py-1"
+                                className="w-14 min-w-0 bg-background/60 rounded-md text-foreground text-sm text-center outline-none font-mono py-1"
                                 placeholder="kg"
                                 aria-label={`Poids ${rowLabel}, ${name} (kg)`}
                               />
-                              <span className="text-muted-foreground text-xs shrink-0 whitespace-nowrap">kg ×</span>
+                              <span className="text-muted-foreground text-xs shrink-0">×</span>
                               <input
                                 type="number"
                                 value={repsDraft[globalIdx] ?? (sets[globalIdx].reps || '')}
                                 onChange={e => updateSet(globalIdx, 'reps', e.target.value)}
                                 onFocus={e => e.target.select()}
                                 onBlur={e => finalizeRepsOnBlur(globalIdx, e.target.value)}
-                                className={`w-12 bg-background/60 rounded-md text-sm text-center outline-none font-mono py-1 ${
+                                className={`w-10 min-w-0 bg-background/60 rounded-md text-sm text-center outline-none font-mono py-1 ${
                                   sets[globalIdx].amrap ? 'text-accent-purple placeholder:text-accent-purple/70' : 'text-foreground'
                                 }`}
                                 placeholder={sets[globalIdx].amrap ? 'Max' : 'reps'}
