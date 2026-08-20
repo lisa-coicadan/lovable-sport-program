@@ -196,11 +196,6 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
   // next re-render (the session timer alone re-renders every second), which read as
   // "I have to select-all instead of just deleting" since a plain backspace never stuck.
   const [repsDraft, setRepsDraft] = useState<Record<number, string>>({});
-  // Offers to link two exercises into a superset when a drag (the existing reorder
-  // gesture — see reorderBlocks) lands one single exercise directly next to another —
-  // a deliberate confirm step rather than auto-linking on every drag, since two singles
-  // ending up adjacent is also just... normal reordering, most of the time.
-  const [linkCandidate, setLinkCandidate] = useState<{ aId: string; aName: string; bId: string; bName: string } | null>(null);
   const [pendingSession, setPendingSession] = useState<SessionLog | null>(null);
   const [historyExercise, setHistoryExercise] = useState<string | null>(null);
   const [restDuration, setRestDuration] = useState(data.restDuration || 90);
@@ -426,11 +421,13 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
   // Most recent RPE logged for this exercise (by exerciseId, stable across mid-session
   // renames — unlike getLastPerformance above, which has to match by name), scanning
   // newest-first. Used both to prefill the picker and to power the "augmente la charge"
-  // nudge below.
-  const getLastExerciseDifficulty = useCallback((exerciseId: string): number | null => {
+  // nudge below — isDeload lets that nudge skip a session where a low RPE was expected
+  // (deload), not a sign she should push harder.
+  const getLastExerciseDifficulty = useCallback((exerciseId: string): { value: number; isDeload: boolean } | null => {
     for (let i = data.sessions.length - 1; i >= 0; i--) {
-      const val = data.sessions[i].exerciseDifficulty?.[exerciseId];
-      if (val !== undefined) return val;
+      const session = data.sessions[i];
+      const val = session.exerciseDifficulty?.[exerciseId];
+      if (val !== undefined) return { value: val, isDeload: !!session.isDeload };
     }
     return null;
   }, [data.sessions]);
@@ -865,6 +862,13 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
       weight: 0,
       completed: false,
     }]);
+    // Drop straight into the same rename flow as the Pencil button (renamingExerciseId/
+    // renameValue below) instead of a separate always-on input — once she names it and
+    // blurs, it becomes a real exercise card (History button, weight pre-fill via
+    // updateExerciseName) exactly like any other, instead of staying a bare text field
+    // with no history access for the rest of the session.
+    setRenamingExerciseId(newId);
+    setRenameValue('');
   };
 
   // Remove a set
@@ -932,8 +936,15 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     // with "Pec deck") means it comes out genuinely empty, ready for her to set by hand.
     const detectedEquipment = detectEquipmentFromName(name);
     const detectedUnilateral = detectUnilateralFromName(name) || undefined;
+    // Same reasoning applies to weight: whatever's currently in these sets (baked in at
+    // session start from the OLD exercise's history, or just left at 0 for a brand new
+    // temp exercise) belongs to the exercise she's leaving, not to `name`. Re-pull from
+    // THIS exercise's own last performance (0 if it's never been logged before). Only
+    // touches sets she hasn't completed yet — one already logged under the old name keeps
+    // what she actually did.
+    const newWeight = getLastPerformance(name)?.weight ?? 0;
     setSets(prev => prev.map(s => s.exerciseId === exerciseId
-      ? { ...s, exerciseName: name, equipment: detectedEquipment, unilateral: detectedUnilateral }
+      ? { ...s, exerciseName: name, equipment: detectedEquipment, unilateral: detectedUnilateral, weight: s.completed ? s.weight : newWeight }
       : s));
     // The équipement chip/button she actually sees (renderTagsButton/renderTagsPanel)
     // reads getEffectiveTags(templateEx) — tagOverrides if set, else the Réglages
@@ -1540,11 +1551,13 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
   const renderLowRpeBanner = (ex: Exercise) => {
     if (exerciseDifficulty[ex.id] !== undefined) return null;
     const last = getLastExerciseDifficulty(ex.id);
-    if (last === null || last > 7) return null;
+    // A low RPE during a deload is expected (that's the point of a deload), not a sign
+    // to push harder next time — skip the nudge entirely for that session.
+    if (last === null || last.value > 7 || last.isDeload) return null;
     return (
       <div className="flex items-start gap-2 bg-warning/10 border border-warning/30 rounded-lg px-3 py-2 mb-3">
         <Gauge size={14} className="text-warning shrink-0 mt-0.5" />
-        <p className="text-xs text-foreground/90 flex-1">RPE faible la dernière fois ({last}/10) — pense à augmenter la charge.</p>
+        <p className="text-xs text-foreground/90 flex-1">RPE faible la dernière fois ({last.value}/10) — pense à augmenter la charge.</p>
       </div>
     );
   };
@@ -2817,7 +2830,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
             key: b.kind === 'superset' ? b.groupId : b.exerciseId,
             block: b,
           }));
-          const reorderBlocks = (newOrder: typeof sortableBlocks, moved?: { activeKey: string; overKey: string }) => {
+          const reorderBlocks = (newOrder: typeof sortableBlocks) => {
             const pinnedIdxs = sets.map((_, i) => i).filter(i =>
               fiveThreeOneExerciseIds.has(sets[i].exerciseId) || clusterExerciseIds.has(sets[i].exerciseId) || emomExerciseIds.has(sets[i].exerciseId)
             );
@@ -2832,78 +2845,9 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
             const newRegular = newOrder.flatMap(item => (idxsByKey.get(item.key) || []).map(i => sets[i]));
             const pinnedSets = pinnedIdxs.map(i => sets[i]);
             setSets([...pinnedSets, ...newRegular]);
-
-            // A drag that dropped one single exercise directly onto/next to another single
-            // — offer to link them into a superset instead of silently doing it, since most
-            // drags really are just "move this exercise earlier/later," not a link attempt.
-            setLinkCandidate(null);
-            if (moved) {
-              const activeBlock = blocks.find(b => (b.kind === 'superset' ? b.groupId : b.exerciseId) === moved.activeKey);
-              const overBlock = blocks.find(b => (b.kind === 'superset' ? b.groupId : b.exerciseId) === moved.overKey);
-              if (activeBlock?.kind === 'single' && overBlock?.kind === 'single') {
-                setLinkCandidate({ aId: activeBlock.exerciseId, aName: activeBlock.name, bId: overBlock.exerciseId, bName: overBlock.name });
-              }
-            }
-          };
-          // Merges two currently-standalone exercises into one superset for the rest of
-          // this session — existing sets on each side keep their own logged weight/reps
-          // (just gain a shared supersetGroupId/role), the shorter side is padded up to
-          // match the longer one's round count by repeating its own last round, same
-          // convention addSupersetRound already uses when adding a fresh round.
-          const linkExercisesIntoSuperset = (aId: string, bId: string) => {
-            const groupId = `ss-${Date.now()}`;
-            setSets(prev => {
-              const aAnchors = prev.filter(s => s.exerciseId === aId && !s.dropSetStage);
-              const bAnchors = prev.filter(s => s.exerciseId === bId && !s.dropSetStage);
-              const roundCount = Math.max(aAnchors.length, bAnchors.length);
-              const tagged = prev.map(s => {
-                if (s.exerciseId === aId) return { ...s, supersetGroupId: groupId, supersetRole: 'A' as const };
-                if (s.exerciseId === bId) return { ...s, supersetGroupId: groupId, supersetRole: 'B' as const };
-                return s;
-              });
-              const padded = [...tagged];
-              const addRounds = (exerciseId: string, role: 'A' | 'B', existing: SetLog[]) => {
-                if (existing.length === 0) return;
-                const name = existing[0].exerciseName;
-                for (let i = existing.length; i < roundCount; i++) {
-                  const lastOfThis = [...padded].reverse().find(s => s.exerciseId === exerciseId && !s.dropSetStage);
-                  padded.push({
-                    exerciseId, exerciseName: name, setNumber: i + 1,
-                    reps: lastOfThis?.reps ?? 10, weight: lastOfThis?.weight ?? 0,
-                    completed: false, supersetGroupId: groupId, supersetRole: role,
-                    equipment: lastOfThis?.equipment, unilateral: lastOfThis?.unilateral,
-                  });
-                }
-              };
-              addRounds(aId, 'A', aAnchors);
-              addRounds(bId, 'B', bAnchors);
-              return padded;
-            });
-            setLinkCandidate(null);
           };
           return (
             <>
-            {linkCandidate && (
-              <div className="flex items-center justify-between gap-2 bg-primary/10 border border-primary/30 rounded-xl px-3 py-2.5 mb-3">
-                <span className="text-xs text-foreground flex-1 min-w-0">
-                  Lier <span className="font-semibold">{linkCandidate.aName}</span> + <span className="font-semibold">{linkCandidate.bName}</span> en superset ?
-                </span>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <button
-                    onClick={() => linkExercisesIntoSuperset(linkCandidate.aId, linkCandidate.bId)}
-                    className="btn-neon font-medium py-1.5 px-3 rounded-lg text-xs touch-target"
-                  >
-                    Lier
-                  </button>
-                  <button
-                    onClick={() => setLinkCandidate(null)}
-                    className="bg-secondary text-secondary-foreground font-medium py-1.5 px-3 rounded-lg text-xs touch-target"
-                  >
-                    Non
-                  </button>
-                </div>
-              </div>
-            )}
             <SortableList items={sortableBlocks} onReorder={reorderBlocks}>
               {({ block }) => {
 
@@ -2931,6 +2875,20 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                     <span className="text-[10px] font-bold text-primary tracking-wider">SUPERSET</span>
                   </div>
                   <div className="flex items-center gap-1.5">
+                    {/* Same on/off toggle as a plain exercise's "Drop set" button — reveals
+                        the "+ Drop set" trigger under A and B in every round below, instead
+                        of that trigger being shown unconditionally on every round by default. */}
+                    <button
+                      onClick={() => setDropSetPickerFor(dropSetPickerFor === block.groupId ? null : block.groupId)}
+                      className={`min-h-9 flex items-center gap-1 px-2 shrink-0 rounded-lg text-[11px] font-medium transition-colors ${
+                        dropSetPickerFor === block.groupId ? 'bg-warning/20 text-warning' : 'text-warning/70 active:text-warning'
+                      }`}
+                      aria-label="Activer le mode drop set pour ce superset"
+                      aria-pressed={dropSetPickerFor === block.groupId}
+                      title="Drop set"
+                    >
+                      <TrendingDown size={14} />
+                    </button>
                     <span className="text-[10px] text-muted-foreground">{block.series.length} séries</span>
                     {templateAEx && renderReminderNoteButton(templateAEx)}
                     {templateAEx && renderDifficultyButton(templateAEx)}
@@ -2954,10 +2912,11 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                   ) : (
                     <button
                       onClick={() => { setRenamingExerciseId(block.aId); setRenameValue(block.aName); }}
-                      className="min-h-8 truncate active:text-primary transition-colors"
+                      className="min-h-8 flex items-center gap-1 min-w-0 active:text-primary transition-colors"
                       title="Renommer pour cette séance"
                     >
-                      {block.aName}
+                      <span className="truncate">{block.aName}</span>
+                      <Pencil size={10} className="text-muted-foreground shrink-0" />
                     </button>
                   )}
                   <span className="text-muted-foreground">+</span>
@@ -2975,10 +2934,11 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                   ) : (
                     <button
                       onClick={() => { setRenamingExerciseId(block.bId); setRenameValue(block.bName); }}
-                      className="min-h-8 truncate active:text-primary transition-colors"
+                      className="min-h-8 flex items-center gap-1 min-w-0 active:text-primary transition-colors"
                       title="Renommer pour cette séance"
                     >
-                      {block.bName}
+                      <span className="truncate">{block.bName}</span>
+                      <Pencil size={10} className="text-muted-foreground shrink-0" />
                     </button>
                   )}
                 </div>
@@ -3111,12 +3071,14 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                                 </button>
                               </div>
                             ))}
-                            <button
-                              onClick={() => addDropSet(row.role === 'A' ? block.aId : block.bId, row.name, row.idx)}
-                              className="w-full min-h-8 flex items-center justify-center gap-1 text-warning text-[10px] font-medium ml-4"
-                            >
-                              <TrendingDown size={10} /> + Drop set
-                            </button>
+                            {dropSetPickerFor === block.groupId && (
+                              <button
+                                onClick={() => addDropSet(row.role === 'A' ? block.aId : block.bId, row.name, row.idx)}
+                                className="w-full min-h-8 flex items-center justify-center gap-1 text-warning text-[10px] font-medium ml-4"
+                              >
+                                <TrendingDown size={10} /> + Drop set
+                              </button>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -3189,14 +3151,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
               <div className="flex items-center gap-1.5 mb-1">
                 <DragHandle />
 
-                {isTemp ? (
-                  <input
-                    value={name}
-                    onChange={e => updateExerciseName(exerciseId, e.target.value)}
-                    className="bg-transparent text-foreground font-semibold outline-none flex-1 text-sm"
-                    placeholder="Nom de l'exercice"
-                  />
-                ) : renamingExerciseId === exerciseId ? (
+                {renamingExerciseId === exerciseId ? (
                   <input
                     autoFocus
                     value={renameValue}
@@ -3325,7 +3280,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                           const rowLabel = stage ? `Drop ${stage}` : `Série ${seriesNumberByGlobalIdx.get(globalIdx)}`;
                           return (
                             <div key={globalIdx} className={`flex items-center gap-1 py-1 ${stage ? 'ml-4' : ''} ${gi > 0 ? 'mt-1' : ''}`}>
-                              <span className={`text-xs w-10 shrink-0 ${stage ? 'text-warning font-medium' : 'text-muted-foreground'}`}>
+                              <span className={`text-xs w-9 shrink-0 ${stage ? 'text-warning font-medium' : 'text-muted-foreground'}`}>
                                 {rowLabel}
                               </span>
                               {isBodyweightOptionalExercise(name) && (
@@ -3346,18 +3301,18 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                                 onChange={e => updateSet(globalIdx, 'weight', e.target.value)}
                                 onFocus={e => onWeightFocus(e, globalIdx)}
                                 onBlur={e => finalizeWeightOnBlur(globalIdx, e.target.value)}
-                                className="w-14 min-w-0 bg-background/60 rounded-md text-foreground text-sm text-center outline-none font-mono py-1"
+                                className="w-12 min-w-0 bg-background/60 rounded-md text-foreground text-sm text-center outline-none font-mono py-1"
                                 placeholder="kg"
                                 aria-label={`Poids ${rowLabel}, ${name} (kg)`}
                               />
-                              <span className="text-muted-foreground text-xs shrink-0">×</span>
+                              <span className="text-muted-foreground text-[10px] shrink-0 whitespace-nowrap">kg ×</span>
                               <input
                                 type="number"
                                 value={repsDraft[globalIdx] ?? (sets[globalIdx].reps || '')}
                                 onChange={e => updateSet(globalIdx, 'reps', e.target.value)}
                                 onFocus={e => e.target.select()}
                                 onBlur={e => finalizeRepsOnBlur(globalIdx, e.target.value)}
-                                className={`w-10 min-w-0 bg-background/60 rounded-md text-sm text-center outline-none font-mono py-1 ${
+                                className={`w-9 min-w-0 bg-background/60 rounded-md text-sm text-center outline-none font-mono py-1 ${
                                   sets[globalIdx].amrap ? 'text-accent-purple placeholder:text-accent-purple/70' : 'text-foreground'
                                 }`}
                                 placeholder={sets[globalIdx].amrap ? 'Max' : 'reps'}
