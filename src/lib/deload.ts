@@ -18,8 +18,14 @@ function toISODate(d: Date): string {
   return d.toISOString().split('T')[0];
 }
 
+// Truncates to that instant's own UTC calendar day (midnight UTC) before diffing — `b` is
+// always a parseISODate() result already at UTC midnight, but `a` is typically a raw `now`
+// (real wall-clock time, e.g. `new Date()`), whose hour-of-day would otherwise leak a
+// fractional day into the diff and flip Math.round() to either side of a window boundary
+// depending on what time of day (and machine timezone) happens to call this.
 function daysBetween(a: Date, b: Date): number {
-  return Math.round((a.getTime() - b.getTime()) / DAY_MS);
+  const utcDay = (d: Date) => Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  return Math.round((utcDay(a) - utcDay(b)) / DAY_MS);
 }
 
 // Monday-start week key (matches the convention already used for weekly aggregation in
