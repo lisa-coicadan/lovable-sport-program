@@ -24,7 +24,7 @@ import EmomTimer from './EmomTimer';
 import ExerciseHistory from './ExerciseHistory';
 import SessionSummary from './SessionSummary';
 import SettingsPanel from './SettingsPanel';
-import { Check, ChevronRight, ArrowLeft, Settings, History, Plus, Trash2, ChevronDown, Timer, Pencil, TrendingDown, Activity, Footprints, Waves, Bike, Lightbulb, Gauge, X, Dumbbell, Repeat } from 'lucide-react';
+import { Check, ChevronRight, ArrowLeft, Settings, History, Plus, Trash2, ChevronDown, Timer, Pencil, TrendingDown, Activity, Footprints, Waves, Bike, Lightbulb, Gauge, X, Dumbbell, Repeat, Link2 } from 'lucide-react';
 import { SortableList, DragHandle } from './SortableBlock';
 import SetDots from './SetDots';
 
@@ -234,6 +234,10 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
   // set can cascade from ANY regular series, not just the last one, so tapping "Drop
   // set" opens a small chip picker instead of assuming a fixed anchor.
   const [dropSetPickerFor, setDropSetPickerFor] = useState<string | null>(null);
+  // Which exercise's "lier en superset" picker is open — an explicit button + list
+  // (tap the exercise to link, from the OTHER standalone exercises in this session)
+  // instead of the drag-to-link gesture this replaced, which she found unintuitive.
+  const [linkPickerFor, setLinkPickerFor] = useState<string | null>(null);
   // Type/Intensity popup shown after tapping "Accepter" on the deload recommendation
   // banner — defaults match the spec's "(recommandé)" picks.
   const [deloadPopupOpen, setDeloadPopupOpen] = useState(false);
@@ -2846,6 +2850,42 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
             const pinnedSets = pinnedIdxs.map(i => sets[i]);
             setSets([...pinnedSets, ...newRegular]);
           };
+          // Merges two currently-standalone exercises into one superset for the rest of
+          // this session — existing sets on each side keep their own logged weight/reps
+          // (just gain a shared supersetGroupId/role), the shorter side is padded up to
+          // match the longer one's round count by repeating its own last round, same
+          // convention addSupersetRound already uses when adding a fresh round.
+          const linkExercisesIntoSuperset = (aId: string, bId: string) => {
+            const groupId = `ss-${Date.now()}`;
+            setSets(prev => {
+              const aAnchors = prev.filter(s => s.exerciseId === aId && !s.dropSetStage);
+              const bAnchors = prev.filter(s => s.exerciseId === bId && !s.dropSetStage);
+              const roundCount = Math.max(aAnchors.length, bAnchors.length);
+              const tagged = prev.map(s => {
+                if (s.exerciseId === aId) return { ...s, supersetGroupId: groupId, supersetRole: 'A' as const };
+                if (s.exerciseId === bId) return { ...s, supersetGroupId: groupId, supersetRole: 'B' as const };
+                return s;
+              });
+              const padded = [...tagged];
+              const addRounds = (exerciseId: string, role: 'A' | 'B', existing: SetLog[]) => {
+                if (existing.length === 0) return;
+                const name = existing[0].exerciseName;
+                for (let i = existing.length; i < roundCount; i++) {
+                  const lastOfThis = [...padded].reverse().find(s => s.exerciseId === exerciseId && !s.dropSetStage);
+                  padded.push({
+                    exerciseId, exerciseName: name, setNumber: i + 1,
+                    reps: lastOfThis?.reps ?? 10, weight: lastOfThis?.weight ?? 0,
+                    completed: false, supersetGroupId: groupId, supersetRole: role,
+                    equipment: lastOfThis?.equipment, unilateral: lastOfThis?.unilateral,
+                  });
+                }
+              };
+              addRounds(aId, 'A', aAnchors);
+              addRounds(bId, 'B', bAnchors);
+              return padded;
+            });
+            setLinkPickerFor(null);
+          };
           return (
             <>
             <SortableList items={sortableBlocks} onReorder={reorderBlocks}>
@@ -3109,6 +3149,11 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
           // (exerciseDifficulty), not persisted on the template — so a temp exercise gets
           // a lightweight stand-in Exercise just to satisfy renderDifficultyButton's shape.
           const rpeEx: Exercise = templateEx ?? { id: exerciseId, name, sets: 0, reps: 0 };
+          // Other standalone exercises in this session she could link this one with — the
+          // "Lier" button/list replacing the drag-to-link gesture (found unintuitive).
+          // 531/cluster/emom exercises are pinned/rendered separately and never appear in
+          // `blocks`, so they're naturally excluded here too, same as before.
+          const linkTargets = blocks.filter((b): b is SingleBlock => b.kind === 'single' && b.exerciseId !== exerciseId);
           // "Série N" numbers only the plain rows, skipping over any interleaved drop-set
           // rows — a drop set inserted after Série 2 must not bump the plain Série 3 that
           // follows it to "Série 4". Shared between the row list and the picker chips
@@ -3204,6 +3249,19 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                 >
                   <TrendingDown size={14} /> Drop set
                 </button>
+                {linkTargets.length > 0 && (
+                  <button
+                    onClick={() => setLinkPickerFor(linkPickerFor === exerciseId ? null : exerciseId)}
+                    className={`min-h-9 flex items-center gap-1 px-2 shrink-0 rounded-lg text-[11px] font-medium transition-colors ${
+                      linkPickerFor === exerciseId ? 'bg-primary/20 text-primary' : 'text-primary/70 active:text-primary'
+                    }`}
+                    aria-label="Lier cet exercice à un autre en superset"
+                    aria-pressed={linkPickerFor === exerciseId}
+                    title="Lier en superset"
+                  >
+                    <Link2 size={14} /> Lier
+                  </button>
+                )}
                 <div className="flex items-center gap-1.5 ml-auto">
                   {/* Équipement/unilatéral and échauffement are session-local state keyed
                       by exerciseId (tagOverrides/sets), same as RPE above — no template
@@ -3216,6 +3274,21 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                   {renderDifficultyButton(rpeEx)}
                 </div>
               </div>
+
+              {linkPickerFor === exerciseId && (
+                <div className="mb-3 p-2 rounded-lg bg-primary/5 border border-primary/20 space-y-0.5">
+                  <p className="text-[10px] text-muted-foreground px-1.5 mb-1">Lier avec :</p>
+                  {linkTargets.map(b => (
+                    <button
+                      key={b.exerciseId}
+                      onClick={() => linkExercisesIntoSuperset(exerciseId, b.exerciseId)}
+                      className="w-full min-h-9 flex items-center px-1.5 rounded-lg text-xs text-foreground text-left active:bg-primary/10 transition-colors"
+                    >
+                      {b.name}
+                    </button>
+                  ))}
+                </div>
+              )}
 
               {renderTagsPanel(rpeEx)}
 
