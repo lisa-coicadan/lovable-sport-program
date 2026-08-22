@@ -40,7 +40,7 @@ interface WorkoutTabProps {
   onProgressChange?: (progress: number | null) => void;
 }
 
-type Mode = 'select' | 'recap' | 'summary' | 'settings' | 'history' | 'cardio';
+type Mode = 'select' | 'recap' | 'summary' | 'settings' | 'history' | 'cardio' | 'testMaxSetup';
 
 // "1.0.0" -> "1.0" (patch caché, voir vite.config.ts pour l'injection du meta tag et
 // .claude/hooks/version-bump/ pour l'incrémentation auto à chaque commit) — sert à
@@ -255,11 +255,14 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
   // Shown right after a true 1RM is saved, only when it implies a different TM than the
   // one currently set on that exercise's method — never automatic (see item 5 design note).
   const [tmUpdatePrompt, setTmUpdatePrompt] = useState<{ exerciseId: string; currentTM: number; newTM: number } | null>(null);
-  // "Tester un 1RM" setup panel (target 1RM input) shown before the ramp is generated —
-  // once generated, the ramp's own isTestMax sets are the source of truth for whether it's
-  // active, so no separate "active" flag is needed here.
-  const [testMaxSetupOpen, setTestMaxSetupOpen] = useState<Record<string, boolean>>({});
+  // Target-1RM draft per exercise (kg), keyed by exercise id — filled in on the "Jour de
+  // test" bulk screen (mode 'testMaxSetup') and read by startTestMaxRamp/addBonusStage.
+  // Once a ramp is generated, its own isTestMax sets are the source of truth for whether
+  // it's active, so no separate "active" flag is needed here.
   const [testMaxTargetDraft, setTestMaxTargetDraft] = useState<Record<string, string>>({});
+  // "Jour de test" (mode 'testMaxSetup') — which of this session's Force exercises are
+  // checked to test today, keyed by exercise id.
+  const [testDaySelected, setTestDaySelected] = useState<Record<string, boolean>>({});
   const restTimerRef = useRef<RestTimerHandle>(null);
 
   // Cardio logging is a simple after-the-fact form (not an interactive session like the
@@ -489,6 +492,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     setAmrapReps({});
     setMethodOverrides({});
     setTagOverrides({});
+    setTestDaySelected({});
     setRenamingExerciseId(null);
     setDropSetPickerFor(null);
     setExerciseDifficulty({});
@@ -645,6 +649,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     setAmrapReps({});
     setMethodOverrides({});
     setTagOverrides({});
+    setTestDaySelected({});
     setMode('recap');
   };
 
@@ -1028,17 +1033,48 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     setSets(prev => prev.map(s => (s.exerciseId === ex.id && !s.completed) ? { ...s, ...patch } : s));
   };
 
-  // Opens the target-1RM setup panel, pre-filled from the latest confirmed true 1RM for
-  // this movement if any, otherwise reverse-derived from the current TM (TM = 1RM * 0.9).
-  const openTestMaxSetup = (ex: Exercise) => {
+  // Default target-1RM for an exercise: the latest confirmed true 1RM for this movement if
+  // any, otherwise reverse-derived from the current TM (TM = 1RM * 0.9). Used to pre-fill
+  // the "Jour de test" bulk screen below.
+  const getDefaultTestMaxTarget = (ex: Exercise): number => {
     const movement = splitEquipmentVariant(ex.name).base;
     const latestTrue = (data.trueOneRepMaxes || [])
       .filter(t => t.exerciseName === movement)
       .sort((a, b) => b.date.localeCompare(a.date))[0];
     const method = ex.method as FiveThreeOneMethod | undefined;
-    const defaultTarget = latestTrue?.weight ?? (method ? Math.round((method.trainingMax / 0.9) * 10) / 10 : 0);
-    setTestMaxTargetDraft(prev => ({ ...prev, [ex.id]: defaultTarget > 0 ? String(defaultTarget) : '' }));
-    setTestMaxSetupOpen(prev => ({ ...prev, [ex.id]: true }));
+    return latestTrue?.weight ?? (method ? Math.round((method.trainingMax / 0.9) * 10) / 10 : 0);
+  };
+
+  // "Jour de test" — opens the bulk screen (mode 'testMaxSetup') listing every Force
+  // exercise in this session, pre-checked, each pre-filled with its own default target.
+  // Nothing starts yet: confirmTestDaySetup below does that once she's reviewed/edited
+  // the selection and targets.
+  const openTestDaySetup = () => {
+    if (!selectedType) return;
+    const eligible = selectedType.exercises.filter(isForceFocusExercise);
+    setTestDaySelected(Object.fromEntries(eligible.map(ex => [ex.id, true])));
+    setTestMaxTargetDraft(prev => {
+      const next = { ...prev };
+      eligible.forEach(ex => {
+        if (!next[ex.id]) {
+          const d = getDefaultTestMaxTarget(ex);
+          next[ex.id] = d > 0 ? String(d) : '';
+        }
+      });
+      return next;
+    });
+    setMode('testMaxSetup');
+  };
+
+  // Starts a ramp for every checked exercise with a valid (>0) target, then returns to the
+  // session. Reuses startTestMaxRamp as-is (each call is a functional setSets update, so
+  // looping over several exercises composes correctly in one synchronous batch).
+  const confirmTestDaySetup = () => {
+    if (!selectedType) return;
+    selectedType.exercises
+      .filter(ex => testDaySelected[ex.id] && (parseFloat(testMaxTargetDraft[ex.id]) || 0) > 0)
+      .forEach(ex => startTestMaxRamp(ex));
+    setMode('recap');
   };
 
   // Swaps every set belonging to `exerciseId` for `newSets`, keeping them at that
@@ -1067,7 +1103,6 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
       equipment: tags.equipment, unilateral: tags.unilateral,
     }));
     setSets(prev => replaceExerciseSets(prev, ex.id, rampSets));
-    setTestMaxSetupOpen(prev => ({ ...prev, [ex.id]: false }));
   };
 
   // Adds the 102% bonus attempt after a clean "Le PR" success — its own action rather than
@@ -1333,47 +1368,6 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
           <Plus size={10} /> Échauffement{warmupSets.length > 0 ? ` (${warmupSets.length})` : ''}
         </button>
       </div>
-    );
-  };
-
-  // "Tester un 1RM" trigger (button + target-weight setup panel) — shared by every card
-  // type (531/Cluster/EMOM/plain), since isForceFocusExercise no longer depends on which
-  // method (if any) the exercise uses. Hidden once the ramp itself is active (isTestMaxActive)
-  // to avoid stacking a second setup panel on top of the ramp rows.
-  const renderTestMaxTrigger = (ex: Exercise, isTestMaxActive: boolean) => {
-    if (!isForceFocusExercise(ex) || isTestMaxActive) return null;
-    return testMaxSetupOpen[ex.id] ? (
-      <div className="bg-warning/10 border border-warning/30 rounded-xl p-3 mb-3">
-        <label className="text-xs text-muted-foreground block mb-1.5">1RM visé (kg)</label>
-        <input
-          type="number"
-          autoFocus
-          value={testMaxTargetDraft[ex.id] ?? ''}
-          onChange={e => setTestMaxTargetDraft(prev => ({ ...prev, [ex.id]: e.target.value }))}
-          className="w-full bg-background/60 text-foreground rounded-lg px-3 py-2 text-sm outline-none font-mono mb-2"
-        />
-        <div className="flex gap-2">
-          <button
-            onClick={() => setTestMaxSetupOpen(prev => ({ ...prev, [ex.id]: false }))}
-            className="flex-1 bg-secondary text-secondary-foreground font-medium py-2 rounded-lg text-xs touch-target"
-          >
-            Annuler
-          </button>
-          <button
-            onClick={() => startTestMaxRamp(ex)}
-            className="flex-1 btn-neon font-medium py-2 rounded-lg text-xs touch-target"
-          >
-            Démarrer
-          </button>
-        </div>
-      </div>
-    ) : (
-      <button
-        onClick={() => openTestMaxSetup(ex)}
-        className="w-full mb-3 flex items-center justify-center gap-1.5 text-warning text-xs font-medium py-2 rounded-lg bg-warning/10"
-      >
-        🎯 Tester un 1RM
-      </button>
     );
   };
 
@@ -1697,6 +1691,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     setPendingSession(null);
     setMethodOverrides({});
     setTagOverrides({});
+    setTestDaySelected({});
     setRenamingExerciseId(null);
     setDropSetPickerFor(null);
     setExerciseDifficulty({});
@@ -1762,7 +1757,9 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     const showBodyweightReminder = shouldShowBodyweightReminder(data);
     const pendingDeloadIds = getActiveDeload(data)?.pendingWorkoutTypeIds;
     const todayISO = new Date().toISOString().split('T')[0];
-    const plannedTodayTypeId = data.plannedSessions?.find(p => p.date === todayISO)?.workoutTypeId;
+    const plannedToday = data.plannedSessions?.find(p => p.date === todayISO);
+    const plannedTodayTypeId = plannedToday?.workoutTypeId;
+    const plannedTodayIsTestMax = !!plannedToday?.testMaxMode;
     return (
       <>
       <div className="px-4 pt-12 pb-24 animate-slide-up">
@@ -1957,16 +1954,23 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
           {activeTypes.map(type => {
             const isDeloadPending = !!pendingDeloadIds?.includes(type.id);
             const isPlannedToday = plannedTodayTypeId === type.id;
+            const isTestMaxToday = isPlannedToday && plannedTodayIsTestMax;
             return (
-            <div
-              key={type.id}
-              className={`glass-card p-4 ${isDeloadPending ? 'border-warning/40 bg-warning/5' : isPlannedToday ? 'border-2' : ''}`}
-              style={isPlannedToday && !isDeloadPending ? { borderColor: `hsl(${type.color})` } : undefined}
-            >
+            <div key={type.id}>
+              {isTestMaxToday && (
+                <div className="flex items-center gap-2 bg-warning/10 border border-warning/30 rounded-xl px-3 py-2 mb-1.5">
+                  <span className="text-xs font-semibold text-warning">🎯 Tester un 1RM</span>
+                  <span className="text-[10px] text-warning/80">— repère indicatif, à confirmer en séance</span>
+                </div>
+              )}
+              <div
+                className={`glass-card p-4 ${isDeloadPending ? 'border-warning/40 bg-warning/5' : isTestMaxToday ? 'border-2 border-warning/50' : isPlannedToday ? 'border-2' : ''}`}
+                style={isPlannedToday && !isDeloadPending && !isTestMaxToday ? { borderColor: `hsl(${type.color})` } : undefined}
+              >
               <div className="flex items-center gap-3 mb-3">
                 <div className="w-3 h-3 rounded-full" style={{ backgroundColor: `hsl(${type.color})` }} />
                 <span className="text-foreground font-semibold flex-1">{type.name}</span>
-                {isPlannedToday && (
+                {isPlannedToday && !isTestMaxToday && (
                   <span
                     className="text-[10px] font-medium px-2 py-0.5 rounded-full"
                     style={{ color: `hsl(${type.color})`, backgroundColor: `hsl(${type.color} / 0.1)` }}
@@ -1999,6 +2003,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
               >
                 <Check size={14} /> Démarrer la séance
               </button>
+              </div>
             </div>
             );
           })}
@@ -2327,6 +2332,72 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     );
   }
 
+  if (mode === 'testMaxSetup' && selectedType) {
+    const eligible = selectedType.exercises.filter(isForceFocusExercise);
+    const checkedCount = eligible.filter(ex => testDaySelected[ex.id]).length;
+    const canLaunch = eligible.some(ex => testDaySelected[ex.id] && (parseFloat(testMaxTargetDraft[ex.id]) || 0) > 0);
+    return (
+      <div className="px-4 pt-12 pb-24 animate-slide-up">
+        <div className="flex items-center gap-3 mb-6">
+          <button onClick={() => setMode('recap')} className="text-muted-foreground touch-target p-1" aria-label="Retour à la séance">
+            <ArrowLeft size={20} />
+          </button>
+          <h1 className="text-xl font-bold text-foreground">🎯 Jour de test — 1RM</h1>
+        </div>
+
+        {eligible.length === 0 ? (
+          <div className="glass-card p-6 text-center">
+            <p className="text-sm text-muted-foreground">Aucun exercice Force dans cette séance.</p>
+          </div>
+        ) : (
+          <>
+            <p className="text-xs text-muted-foreground mb-4">
+              Choisis les exercices à tester aujourd'hui et la charge cible pour chacun. Chaque exercice coché démarre sa propre rampe de montée en charge.
+            </p>
+            <div className="space-y-3 mb-6">
+              {eligible.map(ex => {
+                const checked = !!testDaySelected[ex.id];
+                return (
+                  <div key={ex.id} className={`glass-card p-4 transition-colors ${checked ? 'border-warning/40' : ''}`}>
+                    <label className="flex items-center gap-3 touch-target">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={e => setTestDaySelected(prev => ({ ...prev, [ex.id]: e.target.checked }))}
+                        className="w-5 h-5 accent-warning shrink-0"
+                      />
+                      <span className="text-sm font-semibold text-foreground">{ex.name}</span>
+                    </label>
+                    {checked && (
+                      <div className="flex items-center gap-2 pl-8 mt-3">
+                        <label className="text-xs text-muted-foreground shrink-0">Charge cible</label>
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          value={testMaxTargetDraft[ex.id] || ''}
+                          onChange={e => setTestMaxTargetDraft(prev => ({ ...prev, [ex.id]: e.target.value }))}
+                          className="w-24 bg-secondary text-foreground rounded-lg px-3 py-2 text-sm outline-none font-mono text-center"
+                        />
+                        <span className="text-xs text-muted-foreground">kg</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <button
+              onClick={confirmTestDaySetup}
+              disabled={!canLaunch}
+              className="w-full font-semibold py-4 rounded-2xl text-sm flex items-center justify-center gap-2 touch-target transition-transform active:scale-95 disabled:opacity-40 bg-warning/15 border border-warning/40 text-warning"
+            >
+              🎯 Lancer {checkedCount > 1 ? 'les tests' : 'le test'}
+            </button>
+          </>
+        )}
+      </div>
+    );
+  }
+
   // Live or Recap Mode
   const fiveThreeOneExerciseIds = new Set(
     (selectedType?.exercises || []).filter(ex => ex.method?.type === '531').map(ex => ex.id)
@@ -2407,6 +2478,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
     setSets([]);
     setMethodOverrides({});
     setTagOverrides({});
+    setTestDaySelected({});
     setRenamingExerciseId(null);
     setDropSetPickerFor(null);
     setExerciseDifficulty({});
@@ -2503,6 +2575,17 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
         </div>
       )}
 
+      {/* "Jour de test" — bulk 1RM test entry point, only when this séance has at least one
+          Force exercise. Below the preview accordion, above the per-exercise cards. */}
+      {selectedType && selectedType.exercises.some(isForceFocusExercise) && (
+        <button
+          onClick={openTestDaySetup}
+          className="w-full flex items-center justify-center gap-2 mb-4 py-3 rounded-xl text-sm font-semibold bg-warning/10 border border-warning/30 text-warning touch-target active:scale-95 transition-transform"
+        >
+          🎯 Jour de test — tester un 1RM
+        </button>
+      )}
+
       {/* 5/3/1 Block(s) in session — editable weights, one card per exercise using the method */}
       {selectedType && selectedType.exercises.filter(ex => ex.method?.type === '531').map(ex => {
         const method = ex.method as FiveThreeOneMethod;
@@ -2536,8 +2619,6 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
             {renderReminderNoteBanner(ex)}
             {renderLowRpeBanner(ex)}
             {!isTestMaxActive && renderWarmupSection(ex)}
-
-            {renderTestMaxTrigger(ex, isTestMaxActive)}
 
             {isTestMaxActive ? renderTestMaxRamp(ex, liveSets) : (
               <>
@@ -2691,7 +2772,6 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
             {renderReminderNoteBanner(ex)}
             {renderLowRpeBanner(ex)}
             {!isTestMaxActive && renderWarmupSection(ex)}
-            {renderTestMaxTrigger(ex, isTestMaxActive)}
             {isTestMaxActive ? renderTestMaxRamp(ex, liveSets) : (
               <>
                 <MethodPickerRow active="cluster" onSelect={opt => applyMethodOverride(ex, opt)} />
@@ -2799,7 +2879,6 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
             {renderReminderNoteBanner(ex)}
             {renderLowRpeBanner(ex)}
             {!isTestMaxActive && renderWarmupSection(ex)}
-            {renderTestMaxTrigger(ex, isTestMaxActive)}
             {isTestMaxActive ? renderTestMaxRamp(ex, liveSets) : (
               <>
                 <MethodPickerRow active="emom" onSelect={opt => applyMethodOverride(ex, opt)} />
@@ -3295,7 +3374,6 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
               {templateEx && renderReminderNoteBanner(templateEx)}
               {templateEx && renderLowRpeBanner(templateEx)}
               {!isTestMaxActive && renderWarmupSection(rpeEx)}
-              {templateEx && renderTestMaxTrigger(templateEx, isTestMaxActive)}
 
               {!isTestMaxActive && methodEx && <MethodPickerRow active="none" onSelect={opt => applyMethodOverride(methodEx, opt)} />}
 

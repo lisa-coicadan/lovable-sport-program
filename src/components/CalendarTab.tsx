@@ -38,6 +38,9 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession, onDe
   const [confirmDeleteCardioId, setConfirmDeleteCardioId] = useState<string | null>(null);
   const [editingCardio, setEditingCardio] = useState<CardioSession | null>(null);
   const [cardioDraft, setCardioDraft] = useState<CardioEditDraft | null>(null);
+  // Reveals the "which séance ?" picker for a test-1RM day plan — separate from the normal
+  // planning pills so picking a type there doesn't ambiguously mean "normal" vs "test".
+  const [testMaxPickerOpen, setTestMaxPickerOpen] = useState(false);
 
   const openCardioEdit = (cardio: CardioSession) => {
     const totalSeconds = Math.round(cardio.durationMinutes * 60);
@@ -136,9 +139,9 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession, onDe
     return map;
   }, [data.plannedSessions]);
 
-  const setPlannedSession = (date: string, workoutTypeId: string) => {
+  const setPlannedSession = (date: string, workoutTypeId: string, testMaxMode?: boolean) => {
     const others = (data.plannedSessions || []).filter(p => p.date !== date);
-    onUpdateData({ plannedSessions: [...others, { id: `planned-${Date.now()}`, date, workoutTypeId }] });
+    onUpdateData({ plannedSessions: [...others, { id: `planned-${Date.now()}`, date, workoutTypeId, ...(testMaxMode ? { testMaxMode: true } : {}) }] });
   };
 
   const removePlannedSession = (date: string) => {
@@ -198,6 +201,7 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession, onDe
 
   // Every day click opens the day sheet
   const handleDayClick = (dateStr: string) => {
+    setTestMaxPickerOpen(false);
     setSelectedDate(dateStr);
   };
 
@@ -519,12 +523,16 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession, onDe
         </div>
 
         {(isFutureDate || isToday) && daySessions.length === 0 && (
-          <div className="glass-card p-4 mb-6">
-            <h3 className="text-sm font-bold text-foreground mb-3">Planifier une séance</h3>
-            {plannedForDay ? (
+          plannedForDay ? (
+            <div className={`glass-card p-4 mb-6 ${plannedForDay.testMaxMode ? 'border border-warning/30 bg-warning/5' : ''}`}>
+              <h3 className={`text-sm font-bold mb-3 ${plannedForDay.testMaxMode ? 'text-warning' : 'text-foreground'}`}>
+                {plannedForDay.testMaxMode ? '🎯 Test 1RM' : 'Planifier une séance'}
+              </h3>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: `hsl(${getColorForType(plannedForDay.workoutTypeId)})` }} />
+                  {!plannedForDay.testMaxMode && (
+                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: `hsl(${getColorForType(plannedForDay.workoutTypeId)})` }} />
+                  )}
                   <span className="text-sm text-foreground font-medium">
                     {data.workoutTypes.find(t => t.id === plannedForDay.workoutTypeId)?.name || plannedForDay.workoutTypeId}
                   </span>
@@ -536,24 +544,64 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession, onDe
                   Retirer
                 </button>
               </div>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {activeWorkoutTypes.map(wt => (
-                  <button
-                    key={wt.id}
-                    onClick={() => { setPlannedSession(selectedDate, wt.id); setSelectedDate(null); }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-secondary text-xs font-medium text-foreground active:scale-95 transition-transform"
-                  >
-                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: `hsl(${wt.color})` }} />
-                    {wt.name}
-                  </button>
-                ))}
+              <p className="text-[11px] text-muted-foreground mt-3">
+                Juste un repère visuel — aucune série n'est enregistrée. Disparaît automatiquement si non réalisée le jour venu.
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="glass-card p-4 mb-4">
+                <h3 className="text-sm font-bold text-foreground mb-3">Planifier une séance</h3>
+                <div className="flex flex-wrap gap-2">
+                  {activeWorkoutTypes.map(wt => (
+                    <button
+                      key={wt.id}
+                      onClick={() => { setPlannedSession(selectedDate, wt.id); setSelectedDate(null); }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-secondary text-xs font-medium text-foreground active:scale-95 transition-transform"
+                    >
+                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: `hsl(${wt.color})` }} />
+                      {wt.name}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-3">
+                  Juste un repère visuel — aucune série n'est enregistrée. Disparaît automatiquement si non réalisée le jour venu.
+                </p>
               </div>
-            )}
-            <p className="text-[11px] text-muted-foreground mt-3">
-              Juste un repère visuel — aucune série n'est enregistrée. Disparaît automatiquement si non réalisée le jour venu.
-            </p>
-          </div>
+
+              <div className="glass-card p-4 mb-6">
+                {testMaxPickerOpen ? (
+                  <>
+                    <h3 className="text-sm font-bold text-warning mb-3">Quelle séance tester en 1RM ?</h3>
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      {activeWorkoutTypes.map(wt => (
+                        <button
+                          key={wt.id}
+                          onClick={() => { setPlannedSession(selectedDate, wt.id, true); setTestMaxPickerOpen(false); setSelectedDate(null); }}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-warning/10 border border-warning/30 text-xs font-medium text-warning active:scale-95 transition-transform"
+                        >
+                          {wt.name}
+                        </button>
+                      ))}
+                    </div>
+                    <button
+                      onClick={() => setTestMaxPickerOpen(false)}
+                      className="text-xs text-muted-foreground underline touch-target px-2 py-1"
+                    >
+                      Annuler
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => setTestMaxPickerOpen(true)}
+                    className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold bg-warning/10 border border-warning/30 text-warning touch-target active:scale-95 transition-transform"
+                  >
+                    🎯 Jour de test — tester un 1RM
+                  </button>
+                )}
+              </div>
+            </>
+          )
         )}
 
         {!isFutureDate && (
@@ -648,7 +696,7 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession, onDe
           const planned = sessions.length === 0 ? plannedByDate[dateStr] : undefined;
           const dayLabel = new Date(dateStr + 'T00:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
           const sessionsLabel = sessions.length === 0
-            ? (planned ? `séance prévue : ${data.workoutTypes.find(t => t.id === planned.workoutTypeId)?.name || ''}` : 'aucune séance')
+            ? (planned ? `${planned.testMaxMode ? 'test 1RM prévu' : 'séance prévue'} : ${data.workoutTypes.find(t => t.id === planned.workoutTypeId)?.name || ''}` : 'aucune séance')
             : `${sessions.length} séance${sessions.length > 1 ? 's' : ''} : ${sessions.map(s => s.workoutTypeName).join(', ')}`;
           const cardioLabel = cardioSessions.length > 0 ? `, ${cardioSessions.length} activité${cardioSessions.length > 1 ? 's' : ''} cardio` : '';
 
@@ -667,9 +715,11 @@ const CalendarTab = ({ data, onDaySelect, onUpdateSession, onDeleteSession, onDe
                 backgroundColor: hasDeload ? 'hsl(var(--warning) / 0.3)' : `hsl(${getColorForType(sessions[0].workoutTypeId)} / 0.25)`,
               } : planned ? {
                 // Lower alpha than a real logged day (0.25) so a planned day reads as
-                // tentative/translucent, never mistaken for a completed session.
-                backgroundColor: `hsl(${getColorForType(planned.workoutTypeId)} / 0.12)`,
-                borderColor: `hsl(${getColorForType(planned.workoutTypeId)} / 0.5)`,
+                // tentative/translucent, never mistaken for a completed session. A test-1RM
+                // day uses --warning instead of the séance's own color, same convention as
+                // the "🎯 Tester un 1RM" button in WorkoutTab.
+                backgroundColor: planned.testMaxMode ? 'hsl(var(--warning) / 0.15)' : `hsl(${getColorForType(planned.workoutTypeId)} / 0.12)`,
+                borderColor: planned.testMaxMode ? 'hsl(var(--warning) / 0.6)' : `hsl(${getColorForType(planned.workoutTypeId)} / 0.5)`,
               } : undefined}
             >
               {/* Outline rather than a fill so a cardio day can be superimposed on a

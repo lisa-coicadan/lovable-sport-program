@@ -237,6 +237,9 @@ export interface PlannedSession {
   id: string;
   date: string; // YYYY-MM-DD, always a future date at creation time
   workoutTypeId: string;
+  // Purely indicative: this planned day is a "test 1RM" day rather than a normal session.
+  // Never auto-triggers anything in WorkoutTab, just a calendar reminder + a banner.
+  testMaxMode?: boolean;
 }
 
 // A tested (not estimated) 1RM — a single rep actually performed at RPE 9-10, either
