@@ -186,24 +186,12 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
       title: 'Nom du nouveau programme',
       onSubmit: name => {
         const p: Program = { id: `p${Date.now()}`, name };
-        // Recreate the active program's session names (empty, same color) so she only has
-        // to fill in exercises for the new program instead of retyping every session title.
-        const previousSessions = workoutTypes.filter(t => t.programId === activeProgramId && !t.hidden);
-        const duplicated: WorkoutType[] = previousSessions.map((t, i) => ({
-          id: `t${Date.now()}_${i}`,
-          name: t.name,
-          color: t.color,
-          exercises: [],
-          programId: p.id,
-        }));
         setPrograms(prev => [...prev, p]);
-        // The new program becomes active, so its (empty) sessions go on top and the
-        // previous program's sessions auto-hide — she'll find them again in "Séances
-        // masquées", history/stats untouched, instead of two same-named cards side by side.
-        setWorkoutTypes(prev => [
-          ...duplicated,
-          ...prev.map(t => t.programId === activeProgramId ? { ...t, hidden: true } : t),
-        ]);
+        // A new program starts with zero séances — she rebuilds it from scratch rather than
+        // inheriting the previous program's session structure. The previous program's own
+        // sessions just auto-hide (found again in "Séances masquées", history/stats
+        // untouched), same as before.
+        setWorkoutTypes(prev => prev.map(t => t.programId === activeProgramId ? { ...t, hidden: true } : t));
         setActiveProgramId(p.id);
       },
     });

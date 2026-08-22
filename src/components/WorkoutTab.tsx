@@ -3353,7 +3353,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                           const rowLabel = stage ? `Drop ${stage}` : `Série ${seriesNumberByGlobalIdx.get(globalIdx)}`;
                           return (
                             <div key={globalIdx} className={`flex items-center gap-1 py-1 ${stage ? 'ml-4' : ''} ${gi > 0 ? 'mt-1' : ''}`}>
-                              <span className={`text-xs w-9 shrink-0 ${stage ? 'text-warning font-medium' : 'text-muted-foreground'}`}>
+                              <span className={`text-xs shrink-0 whitespace-nowrap ${stage ? 'text-warning font-medium' : 'text-muted-foreground'}`}>
                                 {rowLabel}
                               </span>
                               {isBodyweightOptionalExercise(name) && (
@@ -3415,7 +3415,7 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
                               {!stage && (
                                 <button
                                   onClick={() => toggleCascade(groupIdxs)}
-                                  className={`touch-target rounded-lg p-2 transition-colors ${
+                                  className={`touch-target rounded-lg p-2 ml-auto transition-colors ${
                                     groupDone ? 'text-success glow-success' : 'text-muted-foreground active:text-success'
                                   }`}
                                   aria-label={groupDone ? `${rowLabel}${groupIdxs.length > 1 ? ' et son drop set' : ''} validée` : `Valider ${rowLabel}${groupIdxs.length > 1 ? ' et son drop set' : ''}`}
