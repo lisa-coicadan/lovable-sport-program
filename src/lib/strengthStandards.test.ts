@@ -58,15 +58,18 @@ describe('getLevel / getLevelMessage', () => {
 });
 
 describe('isForceFocusExercise', () => {
-  it('is false for a standard movement with neither the toggle nor a method', () => {
-    expect(isForceFocusExercise({ name: 'Squat' })).toBe(false);
+  // Unconditional on the 6 eligible movements now — no more manual Force/Hypertrophie
+  // toggle (removed: too easy to forget when creating an exercise). trainingFocus/method
+  // are no longer read at all, whatever their value.
+  it('is true for a standard movement with no trainingFocus and no method', () => {
+    expect(isForceFocusExercise({ name: 'Squat' })).toBe(true);
   });
 
-  it('is true for a standard movement with the manual Force toggle', () => {
-    expect(isForceFocusExercise({ name: 'Squat', trainingFocus: 'force' })).toBe(true);
+  it('is true for a standard movement even with trainingFocus explicitly set to hypertrophie', () => {
+    expect(isForceFocusExercise({ name: 'Squat', trainingFocus: 'hypertrophie' })).toBe(true);
   });
 
-  it('is true for a standard movement with any method, even without the manual toggle', () => {
+  it('is true for a standard movement with a method', () => {
     expect(isForceFocusExercise({ name: 'Squat', method: { type: '531', trainingMax: 100, currentCycle: 1, currentWeek: 1 } })).toBe(true);
   });
 
@@ -75,12 +78,11 @@ describe('isForceFocusExercise', () => {
   });
 
   it('matches an equipment variant of a standard movement', () => {
-    expect(isForceFocusExercise({ name: 'Développé couché haltères', trainingFocus: 'force' })).toBe(true);
+    expect(isForceFocusExercise({ name: 'Développé couché haltères' })).toBe(true);
   });
 
   it('is true for Muscle up (force-eligible but not a France-record-tracked StandardMovement)', () => {
-    expect(isForceFocusExercise({ name: 'Muscle up', trainingFocus: 'force' })).toBe(true);
-    expect(isForceFocusExercise({ name: 'Muscle up', method: { type: '531', trainingMax: 20, currentCycle: 1, currentWeek: 1 } })).toBe(true);
+    expect(isForceFocusExercise({ name: 'Muscle up' })).toBe(true);
     expect(STANDARD_MOVEMENTS).not.toContain('Muscle up');
     expect(FORCE_ELIGIBLE_MOVEMENTS).toContain('Muscle up');
   });

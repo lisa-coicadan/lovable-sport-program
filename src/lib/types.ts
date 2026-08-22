@@ -70,10 +70,13 @@ export interface DropSetConfig {
   stepReps?: number; // reps shed per stage (from the base reps), default 2
 }
 
-// Only meaningful for the 5 standard barbell/bodyweight lifts (see StandardMovement in
-// strengthStandards.ts) — gates the "1RM ?" live-session button and the TrueOneRepMax
-// tracking in ExerciseHistory. Undefined/'hypertrophie' keeps today's behavior (estimated
-// 1RM only, no extra UI) — 'force' is an opt-in per exercise, not a global setting.
+// Legacy — no longer read by any code. isForceFocusExercise (strengthStandards.ts) used to
+// check this (opt-in per exercise, via a Réglages toggle) before switching to an
+// unconditional name-based check on the 6 eligible movements: the toggle was too easy to
+// forget when creating an exercise, and the features it gated cost little to show even to
+// someone training those movements purely for hypertrophy. Kept in the schema (like
+// fiveThreeOne/squatSessionId in storage.ts) so old stored values don't need a migration —
+// never written by any code anymore.
 export type TrainingFocus = 'force' | 'hypertrophie';
 
 export interface Exercise {

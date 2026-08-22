@@ -27,14 +27,13 @@ export type ForceEligibleMovement = StandardMovement | 'Muscle up';
 
 export const FORCE_ELIGIBLE_MOVEMENTS: ForceEligibleMovement[] = [...STANDARD_MOVEMENTS, 'Muscle up'];
 
-// An exercise using 531/Cluster/EMOM necessarily trains near a true max effort, so it
-// counts as Force even without the manual toggle checked — but only for the movements
-// above, the ones the ramp-test protocol is calibrated for. Any other exercise (e.g. an
-// accessory lift on 531) has no Force/Hypertrophie concept at all, method or not.
+// Unconditional on the 6 eligible movements — no manual Force/Hypertrophie toggle anymore
+// (removed: it was too easy to forget when creating an exercise, and the features it gated
+// are low-cost to show even to someone training these movements purely for hypertrophy).
+// `trainingFocus`/`method` stay in the signature only so existing call sites (tests included)
+// that still pass them keep compiling; the values themselves are no longer read.
 export function isForceFocusExercise(ex: Pick<Exercise, 'name' | 'trainingFocus' | 'method'>): boolean {
-  const isEligible = FORCE_ELIGIBLE_MOVEMENTS.includes(splitEquipmentVariant(ex.name).base as ForceEligibleMovement);
-  if (!isEligible) return false;
-  return ex.trainingFocus === 'force' || !!ex.method;
+  return FORCE_ELIGIBLE_MOVEMENTS.includes(splitEquipmentVariant(ex.name).base as ForceEligibleMovement);
 }
 
 export interface FranceRecordRow {

@@ -5,9 +5,8 @@ import { parseSessionNotes, parseMultiSessionNotes, NOTES_SYNTAX_HELP, NOTES_SYN
 import { getEmomConfig, getEmomWeight, getDefaultEmomPercentage } from '@/lib/emom';
 import { getClusterConfig, getMiniSeriesWeight, CLUSTER_PRESETS } from '@/lib/cluster';
 import { estimateOneRepMax, estimateTrainingMax } from '@/lib/trainingMax';
-import { splitEquipmentVariant, withNameDetectedTags, detectEquipmentFromName, detectUnilateralFromName } from '@/lib/exerciseNormalize';
-import { FORCE_ELIGIBLE_MOVEMENTS, ForceEligibleMovement, isForceFocusExercise } from '@/lib/strengthStandards';
-import { ArrowLeft, Plus, Trash2, EyeOff, Scale, Link2, Link2Off, Download, Upload, Database, AlertTriangle, FileText, Zap, Timer, Clock, Layers, Check, Calculator, TrendingDown, TrendingUp, User, Infinity as InfinityIcon, Pencil, X, RefreshCw, Dumbbell, ChevronDown, Repeat, Target } from 'lucide-react';
+import { withNameDetectedTags, detectEquipmentFromName, detectUnilateralFromName } from '@/lib/exerciseNormalize';
+import { ArrowLeft, Plus, Trash2, EyeOff, Scale, Link2, Link2Off, Download, Upload, Database, AlertTriangle, FileText, Zap, Timer, Clock, Layers, Check, Calculator, TrendingDown, TrendingUp, User, Infinity as InfinityIcon, Pencil, X, RefreshCw, ChevronDown, Repeat, Target } from 'lucide-react';
 import { SortableList, DragHandle } from './SortableBlock';
 import { loadData, saveData } from '@/lib/storage';
 import { parseBackupFile } from '@/lib/backupFile';
@@ -1175,43 +1174,6 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
                                       {freePartners.length > 0 && supersetPickerChips}
                                     </>
                                   )}
-                                </div>
-                              )}
-                              {/* Force/Hypertrophie mis en évidence (pas replié sous "Options
-                                  avancées") pour les mouvements de force (les 5 avec record de
-                                  France + Muscle up) — c'est le switch qui débloque l'aide au
-                                  test de PR en séance, elle doit être visible sans avoir à chercher. */}
-                              {FORCE_ELIGIBLE_MOVEMENTS.includes(splitEquipmentVariant(ex.name).base as ForceEligibleMovement) && (
-                                <div className="pl-6 mb-1">
-                                  <div className="flex gap-1.5">
-                                    <button
-                                      type="button"
-                                      disabled={!!ex.method}
-                                      onClick={() => updateExercise(ti, exIdx, 'trainingFocus', 'force')}
-                                      className={`flex-1 py-1.5 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 transition-all disabled:opacity-70 ${
-                                        isForceFocusExercise(ex) ? 'bg-primary text-primary-foreground' : 'bg-secondary text-muted-foreground'
-                                      }`}
-                                    >
-                                      <Dumbbell size={12} /> Force
-                                    </button>
-                                    <button
-                                      type="button"
-                                      disabled={!!ex.method}
-                                      onClick={() => updateExercise(ti, exIdx, 'trainingFocus', 'hypertrophie')}
-                                      className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-all disabled:opacity-70 ${
-                                        !isForceFocusExercise(ex) ? 'bg-secondary text-foreground' : 'bg-secondary/40 text-muted-foreground'
-                                      }`}
-                                    >
-                                      Hypertrophie
-                                    </button>
-                                  </div>
-                                  <p className="text-[10px] text-muted-foreground mt-1">
-                                    {ex.method
-                                      ? 'Implicite : une méthode (531/Cluster/EMOM) est active.'
-                                      : isForceFocusExercise(ex)
-                                        ? '🎯 Une aide au test de PR (montée en charge guidée) sera disponible en séance.'
-                                        : 'Passe en Force pour débloquer une aide au test de PR en séance.'}
-                                  </p>
                                 </div>
                               )}
                               {method531 ? (

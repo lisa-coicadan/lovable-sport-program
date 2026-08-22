@@ -249,8 +249,8 @@ const WorkoutTab = ({ data, onSaveSession, onUpdateData, selectedDate, onClearSe
   // Which exercise's unilatéral/équipement popover is open — see tagOverrides above.
   const [tagsEditorFor, setTagsEditorFor] = useState<string | null>(null);
   // "1RM ?" confirmation on a genuine 1-rep set (Force-focus exercises only, see
-  // Exercise.trainingFocus) — the checkbox below is the RPE 9-10 self-report that makes
-  // this a TESTED 1RM rather than just another logged set.
+  // isForceFocusExercise in strengthStandards.ts) — the checkbox below is the RPE 9-10
+  // self-report that makes this a TESTED 1RM rather than just another logged set.
   const [trueOneRMConfirm, setTrueOneRMConfirm] = useState<{ exerciseId: string; name: string; globalIdx: number; rpeConfirmed: boolean } | null>(null);
   // Shown right after a true 1RM is saved, only when it implies a different TM than the
   // one currently set on that exercise's method — never automatic (see item 5 design note).
