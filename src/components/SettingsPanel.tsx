@@ -7,7 +7,7 @@ import { getClusterConfig, getMiniSeriesWeight, CLUSTER_PRESETS } from '@/lib/cl
 import { estimateOneRepMax, estimateTrainingMax } from '@/lib/trainingMax';
 import { splitEquipmentVariant, withNameDetectedTags, detectEquipmentFromName, detectUnilateralFromName } from '@/lib/exerciseNormalize';
 import { FORCE_ELIGIBLE_MOVEMENTS, ForceEligibleMovement, isForceFocusExercise } from '@/lib/strengthStandards';
-import { ArrowLeft, Plus, Trash2, EyeOff, Eye, Scale, Link2, Link2Off, Download, Upload, Database, AlertTriangle, FileText, Zap, Timer, Clock, Layers, Check, Calculator, TrendingDown, TrendingUp, User, Infinity as InfinityIcon, Pencil, X, RefreshCw, Dumbbell, ChevronDown, Repeat, Target } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, EyeOff, Scale, Link2, Link2Off, Download, Upload, Database, AlertTriangle, FileText, Zap, Timer, Clock, Layers, Check, Calculator, TrendingDown, TrendingUp, User, Infinity as InfinityIcon, Pencil, X, RefreshCw, Dumbbell, ChevronDown, Repeat, Target } from 'lucide-react';
 import { SortableList, DragHandle } from './SortableBlock';
 import { loadData, saveData } from '@/lib/storage';
 import { parseBackupFile } from '@/lib/backupFile';
@@ -175,9 +175,6 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
   // ou recommandé), jamais caché derrière un clic supplémentaire.
   const [deloadOpen, setDeloadOpen] = useState(() => !!activeDeload || recCriteria.anyTrue);
   const [backupOpen, setBackupOpen] = useState(false);
-  // Anciens programmes (Séances masquées) : un seul groupe ouvert à la fois, replié par
-  // défaut, pour ne pas empiler tout l'historique de programmes précédents à l'écran.
-  const [openHiddenProgramId, setOpenHiddenProgramId] = useState<string | null>(null);
 
   // Program management ----------------------------------------------------------
   const createProgram = () => {
@@ -607,8 +604,6 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
     updated[index] = { ...updated[index], programId };
     setWorkoutTypes(updated);
   };
-
-  const hiddenTypes = workoutTypes.filter(t => t.hidden);
 
   return (
     <>
@@ -1626,76 +1621,6 @@ const SettingsPanel = ({ data, onUpdateData, onClose }: SettingsPanelProps) => {
           })}
         </div>
       </div>
-
-      {/* Hidden Sessions — flat list for a single program; grouped by (old) program and
-          collapsed by default once several programs exist, so switching programs
-          repeatedly doesn't pile every past program's sessions into one long list. */}
-      {hiddenTypes.length > 0 && (() => {
-        const renderHiddenRow = (type: WorkoutType) => {
-          const ti = workoutTypes.findIndex(t => t.id === type.id);
-          return (
-            <div key={type.id} className="glass-card p-3 opacity-60 flex items-center gap-3">
-              <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: `hsl(${type.color})` }} />
-              <span className="text-foreground text-sm flex-1">{type.name || 'Sans nom'}</span>
-              <button onClick={() => toggleHide(ti)} className="text-primary p-1 touch-target" title="Restaurer" aria-label={`Restaurer ${type.name || 'cette séance'}`}>
-                <Eye size={16} />
-              </button>
-              <button onClick={() => deleteType(ti)} className="text-destructive p-1 touch-target" title="Supprimer définitivement" aria-label={`Supprimer définitivement ${type.name || 'cette séance'}`}>
-                <Trash2 size={16} />
-              </button>
-            </div>
-          );
-        };
-
-        if (programs.length <= 1) {
-          return (
-            <div className="mb-4">
-              <h3 className="text-sm font-semibold text-muted-foreground mb-3">Séances masquées</h3>
-              <div className="space-y-2">{hiddenTypes.map(renderHiddenRow)}</div>
-            </div>
-          );
-        }
-
-        // Groups by the program that owned each hidden session; anything with no known
-        // program (manually hidden without ever switching programs, or an old program
-        // since deleted) falls into its own "Sans programme" bucket instead of being lost.
-        const groups = programs
-          .map(p => ({ program: p, types: hiddenTypes.filter(t => t.programId === p.id) }))
-          .filter(g => g.types.length > 0);
-        const orphaned = hiddenTypes.filter(t => !t.programId || !programs.some(p => p.id === t.programId));
-
-        return (
-          <div className="mb-4">
-            <h3 className="text-sm font-semibold text-muted-foreground mb-3">Séances masquées</h3>
-            <div className="space-y-2">
-              {groups.map(({ program, types }) => {
-                const isOpen = openHiddenProgramId === program.id;
-                return (
-                  <div key={program.id} className="glass-card overflow-hidden">
-                    <button
-                      onClick={() => setOpenHiddenProgramId(isOpen ? null : program.id)}
-                      className="w-full flex items-center justify-between p-3"
-                      aria-expanded={isOpen}
-                    >
-                      <span className="text-sm text-foreground font-medium">{program.name}</span>
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] text-muted-foreground">{types.length} séance{types.length > 1 ? 's' : ''}</span>
-                        <ChevronDown size={14} className={`text-muted-foreground transition-transform ${isOpen ? 'rotate-180' : ''}`} />
-                      </div>
-                    </button>
-                    {isOpen && (
-                      <div className="px-3 pb-3 space-y-2">{types.map(renderHiddenRow)}</div>
-                    )}
-                  </div>
-                );
-              })}
-              {orphaned.length > 0 && (
-                <div className="space-y-2">{orphaned.map(renderHiddenRow)}</div>
-              )}
-            </div>
-          </div>
-        );
-      })()}
 
       <button
         onClick={addWorkoutType}
